@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # Módulo Go. Aún no existe go.mod (se creará en la fase spike);
+  # Dependabot lo detectará automáticamente cuando el módulo exista.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - go
+
+  # Acciones de GitHub usadas en CI.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci

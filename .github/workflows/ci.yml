@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build, vet y tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Aún no existe go.mod (se creará en la fase spike), por eso se fija
+      # go-version: 'stable' en lugar de derivar la versión del módulo.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Tests (race detector)
+        run: go test ./... -race
+
+  lint:
+    name: Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+
+      # golangci/golangci-lint-action@v7 es la major estable actual y
+      # es compatible con la configuración v2 de .golangci.yml (version: "2").
+      # Sin `version:` explícito resuelve la última release de golangci-lint v2.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+
+  vulncheck:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+
+      # golang/govulncheck-action@v1 es la action oficial de Go. Sin go.mod
+      # todavía, fijamos go-version-input para que no intente derivarla del módulo.
+      - name: Govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: 'stable'

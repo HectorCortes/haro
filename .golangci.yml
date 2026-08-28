@@ -1,0 +1,17 @@
+# Configuración de golangci-lint v2 (.golangci.yml con version: "2").
+#
+# Se habilita explícitamente el set estándar de linters de v2
+# (errcheck, govet, ineffassign, staticcheck, unused) para que el
+# conjunto aplicado sea evidente en el repositorio. El resto de linters
+# de la suite ampliada quedan deshabilitados a propósito: los cambios de
+# estilo se discuten en PR, no los impone el linter.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
