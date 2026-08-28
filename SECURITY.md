@@ -1,29 +1,29 @@
-# Política de seguridad de Haro
+# Haro security policy
 
-## Reportar una vulnerabilidad
+## Reporting a vulnerability
 
-Por favor, **no abras un issue público** para reportar vulnerabilidades de seguridad. Usa **GitHub Private Vulnerability Reporting** en este repositorio (pestaña *Security → Report a vulnerability*), que garantiza que el reporte solo sea visible para el mantenedor.
+Please, **do not open a public issue** to report security vulnerabilities. Use **GitHub Private Vulnerability Reporting** on this repository (*Security → Report a vulnerability* tab), which guarantees that the report is only visible to the maintainer.
 
-## Qué reportar
+## What to report
 
-Reporta por esta vía cualquier vulnerabilidad que afecte la seguridad de Haro, incluyendo:
+Report through this channel any vulnerability that affects Haro's security, including:
 
-- Vulnerabilidades en el CLI o en el manejo de entradas (parsing de YAML, IPC JSON-RPC, argumentos).
-- Ejecución de código no intencionada (inyección de comandos, rutas no sanitizadas, payloads de harness).
-- Fallos en el manejo de permisos y aprobaciones (steps `agent`, mediación de solicitudes de permiso).
-- Aislamiento de workspace y `path_claims` (acceso a archivos fuera del alcance declarado).
-- Vulnerabilidades en dependencias (incluidas las de la cadena de build, CVE conocidas).
-- Problemas de persistencia (SQLite, datos de ejecución) que expongan información.
+- Vulnerabilities in the CLI or in input handling (YAML parsing, JSON-RPC IPC, arguments).
+- Unintended code execution (command injection, unsanitized paths, harness payloads).
+- Failures in permission and approval handling (`agent` steps, permission request mediation).
+- Workspace isolation and `path_claims` (access to files outside the declared scope).
+- Vulnerabilities in dependencies (including the build chain, known CVEs).
+- Persistence issues (SQLite, execution data) that expose information.
 
-**No** reportes por esta vía bugs funcionales ordinarios, comportamientos esperados de la especificación ni problemas de UX: esos van como issues normales (usa las plantillas de `.github/ISSUE_TEMPLATE/`).
+**Do not** report through this channel ordinary functional bugs, expected specification behavior or UX issues: those go as regular issues (use the templates in `.github/ISSUE_TEMPLATE/`).
 
-## Compromiso de respuesta
+## Response commitment
 
-Haro es mantenido por un único mantenedor. Al recibir un reporte:
+Haro is maintained by a single maintainer. Upon receiving a report:
 
-- Se responde **lo antes posible** (típicamente en pocos días), reconociendo el reporte y evaluando su alcance.
-- Se trabaja en una corrección y, si aplica, en un aviso público coordinado.
-- **No se promete un SLA** de respuesta ni un calendario de corrección.
-- **No se ofrecen recompensas** por el reporte.
+- A response is provided **as soon as possible** (typically within a few days), acknowledging the report and assessing its scope.
+- Work is done on a fix and, if applicable, on a coordinated public notice.
+- **No SLA** for response or a fix timeline is promised.
+- **No rewards** are offered for the report.
 
-Incluye en el reporte: descripción, pasos para reproducir, impacto estimado y versión o commit afectado. Cuanta más información aportes, más rápido se podrá evaluar.
+Include in the report: description, steps to reproduce, estimated impact and affected version or commit. The more information you provide, the faster it can be assessed.

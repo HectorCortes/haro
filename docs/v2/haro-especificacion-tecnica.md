@@ -1,12 +1,12 @@
-# Shardeo v2 — Especificación técnica
+# Haro — v2 Technical Specification
 
-> Complementa a `shardeo-v2-constitucion.md` (reglas y principios) y `shardeo-v2-arquitectura-consolidado.md` (investigación y decisión arquitectónica). Este documento contiene únicamente artefactos técnicos concretos: el schema del YAML de workflow, el DDL de las tablas de persistencia, las interfaces Go del core, y las firmas de los métodos JSON-RPC de ambos protocolos internos. Es la referencia de implementación — cualquier divergencia entre el código y este documento debe resolverse actualizando el documento, no ignorándolo.
+> Complements `haro-constitucion.md` (rules and principles) and `haro-arquitectura-consolidado.md` (research and architectural decision). This document contains only concrete technical artifacts: the workflow YAML schema, the persistence table DDL, the core Go interfaces, and the JSON-RPC method signatures of both internal protocols. It is the implementation reference — any divergence between the code and this document must be resolved by updating the document, not ignoring it.
 
 ---
 
-## 1. Schema del archivo de workflow (YAML)
+## 1. Workflow file schema (YAML)
 
-Expresado como JSON Schema (Draft 2020-12); el YAML se valida contra su representación JSON equivalente.
+Expressed as JSON Schema (Draft 2020-12); the YAML is validated against its equivalent JSON representation.
 
 ```json
 {
@@ -28,7 +28,7 @@ Expresado como JSON Schema (Draft 2020-12); el YAML se valida contra su represen
         "additionalProperties": false,
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-          "satisfied_by": { "type": "string", "description": "id de step interno que requiere este input" }
+          "satisfied_by": { "type": "string", "description": "id of the internal step that requires this input" }
         }
       }
     },
@@ -41,7 +41,7 @@ Expresado como JSON Schema (Draft 2020-12); el YAML se valida contra su represen
         "additionalProperties": false,
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-          "produced_by": { "type": "string", "description": "id de step interno que produce este output" }
+          "produced_by": { "type": "string", "description": "id of the internal step that produces this output" }
         }
       }
     },
@@ -92,7 +92,7 @@ Expresado como JSON Schema (Draft 2020-12); el YAML se valida contra su represen
               "type": "array",
               "minItems": 1,
               "items": { "type": "string" },
-              "description": "candidatos ordenados; fallback sin clasificación semántica al siguiente si el actual falla"
+              "description": "ordered candidates; fallback without semantic classification to the next one if the current one fails"
             },
             "instructions": { "type": "string" },
             "mode": { "type": "string", "enum": ["headless", "supervised", "terminal"] },
@@ -102,10 +102,10 @@ Expresado como JSON Schema (Draft 2020-12); el YAML se valida contra su represen
         {
           "if": { "properties": { "type": { "const": "workflow" } } },
           "then": { "required": ["source"], "properties": {
-            "source": { "type": "string", "description": "path relativo a otro archivo de workflow" },
+            "source": { "type": "string", "description": "path relative to another workflow file" },
             "bindings": {
               "type": "object",
-              "description": "mapea inputs declarados por el workflow incluido a requires/produces del padre",
+              "description": "maps inputs declared by the included workflow to the parent's requires/produces",
               "additionalProperties": { "type": "string" }
             }
           } }
@@ -116,22 +116,22 @@ Expresado como JSON Schema (Draft 2020-12); el YAML se valida contra su represen
 }
 ```
 
-### 1.1 Notas de resolución
+### 1.1 Resolution notes
 
-- `steps[].id` es único dentro de su propio archivo. Tras el aplanado (X.2 de la constitución), el id efectivo de un step interno de un nodo `workflow` con `id: integrate_payments` es `integrate_payments.<id_interno>`.
-- `inputs`/`outputs` solo son válidos en el archivo que va a ser **incluido**; un archivo raíz (invocado directamente por el orquestador) puede omitirlos.
-- `bindings` en un step tipo `workflow` conecta `requires`/`produces` del padre con los `inputs`/`outputs` declarados por el archivo incluido — es lo que permite que el padre nunca cablee contra steps internos directamente (Sección X.3 de la constitución).
+- `steps[].id` is unique within its own file. After flattening (X.2 of the constitution), the effective id of an internal step of a `workflow` node with `id: integrate_payments` is `integrate_payments.<internal_id>`.
+- `inputs`/`outputs` are only valid in the file that is going to be **included**; a root file (invoked directly by the orchestrator) may omit them.
+- `bindings` in a `workflow`-type step connects the parent's `requires`/`produces` with the `inputs`/`outputs` declared by the included file — it is what allows the parent to never wire against internal steps directly (Section X.3 of the constitution).
 
 ---
 
-## 2. DDL de persistencia (SQLite, WAL)
+## 2. Persistence DDL (SQLite, WAL)
 
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE projects (
-    id              TEXT PRIMARY KEY,          -- hash estable de la ruta absoluta del repo
+    id              TEXT PRIMARY KEY,          -- stable hash of the repo's absolute path
     root_path       TEXT NOT NULL,
     created_at      TEXT NOT NULL              -- ISO 8601
 );
@@ -139,10 +139,10 @@ CREATE TABLE projects (
 CREATE TABLE executions (
     id                  TEXT PRIMARY KEY,
     project_id          TEXT NOT NULL REFERENCES projects(id),
-    workflow_source     TEXT NOT NULL,          -- path del YAML raíz invocado
+    workflow_source     TEXT NOT NULL,          -- path of the invoked root YAML
     status              TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed')),
     workspace_mode      TEXT NOT NULL CHECK (workspace_mode IN ('isolated','shared')),
-    workspace_root      TEXT NOT NULL,          -- ruta física efectiva (worktree o checkout compartido)
+    workspace_root      TEXT NOT NULL,          -- effective physical path (worktree or shared checkout)
     started_at          TEXT NOT NULL,
     ended_at            TEXT
 );
@@ -151,12 +151,12 @@ CREATE INDEX idx_executions_project ON executions(project_id, status);
 
 CREATE TABLE execution_steps (
     execution_id        TEXT NOT NULL REFERENCES executions(id),
-    step_id             TEXT NOT NULL,          -- namespaced, p.ej. "integrate_payments.charge"
+    step_id             TEXT NOT NULL,          -- namespaced, e.g. "integrate_payments.charge"
     type                TEXT NOT NULL CHECK (type IN ('command','agent','workflow')),
     status               TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed','skipped')),
-    depends_on           TEXT NOT NULL DEFAULT '[]',   -- JSON array de step_id
-    requires             TEXT NOT NULL DEFAULT '[]',   -- JSON array de nombres lógicos
-    produces             TEXT NOT NULL DEFAULT '[]',   -- JSON array de nombres lógicos
+    depends_on           TEXT NOT NULL DEFAULT '[]',   -- JSON array of step_id
+    requires             TEXT NOT NULL DEFAULT '[]',   -- JSON array of logical names
+    produces             TEXT NOT NULL DEFAULT '[]',   -- JSON array of logical names
     workspace_mode        TEXT NOT NULL CHECK (workspace_mode IN ('isolated','shared')),
     current_generation    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (execution_id, step_id)
@@ -169,7 +169,7 @@ CREATE TABLE generations (
     number               INTEGER NOT NULL,
     created_at           TEXT NOT NULL,
     invalidated_at        TEXT,
-    invalidated_by_step   TEXT,                 -- step_id cuyo reopen disparó la invalidación
+    invalidated_by_step   TEXT,                 -- step_id whose reopen triggered the invalidation
     FOREIGN KEY (execution_id, step_id) REFERENCES execution_steps(execution_id, step_id),
     UNIQUE (execution_id, step_id, number)
 );
@@ -183,25 +183,25 @@ CREATE TABLE attempts (
     started_at            TEXT NOT NULL,
     ended_at              TEXT,
     termination_reason     TEXT,
-    result_digest          TEXT,                -- sha256 de la evidencia sanitizada
+    result_digest          TEXT,                -- sha256 of the sanitized evidence
     FOREIGN KEY (execution_id, step_id) REFERENCES execution_steps(execution_id, step_id)
 );
 
 CREATE INDEX idx_attempts_step ON attempts(execution_id, step_id, status);
 
--- Detalles específicos de transporte/adapter, nunca en `attempts` (IV.3 de la constitución)
+-- Transport/adapter-specific details, never in `attempts` (IV.3 of the constitution)
 CREATE TABLE attempt_transport (
     attempt_id            TEXT PRIMARY KEY REFERENCES attempts(id),
     adapter_name           TEXT NOT NULL,        -- "opencode", "claudecode", "acp-generic", etc.
     native_session_id      TEXT,
     protocol_version       INTEGER,
-    extra                  TEXT NOT NULL DEFAULT '{}'  -- JSON libre, propiedad exclusiva del adapter
+    extra                  TEXT NOT NULL DEFAULT '{}'  -- free-form JSON, adapter's exclusive property
 );
 
 CREATE TABLE leases (
     execution_id          TEXT NOT NULL,
     step_id                TEXT NOT NULL,
-    holder                 TEXT NOT NULL,        -- identificador de proceso/broker que sostiene el lease
+    holder                 TEXT NOT NULL,        -- identifier of the process/broker holding the lease
     fencing_token           INTEGER NOT NULL,
     acquired_at              TEXT NOT NULL,
     expires_at               TEXT NOT NULL,
@@ -212,7 +212,7 @@ CREATE TABLE step_transition_events (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id            TEXT NOT NULL,
     step_id                  TEXT NOT NULL,
-    cursor                    INTEGER NOT NULL,    -- monotónico por (execution_id, step_id)
+    cursor                    INTEGER NOT NULL,    -- monotonic per (execution_id, step_id)
     from_status               TEXT,
     to_status                 TEXT NOT NULL,
     occurred_at               TEXT NOT NULL
@@ -223,9 +223,9 @@ CREATE UNIQUE INDEX idx_step_events_cursor ON step_transition_events(execution_i
 CREATE TABLE attempt_events (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     attempt_id               TEXT NOT NULL REFERENCES attempts(id),
-    cursor                    INTEGER NOT NULL,    -- monotónico por attempt_id
+    cursor                    INTEGER NOT NULL,    -- monotonic per attempt_id
     event_type                TEXT NOT NULL,       -- "output_delta","permission_requested","interaction_resolved",...
-    payload_ref                TEXT,                -- referencia a evidencia sanitizada, nunca el payload crudo completo
+    payload_ref                TEXT,                -- reference to sanitized evidence, never the full raw payload
     occurred_at                TEXT NOT NULL
 );
 
@@ -242,11 +242,11 @@ CREATE TABLE interactions (
     UNIQUE (attempt_id, idempotency_key)
 );
 
--- Coordinación entre ejecuciones concurrentes (Sección IX de la constitución)
+-- Coordination between concurrent executions (Section IX of the constitution)
 CREATE TABLE path_claims (
     id                        INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id                 TEXT NOT NULL REFERENCES projects(id),
-    logical_path                TEXT NOT NULL,     -- canonicalizado, relativo a la raíz del repo
+    logical_path                TEXT NOT NULL,     -- canonicalized, relative to the repo root
     mode                         TEXT NOT NULL,      -- "isolated:<execution_id>" | "shared"
     owner_execution_id           TEXT NOT NULL,
     owner_step_id                 TEXT NOT NULL,
@@ -257,21 +257,21 @@ CREATE TABLE path_claims (
 CREATE INDEX idx_path_claims_active ON path_claims(project_id, logical_path) WHERE released_at IS NULL;
 ```
 
-### 2.1 Notas
+### 2.1 Notes
 
-- Todas las columnas de tiempo son `TEXT` en formato ISO 8601 UTC — SQLite no tiene tipo temporal nativo, y se evita cualquier ambigüedad de zona horaria en el store.
-- `attempt_events.payload_ref` nunca contiene el output crudo completo — apunta a un blob/archivo sanitizado gestionado fuera de la tabla (VIII.2 de la constitución).
-- `path_claims` no tiene `FOREIGN KEY` hacia `executions` porque un reclamo puede sobrevivir a nivel de proyecto incluso entre brokers distintos que comparten el mismo `project_id`; se valida a nivel de aplicación, no de esquema.
+- All time columns are `TEXT` in ISO 8601 UTC format — SQLite has no native temporal type, and any timezone ambiguity in the store is avoided.
+- `attempt_events.payload_ref` never contains the full raw output — it points to a sanitized blob/file managed outside the table (VIII.2 of the constitution).
+- `path_claims` has no `FOREIGN KEY` to `executions` because a claim can survive at the project level even between different brokers sharing the same `project_id`; it is validated at the application level, not the schema level.
 
 ---
 
-## 3. Interfaces Go — dominio
+## 3. Go interfaces — domain
 
 ```go
 package domain
 
 type ExecutionID string
-type StepID string   // namespaced tras aplanado: "integrate_payments.charge"
+type StepID string   // namespaced after flattening: "integrate_payments.charge"
 type AttemptID string
 type GenerationID string
 type ProjectID string
@@ -325,9 +325,9 @@ type Step struct {
     Produces  []string
     Workspace WorkspaceConfig
 
-    Command  *CommandSpec  // presente si Type == StepCommand
-    Agent    *AgentSpec    // presente si Type == StepAgent
-    Workflow *WorkflowRef  // presente si Type == StepWorkflow (solo en fase de compilación, no sobrevive al aplanado)
+    Command  *CommandSpec  // present if Type == StepCommand
+    Agent    *AgentSpec    // present if Type == StepAgent
+    Workflow *WorkflowRef  // present if Type == StepWorkflow (compilation phase only, does not survive flattening)
 }
 
 type CommandSpec struct {
@@ -337,15 +337,15 @@ type CommandSpec struct {
 }
 
 type AgentSpec struct {
-    HarnessCandidates []string // orden de fallback
+    HarnessCandidates []string // fallback order
     Instructions      string
-    Mode              string   // derivado de capacidades negociadas, ver Sección 4
+    Mode              string   // derived from negotiated capabilities, see Section 4
     TimeoutSeconds    int
 }
 
 type WorkflowRef struct {
     Source   string
-    Bindings map[string]string // nombre de input/output del incluido -> requires/produces del padre
+    Bindings map[string]string // input/output name of the included -> parent's requires/produces
 }
 
 type Execution struct {
@@ -379,7 +379,7 @@ type Attempt struct {
 
 ---
 
-## 4. Contrato del adapter (Go)
+## 4. Adapter contract (Go)
 
 ```go
 package adapter
@@ -391,7 +391,7 @@ type Capabilities struct {
     Permission      bool
     Terminal        bool
     LoadSession     bool
-    Extra           map[string]any // namespaced, prefijo "_" como en ACP
+    Extra           map[string]any // namespaced, "_" prefix as in ACP
 }
 
 type ProbeResult struct {
@@ -400,41 +400,41 @@ type ProbeResult struct {
     Capabilities Capabilities
 }
 
-// Adapter es implementado una vez por harness (o genéricamente por acp/ para cualquier
-// harness que hable Agent Client Protocol nativo).
+// Adapter is implemented once per harness (or generically by acp/ for any
+// harness that speaks native Agent Client Protocol).
 type Adapter interface {
     Probe(ctx context.Context) (ProbeResult, error)
     Initialize(ctx context.Context, core Capabilities) (Capabilities, error)
     NewSession(ctx context.Context, bundle SessionBundle, host SessionHost) (Session, error)
 }
 
-// SessionBundle es el contexto inmutable de entrada de un attempt.
+// SessionBundle is the immutable input context of an attempt.
 type SessionBundle struct {
     Instructions string
     WorkspaceRoot string
-    Requires     map[string]string // nombre lógico -> path resuelto
+    Requires     map[string]string // logical name -> resolved path
 }
 
-// Session es el handle de un attempt en curso. Solo los métodos marcados aquí como
-// "obligatorio" deben implementarse siempre; el resto se invoca únicamente si
-// Capabilities lo declaró soportado en Initialize.
+// Session is the handle of an in-flight attempt. Only the methods marked here as
+// "mandatory" must always be implemented; the rest are invoked only if
+// Capabilities declared them supported in Initialize.
 type Session interface {
-    // obligatorio
+    // mandatory
     Prompt(ctx context.Context, input PromptInput) (<-chan SessionEvent, error)
-    // obligatorio
+    // mandatory
     Cancel(ctx context.Context) error
 
-    // opcional — requiere Capabilities.LoadSession
+    // optional — requires Capabilities.LoadSession
     LoadPrevious(ctx context.Context, nativeSessionID string) error
 
-    // opcional — requiere Capabilities.Terminal
+    // optional — requires Capabilities.Terminal
     Terminal(ctx context.Context) (TerminalHandle, error)
 }
 
-// SessionHost lo implementa el broker y se le pasa al adapter en NewSession.
-// Es el canal INVERSO: el harness (vía el adapter) llama hacia el core, no al revés.
+// SessionHost is implemented by the broker and passed to the adapter in NewSession.
+// It is the REVERSE channel: the harness (via the adapter) calls into the core, not the other way around.
 type SessionHost interface {
-    // obligatorio de implementar en el broker si Capabilities.Permission fue negociado
+    // mandatory to implement in the broker if Capabilities.Permission was negotiated
     RequestPermission(ctx context.Context, req PermissionRequest) (PermissionDecision, error)
 }
 
@@ -445,7 +445,7 @@ type PromptInput struct {
 type SessionEvent struct {
     Cursor  int64
     Type    string // "output_delta" | "permission_requested" | "completed" | "failed"
-    Payload []byte // JSON, forma definida por Sección 6 (protocolo)
+    Payload []byte // JSON, shape defined in Section 6 (protocol)
 }
 
 type PermissionRequest struct {
@@ -461,15 +461,15 @@ type PermissionDecision struct {
 
 ---
 
-## 5. Interfaces Go — persistencia (repositorio)
+## 5. Go interfaces — persistence (repository)
 
 ```go
 package store
 
 import "context"
 
-// Store agrupa todos los repositorios. Ninguna capa fuera de `store/` accede a SQLite
-// directamente (III.3 de la constitución: mantiene abierta la puerta a otro backend).
+// Store groups all repositories. No layer outside `store/` accesses SQLite
+// directly (III.3 of the constitution: keeps the door open to another backend).
 type Store interface {
     Executions() ExecutionRepository
     Steps() StepRepository
@@ -489,15 +489,15 @@ type PathClaim struct {
 }
 
 type PathClaimRepository interface {
-    // Acquire es atómico (INSERT ... ON CONFLICT). Si ya existe un reclamo activo
-    // incompatible, Acquired=false y Conflict describe al dueño actual.
+    // Acquire is atomic (INSERT ... ON CONFLICT). If an incompatible active claim
+    // already exists, Acquired=false and Conflict describes the current owner.
     Acquire(ctx context.Context, claim PathClaim) (acquired bool, conflict *PathClaim, err error)
     Release(ctx context.Context, projectID, logicalPath, ownerExecution, ownerStep string) error
     ListActive(ctx context.Context, projectID string) ([]PathClaim, error)
 }
 
 type LeaseRepository interface {
-    // Acquire falla si existe un lease vigente de otro holder no vencido.
+    // Acquire fails if there is an unexpired lease held by another holder.
     Acquire(ctx context.Context, executionID, stepID, holder string) (fencingToken int64, err error)
     Renew(ctx context.Context, executionID, stepID, holder string, fencingToken int64) error
     Release(ctx context.Context, executionID, stepID, holder string, fencingToken int64) error
@@ -506,11 +506,11 @@ type LeaseRepository interface {
 
 ---
 
-## 6. Protocolo JSON-RPC — CLI ↔ Broker
+## 6. JSON-RPC protocol — CLI ↔ Broker
 
-Transporte: JSON-RPC 2.0 sobre socket Unix. Un broker por proyecto.
+Transport: JSON-RPC 2.0 over Unix socket. One broker per project.
 
-| Método | Dirección | Params | Result |
+| Method | Direction | Params | Result |
 |---|---|---|---|
 | `execution.start` | CLI → Broker | `{workflow_path: string, workspace_override?: WorkspaceConfig}` | `{execution_id: string}` |
 | `execution.status` | CLI → Broker | `{execution_id: string}` | `{status: ExecutionStatus, steps: StepSummary[]}` |
@@ -521,51 +521,51 @@ Transporte: JSON-RPC 2.0 sobre socket Unix. Un broker por proyecto.
 | `step.cancel` | CLI → Broker | `{execution_id, step_id}` | `{}` |
 | `step.reopen` | CLI → Broker | `{execution_id, step_id}` | `{invalidated: string[]}` |
 
-Notificaciones (Broker → CLI, sin respuesta esperada):
+Notifications (Broker → CLI, no response expected):
 
-| Notificación | Params |
+| Notification | Params |
 |---|---|
 | `step.status_changed` | `{execution_id, step_id, from: StepStatus, to: StepStatus, cursor: int}` |
 | `step.interaction_required` | `{execution_id, step_id, interaction_id, kind: "permission"\|"question", description: string, options: string[]}` |
 
 ---
 
-## 7. Protocolo JSON-RPC — Broker ↔ Adapter/Harness (basado en ACP)
+## 7. JSON-RPC protocol — Broker ↔ Adapter/Harness (ACP-based)
 
-Transporte: el adapter elige el transporte nativo que su harness soporta —por ejemplo, stdio-RPC, HTTP local + SSE o JSONL—, lo declara en capacidades y lo negocia en `initialize`. El contrato reutiliza la forma de métodos de Agent Client Protocol. (Ejemplo no normativo: OpenCode supervised usa HTTP local + SSE gestionado.)
+Transport: the adapter chooses the native transport its harness supports — for example, stdio-RPC, local HTTP + SSE or JSONL — declares it in capabilities and negotiates it in `initialize`. The contract reuses the method shape of Agent Client Protocol. (Non-normative example: OpenCode supervised uses managed local HTTP + SSE.)
 
-| Método | Dirección | Params (resumen) | Result / Notificación |
+| Method | Direction | Params (summary) | Result / Notification |
 |---|---|---|---|
 | `initialize` | Broker → Harness | `{protocolVersion: int, clientCapabilities: Capabilities}` | `{protocolVersion: int, agentCapabilities: Capabilities}` |
 | `session/new` | Broker → Harness | `{instructions: string, workspaceRoot: string, requires: object}` | `{sessionId: string}` |
-| `session/prompt` | Broker → Harness | `{sessionId: string, text: string}` | `{}` (resultado llega por notificaciones) |
-| `session/update` | Harness → Broker | `{sessionId, cursor: int, delta: object}` | notificación, sin respuesta |
+| `session/prompt` | Broker → Harness | `{sessionId: string, text: string}` | `{}` (result arrives via notifications) |
+| `session/update` | Harness → Broker | `{sessionId, cursor: int, delta: object}` | notification, no response |
 | `session/cancel` | Broker → Harness | `{sessionId: string}` | `{}` |
 | `session/request_permission` | Harness → Broker | `{sessionId, kind: string, description: string, options: string[]}` | `{option: string}` |
-| `session/load` *(opcional)* | Broker → Harness | `{sessionId: string, nativeSessionId: string}` | `{}` |
-| `terminal/*` *(opcional, implementado)* | — | — | PTY real, attach humano y presencia; superficie existente a preservar. Ver Spec 9c (`src/runtime/pty.ts`, `src/runtime/terminal.ts`, `src/runtime/attach.ts`; `SPECS.md` §9c). |
+| `session/load` *(optional)* | Broker → Harness | `{sessionId: string, nativeSessionId: string}` | `{}` |
+| `terminal/*` *(optional, implemented)* | — | — | Real PTY, human attach and presence; existing surface to preserve. See Spec 9c (`src/runtime/pty.ts`, `src/runtime/terminal.ts`, `src/runtime/attach.ts`; `SPECS.md` §9c). |
 
-**Deuda confinada:** el parser JSONL de OpenCode permanece en `src/utils/agent.ts` (ruta headless, líneas 1596–1713); su traslado al adapter está pendiente y `v2-adapter/F-04` debe completarlo.
+**Confined debt:** the OpenCode JSONL parser remains in `src/utils/agent.ts` (headless path, lines 1596–1713); moving it to the adapter is pending and `v2-adapter/F-04` must complete it.
 
-### 7.1 Regla de negociación
+### 7.1 Negotiation rule
 
-- `initialize` se ejecuta una única vez por subproceso, antes de cualquier `session/*`.
-- El broker nunca llama a un método no anunciado en `agentCapabilities`.
-- El harness nunca llama a `session/request_permission` si el broker no anunció `Permission: true` en `clientCapabilities` — en ese caso, cualquier necesidad de permiso debe resolverse con la política por defecto del harness o fallar (fail-closed, según V.4 y VIII.5 de la constitución).
+- `initialize` runs exactly once per subprocess, before any `session/*`.
+- The broker never calls a method not announced in `agentCapabilities`.
+- The harness never calls `session/request_permission` if the broker did not announce `Permission: true` in `clientCapabilities` — in that case, any permission need must be resolved with the harness's default policy or fail (fail-closed, per V.4 and VIII.5 of the constitution).
 
 ---
 
-## 8. Trazabilidad con la constitución
+## 8. Traceability with the constitution
 
-Cada artefacto de este documento referencia directamente una regla de `shardeo-v2-constitucion.md`:
+Each artifact in this document directly references a rule of `haro-constitucion.md`:
 
-| Artefacto | Regla que implementa |
+| Artifact | Rule it implements |
 |---|---|
-| Sección 1 (schema YAML) — bloque `workflow` en `steps[].type` | X.1, X.3 |
-| Sección 2 — tabla `path_claims` | IX.3 |
-| Sección 2 — tabla `attempt_transport` | IV.3 |
-| Sección 3 — `Step.Workflow *WorkflowRef` | X.1, X.2 |
-| Sección 4 — `Adapter`/`Session`/`SessionHost` | V.1, V.2, V.3, V.4 |
-| Sección 5 — `PathClaimRepository` | IX.3, IX.4 |
-| Sección 6 — `step.reopen` | X.4, VI |
-| Sección 7 — tabla de métodos | VII, VIII.4 |
+| Section 1 (YAML schema) — `workflow` block in `steps[].type` | X.1, X.3 |
+| Section 2 — `path_claims` table | IX.3 |
+| Section 2 — `attempt_transport` table | IV.3 |
+| Section 3 — `Step.Workflow *WorkflowRef` | X.1, X.2 |
+| Section 4 — `Adapter`/`Session`/`SessionHost` | V.1, V.2, V.3, V.4 |
+| Section 5 — `PathClaimRepository` | IX.3, IX.4 |
+| Section 6 — `step.reopen` | X.4, VI |
+| Section 7 — methods table | VII, VIII.4 |

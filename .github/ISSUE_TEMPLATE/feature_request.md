@@ -1,25 +1,25 @@
 ---
-name: Solicitud de funcionalidad
-about: Propón una funcionalidad o mejora para Haro
+name: Feature request
+about: Propose a feature or improvement for Haro
 title: '[feat] '
 labels: enhancement
 ---
 
-## Propuesta
+## Proposal
 
-<!-- Describe la funcionalidad o mejora propuesta. -->
+<!-- Describe the proposed feature or improvement. -->
 
-## Motivación
+## Motivation
 
-<!-- Qué problema resuelve, para quién y por qué es relevante. -->
+<!-- What problem it solves, for whom and why it matters. -->
 
-## Criterios de aceptación sugeridos
+## Suggested acceptance criteria
 
-<!-- Siguiendo el formato de deltas-acceptance.md (ids tipo F-<n> funcionales y U-<n> unitarios, con verificación):
+<!-- Following the deltas-acceptance.md format (ids like F-<n> functional and U-<n> unit, with verification):
 - `v2-<spec>/F-01` — ...
 - `v2-<spec>/U-01` — ...
 -->
 
-## Alternativas consideradas
+## Alternatives considered
 
-<!-- Otras formas de resolver el problema y por qué no se eligieron. -->
+<!-- Other ways to solve the problem and why they were not chosen. -->

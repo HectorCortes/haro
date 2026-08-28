@@ -1,35 +1,35 @@
 ---
-name: Reporte de bug
-about: Reporta un problema de comportamiento en Haro
+name: Bug report
+about: Report a behavioral problem in Haro
 title: '[bug] '
 labels: bug
 ---
 
-## Descripción
+## Description
 
-<!-- Describe el problema de forma clara y concisa. -->
+<!-- Describe the problem clearly and concisely. -->
 
-## Pasos para reproducir
+## Steps to reproduce
 
 1.
 2.
 3.
 
-## Comportamiento esperado
+## Expected behavior
 
-<!-- Qué debería ocurrir. -->
+<!-- What should happen. -->
 
-## Comportamiento real
+## Actual behavior
 
-<!-- Qué ocurre realmente, incluyendo mensajes de error. -->
+<!-- What actually happens, including error messages. -->
 
-## Entorno
+## Environment
 
-- Sistema operativo:
-- Versión de Haro (o commit):
-- Versión de Go (si aplica):
-- Harness involucrado (si aplica):
+- Operating system:
+- Haro version (or commit):
+- Go version (if applicable):
+- Harness involved (if applicable):
 
-## Logs / evidencia
+## Logs / evidence
 
-<!-- Pega aquí logs, salida del CLI o cualquier evidencia relevante. -->
+<!-- Paste logs, CLI output or any relevant evidence here. -->

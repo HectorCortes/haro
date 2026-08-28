@@ -1,24 +1,24 @@
-## Resumen
+## Summary
 
-<!-- Qué hace este PR y por qué. -->
+<!-- What this PR does and why. -->
 
-## Criterios de aceptación que toca
+## Acceptance criteria it touches
 
-<!-- Referencia los IDs de deltas-acceptance.md que este PR implementa o afecta, por ejemplo:
+<!-- Reference the deltas-acceptance.md IDs that this PR implements or affects, for example:
 - `v2-broker/F-01`
 - `v2-adapter/U-03`
 -->
 
-## Pruebas ejecutadas
+## Tests run
 
 - [ ] `go build ./...`
 - [ ] `go vet ./...`
 - [ ] `go test ./... -race`
-- [ ] CI verde (lint + govulncheck incluidos)
+- [ ] Green CI (lint + govulncheck included)
 
 ## Checklist
 
-- [ ] El PR es un work unit pequeño y enfocado.
-- [ ] Los criterios de aceptación referenciados están verificados.
-- [ ] Documentación y artefactos SDD actualizados (si el cambio lo requiere).
-- [ ] Contenido en español, siguiendo la convención del repositorio.
+- [ ] The PR is a small, focused work unit.
+- [ ] The referenced acceptance criteria are verified.
+- [ ] Documentation and SDD artifacts updated (if the change requires it).
+- [ ] Content in English, following the repository language convention.

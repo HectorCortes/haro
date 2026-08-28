@@ -1,49 +1,49 @@
-# Contribuir a Haro
+# Contributing to Haro
 
-Gracias por querer contribuir. Este documento describe el flujo de trabajo y los criterios que todo cambio debe cumplir para ser integrado.
+Thank you for wanting to contribute. This document describes the workflow and the criteria that every change must meet to be integrated.
 
-## Flujo de trabajo
+## Workflow
 
-1. **Fork** el repositorio y clónalo localmente.
-2. Crea una **rama** con un nombre descriptivo (`feat/broker-ipc`, `fix/race-store`, `docs/constitucion`).
-3. Implementa el cambio en **work units pequeños** (PRs y commits pequeños, enfocados en una sola cosa).
-4. Abre un **pull request** contra `main` describiendo el cambio (usa la plantilla incluida).
-5. Espera la **revisión**. Se requiere **1 aprobación** para hacer merge.
-6. El merge es **squash only**: cada PR se integra como un único commit con el mensaje de la rama.
+1. **Fork** the repository and clone it locally.
+2. Create a **branch** with a descriptive name (`feat/broker-ipc`, `fix/race-store`, `docs/constitution`).
+3. Implement the change in **small work units** (small PRs and commits, focused on a single thing).
+4. Open a **pull request** against `main` describing the change (use the included template).
+5. Wait for **review**. **1 approval** is required to merge.
+6. The merge is **squash only**: each PR is integrated as a single commit with the branch's message.
 
-**No** se requiere firma de commits ni DCO: los commits no firmados son bienvenidos.
+**No** commit signing or DCO is required: unsigned commits are welcome.
 
-## Convención de commits
+## Commit convention
 
-Commits convencionales (`type(scope): descripción`), en español cuando el contenido lo esté:
+Conventional commits (`type(scope): description`), in English following the repository language convention:
 
-- `feat(broker): persiste ejecuciones por proyecto`
-- `fix(ipc): corrige reenvío de eventos tras reconexión`
-- `docs(constitucion): aclara regla de capacidades`
-- `refactor(store): extrae interfaz de repositorio`
-- `test(adapter): cubre negociación de capacidades`
-- `chore(ci): añade job de govulncheck`
+- `feat(broker): persist executions per project`
+- `fix(ipc): fix event replay after reconnection`
+- `docs(constitution): clarify capability rule`
+- `refactor(store): extract repository interface`
+- `test(adapter): cover capability negotiation`
+- `chore(ci): add govulncheck job`
 
-Tipos usados: `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`.
+Types used: `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`.
 
-## Gates de integración
+## Integration gates
 
-Un PR solo se integra si cumple todo lo siguiente:
+A PR is only integrated if all of the following are met:
 
-- **CI verde**: `go build ./...`, `go vet ./...`, `go test ./... -race`, golangci-lint y govulncheck pasan en el PR.
-- **Contrato respetado**: `deltas-acceptance.md` es el contrato de qué significa "completo". El PR debe **referenciar los IDs de los criterios** que toca (por ejemplo, `v2-broker/F-01`, `v2-adapter/U-03`) en su descripción.
-- **Alcance acotado**: cambios pequeños y revisables. Si el PR toca varias specs, divídelo en varios PRs.
-- **Documentación coherente**: si el cambio altera comportamiento normativo, debe reconciliarse con `docs/v2/` y con los criterios de `deltas-acceptance.md`.
+- **Green CI**: `go build ./...`, `go vet ./...`, `go test ./... -race`, golangci-lint and govulncheck pass on the PR.
+- **Contract respected**: `deltas-acceptance.md` is the contract for what "complete" means. The PR must **reference the IDs of the criteria** it touches (for example, `v2-broker/F-01`, `v2-adapter/U-03`) in its description.
+- **Bounded scope**: small, reviewable changes. If the PR touches several specs, split it into several PRs.
+- **Consistent documentation**: if the change alters normative behavior, it must be reconciled with `docs/v2/` and with the criteria of `deltas-acceptance.md`.
 
-## Cómo se estructura el desarrollo
+## How development is structured
 
-Cada spec de `deltas-acceptance.md` se desarrolla como un **change SDD** bajo `openspec/`, con el ciclo `proposal → spec → design → tasks → apply → verify → archive`. Los cambios completados se archivan en `openspec/changes/archive/`; las specs vigentes viven en `openspec/specs/`.
+Each spec of `deltas-acceptance.md` is developed as an **SDD change** under `openspec/`, with the cycle `proposal → spec → design → tasks → apply → verify → archive`. Completed changes are archived in `openspec/changes/archive/`; current specs live in `openspec/specs/`.
 
-- Los criterios de `deltas-acceptance.md` son la fuente de los criterios de aceptación de cada change.
-- Un delta está completo solo cuando pasan todos sus criterios P0 y P1 y el change queda archivado.
-- Revisa `docs/v2/haro-constitucion.md` y `docs/reference/` antes de tocar comportamiento: la constitución es normativa y la referencia es el oráculo del comportamiento v1 durante la migración.
+- The criteria of `deltas-acceptance.md` are the source of each change's acceptance criteria.
+- A delta is complete only when all its P0 and P1 criteria pass and the change is archived.
+- Review `docs/v2/haro-constitucion.md` and `docs/reference/` before touching behavior: the constitution is normative and the reference is the oracle of v1 behavior during the migration.
 
-## Reportar bugs y solicitar funcionalidades
+## Reporting bugs and requesting features
 
-- Bugs y funcionalidades: abre un issue usando las plantillas de `.github/ISSUE_TEMPLATE/`.
-- Vulnerabilidades de seguridad: **no** abras un issue público; sigue [SECURITY.md](SECURITY.md).
+- Bugs and features: open an issue using the templates in `.github/ISSUE_TEMPLATE/`.
+- Security vulnerabilities: **do not** open a public issue; follow [SECURITY.md](SECURITY.md).

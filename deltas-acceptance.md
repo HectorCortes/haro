@@ -1,501 +1,501 @@
-# Shardeo v2 — Criterios de aceptación de deltas
+# Haro — v2 delta acceptance criteria
 
-> Propósito: criterios de aceptación **verificables** para los deltas entre Shardeo v1 (Specs 1–9 entregadas en `main`) y la propuesta normativa v2 del proyecto. Este documento es **autocontenido**: no depende de documentos externos ni de sus secciones; cada criterio enuncia por completo el comportamiento esperado.
+> Purpose: **verifiable** acceptance criteria for the deltas between Shardeo v1 (Specs 1–9 delivered on `main`) and the project's v2 normative proposal. This document is **self-contained**: it does not depend on external documents or their sections; each criterion fully states the expected behavior.
 >
-> **Decisión de stack (fijada): se continúa con TypeScript** sobre el codebase actual — no hay reescritura. Los contratos propuestos en la referencia de diseño (interfaces Go, JSON Schema) son conceptuales: se re-expresan en TypeScript con tipos estrictos y **ACP — Agent Client Protocol (estándar de Zed) — como estándar del protocolo de adapters** (ver Convenciones).
+> **Stack decision (locked): TypeScript is kept** on the current codebase — no rewrite. The contracts proposed in the design reference (Go interfaces, JSON Schema) are conceptual: they are re-expressed in TypeScript with strict types, with **ACP — Agent Client Protocol (Zed's standard) — as the standard for the adapter protocol** (see Conventions).
 >
-> Cada criterio es testeable a nivel de funcionamiento (comando real o integración) o a nivel unitario. Un criterio está **cumplido** solo cuando su verificación descrita pasa de forma reproducible en el flujo gentle-ai (ver §Uso con gentle-ai).
+> Each criterion is testable at the functional level (real command or integration) or at the unit level. A criterion is **met** only when its described verification passes reproducibly in the gentle-ai flow (see §Usage with gentle-ai).
 
 ---
 
-## Convenciones
+## Conventions
 
-- **Jerarquía de IDs — dos niveles**:
+- **ID hierarchy — two levels**:
 
   ```
   id-spec > id-local
   ```
 
-  - `id-spec` identifica la **spec** (un delta completo; coincide con el nombre del change SDD en gentle-ai). Ejemplo: `v2-broker`.
-  - `id-local` identifica el criterio **dentro** de esa spec: `F-<n>` para criterios **funcionales** (E2E o integración) y `U-<n>` para **tests unitarios**. La numeración reinicia en cada spec.
-  - Referencia completa: `v2-broker/F-01` (spec `v2-broker`, criterio funcional 1).
+  - `id-spec` identifies the **spec** (a complete delta; it matches the SDD change name in gentle-ai). Example: `v2-broker`.
+  - `id-local` identifies the criterion **within** that spec: `F-<n>` for **functional** criteria (E2E or integration) and `U-<n>` for **unit tests**. Numbering restarts in each spec.
+  - Full reference: `v2-broker/F-01` (spec `v2-broker`, functional criterion 1).
 
-- **Tipos de verificación**: `[E2E]` comando real de punta a punta · `[INT]` integración con fixtures/subprocesos controlados · `[UNIT]` test unitario · `[REV]` revisión de documento · `[PROC]` criterio de proceso.
-- **Prioridad**: `P0` bloqueante (sin esto el delta no existe) · `P1` importante · `P2` deseable.
-- **Stack decidido — TypeScript** (evolución del codebase actual, sin reescritura): Node ≥ 20, ESM, `strict`. Runner de tests: `node --test` (suite explícita en `npm test`, ~550 casos). Typecheck: `tsc --noEmit`.
-- **ACP como estándar del protocolo Broker↔Adapter (requisito explícito)**: el protocolo entre broker y adapters/harnesses se basa en **Agent Client Protocol** (estándar abierto impulsado por Zed) — JSON-RPC 2.0 sobre stdio, negociación de capacidades en `initialize`, y los métodos `initialize`, `session/new`, `session/prompt`, `session/update`, `session/cancel` y `session/request_permission` (`terminal/*` diferido). Los adapters traducen el protocolo nativo de cada harness a este contrato; el adapter genérico `acp-generic` lo implementa directamente cuando el harness ya habla ACP (ver `v2-adapter/U-03`).
-- **Validación runtime — práctica vigente del repo**: la validación de schemas (workflows, config, payloads internos) sigue usando **zod** (en minúscula, la librería), ya establecido en v1 (`src/schema/*`); no se introduce JSON Schema ni validadores ad-hoc. Esto es práctica del repo, independiente del estándar ACP.
-- **Mantenibilidad**: el código resultante debe conservar las reglas de la propuesta v2 adaptadas a TS: core sin literales de proveedor, fail-closed, presupuestos de evidencia, migraciones idempotentes y protocolo de adapters basado en ACP.
-- **Estado**: cada criterio lleva checkbox de tracking; inician en `pendiente`.
+- **Verification types**: `[E2E]` real end-to-end command · `[INT]` integration with controlled fixtures/subprocesses · `[UNIT]` unit test · `[REV]` document review · `[PROC]` process criterion.
+- **Priority**: `P0` blocking (without it the delta does not exist) · `P1` important · `P2` desirable.
+- **Decided stack — TypeScript** (evolution of the current codebase, no rewrite): Node ≥ 20, ESM, `strict`. Test runner: `node --test` (explicit suite in `npm test`, ~550 cases). Typecheck: `tsc --noEmit`.
+- **ACP as the Broker↔Adapter protocol standard (explicit requirement)**: the protocol between broker and adapters/harnesses is based on **Agent Client Protocol** (open standard driven by Zed) — JSON-RPC 2.0 over stdio, capability negotiation in `initialize`, and the methods `initialize`, `session/new`, `session/prompt`, `session/update`, `session/cancel` and `session/request_permission` (`terminal/*` deferred). Adapters translate each harness's native protocol to this contract; the generic `acp-generic` adapter implements it directly when the harness already speaks ACP (see `v2-adapter/U-03`).
+- **Runtime validation — current repo practice**: schema validation (workflows, config, internal payloads) keeps using **zod** (lowercase, the library), already established in v1 (`src/schema/*`); no JSON Schema or ad-hoc validators are introduced. This is repo practice, independent of the ACP standard.
+- **Maintainability**: the resulting code must preserve the v2 proposal rules adapted to TS: core without provider literals, fail-closed, evidence budgets, idempotent migrations, and an ACP-based adapter protocol.
+- **Status**: each criterion carries a tracking checkbox; they start as `pending`.
 
 ### Specs (deltas)
 
-| id-spec | Delta | Contenido |
+| id-spec | Delta | Content |
 |---|---|---|
-| `v2-reconciliacion` | D00 | Reconciliación de la documentación normativa |
-| `v2-no-regresion` | R00 | Preservación de Specs 1–9 |
-| `v2-broker` | D01 | Broker persistente por proyecto |
-| `v2-ipc` | D02 | IPC JSON-RPC CLI↔Broker y modelo de eventos |
-| `v2-adapter` | D03 | Contrato de adapter v2 y multi-harness |
-| `v2-path-claims` | D04 | path_claims y aislamiento de workspace |
-| `v2-composicion` | D05 | Composición de workflows |
-| `v2-reporte` | D06 | Reporte de cambios |
-| `v2-store` | D07 | Persistencia tras interfaz de repositorio |
-| `v2-distribucion` | D08 | Distribución |
-| `v2-flujo-gentle-ai` | D09 | Flujo de desarrollo con gentle-ai |
+| `v2-reconciliacion` | D00 | Reconciliation of the normative documentation |
+| `v2-no-regresion` | R00 | Preservation of Specs 1–9 |
+| `v2-broker` | D01 | Persistent per-project broker |
+| `v2-ipc` | D02 | JSON-RPC IPC CLI↔Broker and event model |
+| `v2-adapter` | D03 | v2 adapter contract and multi-harness |
+| `v2-path-claims` | D04 | path_claims and workspace isolation |
+| `v2-composicion` | D05 | Workflow composition |
+| `v2-reporte` | D06 | Change reporting |
+| `v2-store` | D07 | Persistence behind a repository interface |
+| `v2-distribucion` | D08 | Distribution |
+| `v2-flujo-gentle-ai` | D09 | Development flow with gentle-ai |
 
 ---
 
-## Uso con gentle-ai
+## Usage with gentle-ai
 
-El flujo de desarrollo ya **no** usa el pipeline de iniciativas (`.docs/initiatives/`, `tools/scripts/initiative/`). Cada spec de este archivo se implementa como un **change SDD** (o el equivalente gentle-ai) con el ciclo proposal → spec → design → tasks → apply → verify → archive. El nombre del change es el `id-spec`.
+The development flow **no longer** uses the initiatives pipeline (`.docs/initiatives/`, `tools/scripts/initiative/`). Each spec in this file is implemented as an **SDD change** (or the gentle-ai equivalent) with the proposal → spec → design → tasks → apply → verify → archive cycle. The change name is the `id-spec`.
 
-- Los criterios de este archivo son la **fuente de los criterios de aceptación** de cada spec del change.
-- `sdd-verify` (o la verificación equivalente) ejecuta las verificaciones aquí descritas con `node --test` (`npm test`); los `[E2E]` son frontera pública, los `[UNIT]`/`[INT]` son tests del paquete/módulo.
-- Un delta está completo solo cuando pasan todos sus criterios P0 y P1, y el change queda archivado.
-- No se crean nuevas iniciativas; las existentes (p. ej. 008) se migran o cierran explícitamente.
-
----
-
-# Spec: v2-reconciliacion — Reconciliación de la documentación normativa
-
-La documentación normativa v2 exige actualizarse explícitamente ante contradicciones con la realidad. Antes de implementar cualquier otra spec, debe reconciliarse con el estado actual del repo. Criterios sobre ese documento, verificables por revisión del diff.
-
-### F-01 — La superficie terminal/PTY deja de listarse como trabajo diferido [REV] · P0 · [x]
-**Criterio**: La documentación normativa v2 reconoce que la superficie `terminal`/PTY **ya está implementada** (PTY real, attach humano, presencia) y la trata como superficie existente a preservar, no como trabajo diferido.
-**Verificación**: Revisión del documento: la superficie `terminal`/PTY ya no figura en la lista de trabajo diferido.
-
-### F-02 — El bundle inmutable con manifiesto deja de listarse como trabajo diferido [REV] · P0 · [x]
-**Criterio**: La documentación normativa v2 reconoce que el bundle inmutable con manifiesto SHA-256 y prueba de admisión **ya está implementado** y lo remite a no-regresión (`v2-no-regresion`), no a trabajo diferido.
-**Verificación**: Revisión del documento: el bundle con manifiesto SHA-256 ya no figura en la lista de trabajo diferido.
-
-### F-03 — El transporte Broker↔Adapter no se dicta desde el core [REV] · P0 · [x]
-**Criterio**: La documentación normativa v2 no dicta el transporte Broker↔Adapter: lo elige el adapter según lo que su harness soporta nativamente (stdio-RPC, HTTP local + SSE, JSONL), se declara en capacidades y se negocia en `initialize`. HTTP local + SSE **no es "fallback"** sino vía nativa válida cuando el harness la expone (caso real: OpenCode supervised usa servidor HTTP/SSE gestionado).
-**Verificación**: Revisión del documento: ya no califica HTTP+SSE como mecanismo de fallback "nunca general".
-
-### F-04 — Deuda conocida del parser JSONL registrada [REV] · P1 · [x]
-**Criterio**: La documentación normativa v2 registra la excepción confinada vigente: el parser JSONL de OpenCode vive en `src/utils/agent.ts` (ruta headless) y su traslado al adapter es deuda pendiente que la spec `v2-adapter` debe cerrar.
-**Verificación**: Revisión del documento: existe una nota de deuda conocida con la referencia exacta.
-
-### U-01 — Diff auditable de la actualización normativa [REV] · P1 · [x]
-**Criterio**: Existe un diff (o changelog) de la actualización que muestra exactamente qué reglas cambiaron y por qué — nunca una edición silenciosa.
-**Verificación**: Revisión del diff de la actualización: solo los cambios descritos en F-01..F-04 de esta spec, cada uno con su justificación.
+- The criteria in this file are the **source of the acceptance criteria** for each change spec.
+- `sdd-verify` (or the equivalent verification) runs the verifications described here with `node --test` (`npm test`); the `[E2E]` ones are public boundary, the `[UNIT]`/`[INT]` ones are package/module tests.
+- A delta is complete only when all its P0 and P1 criteria pass and the change is archived.
+- No new initiatives are created; existing ones (e.g. 008) are migrated or explicitly closed.
 
 ---
 
-# Spec: v2-no-regresion — Preservación de Specs 1–9
+# Spec: v2-reconciliacion — Reconciliation of the normative documentation
 
-Sin reescritura, estos criterios son la salvaguarda de que las specs v2 no rompen el comportamiento probado: la suite existente (~550 casos) debe seguir verde en cada cambio. Verificaciones `[E2E]`/`[INT]` contra el sistema; `[UNIT]` contra la suite vigente.
+The v2 normative documentation must be explicitly updated when contradicted by reality. Before implementing any other spec, it must be reconciled with the current state of the repo. Criteria on that document, verifiable by diff review.
 
-### F-01 — Init idempotente (Spec 1) [E2E] · P0 · [ ]
-**Criterio**: `shardeo init` crea `.shardeo/` completo en un proyecto limpio; ejecutado dos veces no modifica nada existente y no falla.
-**Verificación**: init en directorio temporal vacío → estructura esperada; init de nuevo → mismo estado, salida informativa, exit 0.
+### F-01 — The terminal/PTY surface is no longer listed as deferred work [REV] · P0 · [x]
+**Criterion**: The v2 normative documentation recognizes that the `terminal`/PTY surface **is already implemented** (real PTY, human attach, presence) and treats it as an existing surface to preserve, not as deferred work.
+**Verification**: Document review: the `terminal`/PTY surface no longer appears in the deferred-work list.
 
-### F-02 — Descubrimiento y validación de workflows (Spec 2) [E2E] · P0 · [ ]
-**Criterio**: `workflows list` y `workflows describe` devuelven salida JSON estructurada; un workflow con YAML inválido aparece marcado inválido en `list` y `describe` reporta el error de validación concreto.
-**Verificación**: fixture de workflow válido e inválido en `.shardeo/workflows/` → salidas esperadas.
+### F-02 — The immutable bundle with manifest is no longer listed as deferred work [REV] · P0 · [x]
+**Criterion**: The v2 normative documentation recognizes that the immutable bundle with SHA-256 manifest and admission test **is already implemented** and refers it to no-regression (`v2-no-regresion`), not to deferred work.
+**Verification**: Document review: the bundle with SHA-256 manifest no longer appears in the deferred-work list.
 
-### F-03 — Ciclo command completo (Spec 3) [E2E] · P0 · [ ]
-**Criterio**: `run` + `steps next` + `step run` + `status`: exit 0 con `produces` → `completed` automático; exit ≠ 0 → `failed` con stdout/stderr; exit 0 sin `produces` → `failed` listando los artefactos faltantes; `depends_on` insatisfecho → error explícito.
-**Verificación**: workflow command de prueba que cubre los cuatro casos.
+### F-03 — The Broker↔Adapter transport is not dictated by the core [REV] · P0 · [x]
+**Criterion**: The v2 normative documentation does not dictate the Broker↔Adapter transport: the adapter chooses it according to what its harness natively supports (stdio-RPC, local HTTP + SSE, JSONL), declares it in capabilities and negotiates it in `initialize`. Local HTTP + SSE is **not a "fallback"** but a valid native path when the harness exposes it (real case: OpenCode supervised uses a managed HTTP/SSE server).
+**Verification**: Document review: HTTP+SSE is no longer qualified as a "never general" fallback mechanism.
 
-### F-04 — Ciclo agent headless con fallback (Spec 4) [E2E] · P0 · [ ]
-**Criterio**: `step run` agent headless sigue el ciclo probe → lease → invoke → finalize; ante error limpio hace fallback al siguiente candidato **sin clasificación semántica**; ante error terminal (`permission_required`, `process_start_failed`, etc.) no hay fallback y el step queda `failed`.
-**Verificación**: adapters de test controlados que producen éxito, error limpio y error terminal.
+### F-04 — Known debt of the JSONL parser registered [REV] · P1 · [x]
+**Criterion**: The v2 normative documentation records the current confined exception: the OpenCode JSONL parser lives in `src/utils/agent.ts` (headless path) and moving it to the adapter is known debt that the `v2-adapter` spec must close.
+**Verification**: Document review: there is a known-debt note with the exact reference.
 
-### F-05 — Re-ejecución con feedback (Spec 6) [INT] · P0 · [ ]
-**Criterio**: `step run --feedback` entrega el feedback delimitado junto con la respuesta parcial previa; el intento se registra como reconstrucción con su historial.
-**Verificación**: fixture con dos intentos: el segundo recibe el feedback textual íntegro y el contexto previo acotado.
-
-### F-06 — Resume y reconciliación (Spec 7) [INT] · P0 · [ ]
-**Criterio**: `resume` reconcilia intentos expirados, detecta artefactos faltantes (`reconstruction_required`), entrega la respuesta previa como contexto para reconstruir y devuelve guía de continuación.
-**Verificación**: ejecución detenida a mitad → `resume` → estados y guía esperados.
-
-### F-07 — Reopen/skip con generaciones (Spec 8) [INT] · P0 · [ ]
-**Criterio**: `step reopen --cascade` invalida la generación vigente (los archivos quedan pero dejan de satisfacer `requires`/`complete`) y reinicia descendientes conservando historial; `step skip --reason` solo aplica a pendientes sin intentos; todo queda en `step_transition_events`.
-**Verificación**: escenario de 3 steps encadenados; reopen del primero → cascada y auditoría verificadas.
-
-### F-08 — Bundle inmutable y admisión (Spec 9a) [INT] · P0 · [ ]
-**Criterio**: cada intento materializa un bundle con manifiesto (orden semántico, roles, bytes + SHA-256); la prueba de admisión es obligatoria antes de trabajo del harness; drift del contexto → fallo cerrado.
-**Verificación**: fixture donde el contexto cambia entre congelación y admisión → intento falla con `adapter_contract_error`/drift.
-
-### F-09 — Supervised completo (Spec 9b) [E2E] · P0 · [ ]
-**Criterio**: supervisor con lease + fencing, IPC UDS, eventos con cursor persistidos antes de visibles, interacción CAS idempotente, `step approve` solo con decisiones de `available_decisions`, política de permisos fail-closed (desconocido → rechazo).
-**Verificación**: harness simulado que solicita permiso → `step events` → `step approve` → resolución única; reenvío de la misma resolución no duplica efectos.
-
-### F-10 — Terminal y attach humano (Spec 9c) [E2E] · P0 · [ ]
-**Criterio**: `step run --mode terminal` crea PTY adjuntable y retorna `awaiting_human` + comando de attach; detach no mata al hijo; reattach ilimitado dentro de `human_presence_seconds`; el orquestador nunca escribe teclas ni interpreta la pantalla.
-**Verificación**: PTY real con harness de prueba; attach/detach/reattach y cierre.
-
-### F-11 — Detección adapter-native de permisos [INT] · P1 · [ ]
-**Criterio**: la detección de solicitudes de permiso funciona con las fixtures versionadas (OpenCode 1.17.18) y el puente live (1.18.x); evidencia ambigua o desconocida → fallo cerrado, nunca adivinanza.
-**Verificación**: suite de fixtures existente portada sin cambios de comportamiento.
-
-### F-12 — Presupuestos de evidencia y sanitización [INT] · P0 · [ ]
-**Criterio**: proyecciones visibles/evidencia ≤ 16 KiB; `DiagnosticRaw` ≤ 1 MiB (autoridad de bytes crudos, con prefijo+sufijo+SHA-256 si excede); snapshots ≤ 1 MiB; contexto de fallback ≤ 2 MiB; redacción de credenciales por patrones en toda salida proyectada.
-**Verificación**: fixtures con outputs gigantes y con credenciales (Bearer, Basic, tokens) → proyecciones acotadas y redactadas.
-
-### F-13 — Contención de paths [INT] · P0 · [ ]
-**Criterio**: rechazo de rutas absolutas, `..` y escapes por symlink en workflows, instrucciones, skills, artefactos y bundles; symlinks internos permitidos solo si su destino real queda dentro.
-**Verificación**: tabla de paths maliciosos contra `validateContainedPath` equivalente.
-
-### F-14 — Contrato de salida CLI [E2E] · P0 · [ ]
-**Criterio**: toda salida de comando es JSON estructurado; errores `{error, code}` con exit 1; salida EPIPE-safe (exit 0 si el consumidor cierra el pipe); argumentos posicionales extra rechazados respetando `--`.
-**Verificación**: script que consume con pipe cerrado y pasa argumentos extra.
-
-### U-01 — Suite vigente en verde [UNIT] · P0 · [ ]
-**Criterio**: la suite existente (~550 casos, 74 suites) pasa completa en `npm test` y `npm run typecheck` queda limpio; ambos siguen en verde tras cada spec v2.
-**Verificación**: `npm test` y `npm run typecheck` en verde.
-
-### U-02 — Fixtures neutrales reutilizadas [UNIT] · P0 · [ ]
-**Criterio**: las fixtures JSONL de OpenCode v1.17.18 y el servidor simulado v1.18.16 se reutilizan tal cual (formato neutral al lenguaje).
-**Verificación**: los mismos archivos de `test/fixtures/` referenciados por los tests del stack nuevo.
-
-### U-03 — Máquina de estados con cobertura vigente [UNIT] · P0 · [ ]
-**Criterio**: transiciones atómicas (claim, finalize, reopen, skip), idempotencia de resolución y fencing de leases mantienen su cobertura unitaria (hoy en `src/db/queries.ts`) y se extienden con los cambios v2.
-**Verificación**: tabla de transiciones cubierta caso a caso, en verde.
+### U-01 — Auditable diff of the normative update [REV] · P1 · [x]
+**Criterion**: There is a diff (or changelog) of the update showing exactly which rules changed and why — never a silent edit.
+**Verification**: Review of the update diff: only the changes described in F-01..F-04 of this spec, each with its justification.
 
 ---
 
-# Spec: v2-broker — Broker persistente por proyecto
+# Spec: v2-no-regresion — Preservation of Specs 1–9
 
-### F-01 — Broker único por proyecto [E2E] · P0 · [ ]
-**Criterio**: existe un broker por proyecto identificado por la ruta canónica del proyecto; CLI↔Broker por socket Unix (o named pipe en Windows).
-**Verificación**: `execution.start` desde el CLI contra un broker vivo responde por el socket; dos invocaciones desde el mismo repo usan el mismo broker.
+Without a rewrite, these criteria safeguard that the v2 specs do not break tested behavior: the existing suite (~550 cases) must stay green on every change. `[E2E]`/`[INT]` verifications against the system; `[UNIT]` against the current suite.
 
-### F-02 — Arranque perezoso [E2E] · P0 · [ ]
-**Criterio**: si el socket no responde, el CLI arranca el broker y reintenta; el broker sobrevive a la invocación CLI que lo arrancó.
-**Verificación**: matar el broker → primera invocación CLI lo relanza y completa su operación; el proceso broker sigue vivo tras terminar el CLI.
+### F-01 — Idempotent init (Spec 1) [E2E] · P0 · [ ]
+**Criterion**: `shardeo init` creates a complete `.shardeo/` in a clean project; run twice it modifies nothing existing and does not fail.
+**Verification**: init in an empty temporary directory → expected structure; init again → same state, informative output, exit 0.
 
-### F-03 — Sesiones concurrentes [E2E] · P0 · [ ]
-**Criterio**: un broker mantiene múltiples sesiones activas: dos ejecuciones en paralelo (mismo o distinto workflow, mismo proyecto) progresan sin interferencia de estado.
-**Verificación**: lanzar dos ejecuciones simultáneas; ambas completan y cada una persiste su propio estado sin pisarse.
+### F-02 — Workflow discovery and validation (Spec 2) [E2E] · P0 · [ ]
+**Criterion**: `workflows list` and `workflows describe` return structured JSON output; a workflow with invalid YAML appears flagged as invalid in `list` and `describe` reports the concrete validation error.
+**Verification**: valid and invalid workflow fixtures in `.shardeo/workflows/` → expected outputs.
 
-### F-04 — Brokers independientes por proyecto [E2E] · P1 · [ ]
-**Criterio**: distintos proyectos tienen brokers completamente independientes, sin coordinación entre sí.
-**Verificación**: operaciones simultáneas en dos repos distintos no comparten socket ni estado; detener uno no afecta al otro.
+### F-03 — Complete command cycle (Spec 3) [E2E] · P0 · [ ]
+**Criterion**: `run` + `steps next` + `step run` + `status`: exit 0 with `produces` → automatic `completed`; exit ≠ 0 → `failed` with stdout/stderr; exit 0 without `produces` → `failed` listing the missing artifacts; unsatisfied `depends_on` → explicit error.
+**Verification**: test command workflow covering the four cases.
 
-### F-05 — No duplicación de broker [E2E] · P1 · [ ]
-**Criterio**: una segunda invocación CLI con socket vivo encuentra el broker existente y no lanza otro.
-**Verificación**: conteo de procesos broker antes/después de N invocaciones → 1.
+### F-04 — Headless agent cycle with fallback (Spec 4) [E2E] · P0 · [ ]
+**Criterion**: headless agent `step run` follows the probe → lease → invoke → finalize cycle; on a clean error it falls back to the next candidate **without semantic classification**; on a terminal error (`permission_required`, `process_start_failed`, etc.) there is no fallback and the step ends `failed`.
+**Verification**: controlled test adapters producing success, clean error and terminal error.
 
-### F-06 — Muerte del broker y fencing [E2E] · P0 · [ ]
-**Criterio**: si el broker muere con sesiones activas, los leases vencen y ninguna escritura posterior a la expiración es válida aunque el proceso original siga vivo; `resume` detecta el estado y guía la recuperación.
-**Verificación**: matar el broker a mitad de un intento → intentos expirados; reintento de escritura con fencing token viejo → rechazado.
+### F-05 — Re-execution with feedback (Spec 6) [INT] · P0 · [ ]
+**Criterion**: `step run --feedback` delivers the delimited feedback together with the previous partial response; the attempt is recorded as a reconstruction with its history.
+**Verification**: fixture with two attempts: the second one receives the full textual feedback and the bounded previous context.
 
-### F-07 — Apagado limpio [E2E] · P1 · [ ]
-**Criterio**: el broker se detiene limpiamente ante señal de terminación: libera leases y sockets; no deja sockets zombies que bloqueen el siguiente arranque.
-**Verificación**: señal TERM → proceso sale, socket eliminado, arranque posterior inmediato funciona.
+### F-06 — Resume and reconciliation (Spec 7) [INT] · P0 · [ ]
+**Criterion**: `resume` reconciles expired attempts, detects missing artifacts (`reconstruction_required`), delivers the previous response as context to rebuild and returns continuation guidance.
+**Verification**: execution stopped midway → `resume` → expected states and guidance.
 
-### U-01 — Derivación del socket path [UNIT] · P1 · [ ]
-**Criterio**: el path del socket se deriva de la ruta canónica del proyecto (hash estable): mismo repo → mismo socket; repos distintos → sockets distintos; la ruta no excede límites de longitud del sistema.
-**Verificación**: tabla de rutas canónicas (incl. symlinks, trailing slashes) → derivación estable y única.
+### F-07 — Reopen/skip with generations (Spec 8) [INT] · P0 · [ ]
+**Criterion**: `step reopen --cascade` invalidates the current generation (the files remain but stop satisfying `requires`/`complete`) and restarts descendants preserving history; `step skip --reason` only applies to pending steps without attempts; everything lands in `step_transition_events`.
+**Verification**: scenario of 3 chained steps; reopening the first one → cascade and audit verified.
 
-### U-02 — Framing robusto [UNIT] · P1 · [ ]
-**Criterio**: el framing del socket (JSON-RPC 2.0) rechaza mensajes malformados y oversized sin romper la conexión, y soporta conexiones concurrentes.
-**Verificación**: tests de framing con mensajes inválidos, > límite, y N clientes simultáneos.
+### F-08 — Immutable bundle and admission (Spec 9a) [INT] · P0 · [ ]
+**Criterion**: each attempt materializes a bundle with manifest (semantic order, roles, bytes + SHA-256); the admission test is mandatory before harness work; context drift → closed failure.
+**Verification**: fixture where context changes between freezing and admission → attempt fails with `adapter_contract_error`/drift.
+
+### F-09 — Complete supervised (Spec 9b) [E2E] · P0 · [ ]
+**Criterion**: supervisor with lease + fencing, UDS IPC, events with cursor persisted before visible, idempotent CAS interaction, `step approve` only with decisions from `available_decisions`, fail-closed permission policy (unknown → rejection).
+**Verification**: simulated harness requesting permission → `step events` → `step approve` → unique resolution; re-sending the same resolution does not duplicate effects.
+
+### F-10 — Terminal and human attach (Spec 9c) [E2E] · P0 · [ ]
+**Criterion**: `step run --mode terminal` creates an attachable PTY and returns `awaiting_human` + attach command; detach does not kill the child; unlimited reattach within `human_presence_seconds`; the orchestrator never types keys nor interprets the screen.
+**Verification**: real PTY with test harness; attach/detach/reattach and shutdown.
+
+### F-11 — Adapter-native permission detection [INT] · P1 · [ ]
+**Criterion**: permission-request detection works with the versioned fixtures (OpenCode 1.17.18) and the live bridge (1.18.x); ambiguous or unknown evidence → closed failure, never guessing.
+**Verification**: existing fixture suite ported without behavioral changes.
+
+### F-12 — Evidence budgets and sanitization [INT] · P0 · [ ]
+**Criterion**: visible projections/evidence ≤ 16 KiB; `DiagnosticRaw` ≤ 1 MiB (raw-byte authority, with prefix+suffix+SHA-256 if exceeded); snapshots ≤ 1 MiB; fallback context ≤ 2 MiB; credential redaction by patterns in all projected output.
+**Verification**: fixtures with giant outputs and with credentials (Bearer, Basic, tokens) → bounded and redacted projections.
+
+### F-13 — Path containment [INT] · P0 · [ ]
+**Criterion**: rejection of absolute paths, `..` and symlink escapes in workflows, instructions, skills, artifacts and bundles; internal symlinks allowed only if their real target stays inside.
+**Verification**: table of malicious paths against the `validateContainedPath` equivalent.
+
+### F-14 — CLI output contract [E2E] · P0 · [ ]
+**Criterion**: all command output is structured JSON; errors `{error, code}` with exit 1; EPIPE-safe output (exit 0 if the consumer closes the pipe); extra positional arguments rejected respecting `--`.
+**Verification**: script consuming with closed pipe and passing extra arguments.
+
+### U-01 — Current suite green [UNIT] · P0 · [ ]
+**Criterion**: the existing suite (~550 cases, 74 suites) passes fully in `npm test` and `npm run typecheck` stays clean; both stay green after each v2 spec.
+**Verification**: `npm test` and `npm run typecheck` green.
+
+### U-02 — Reused neutral fixtures [UNIT] · P0 · [ ]
+**Criterion**: the OpenCode v1.17.18 JSONL fixtures and the v1.18.16 simulated server are reused as-is (language-neutral format).
+**Verification**: the same `test/fixtures/` files referenced by the new stack's tests.
+
+### U-03 — State machine with current coverage [UNIT] · P0 · [ ]
+**Criterion**: atomic transitions (claim, finalize, reopen, skip), resolution idempotency and lease fencing keep their unit coverage (today in `src/db/queries.ts`) and are extended with the v2 changes.
+**Verification**: transition table covered case by case, green.
 
 ---
 
-# Spec: v2-ipc — IPC JSON-RPC CLI↔Broker y modelo de eventos
+# Spec: v2-broker — Persistent per-project broker
+
+### F-01 — Single broker per project [E2E] · P0 · [ ]
+**Criterion**: there is one broker per project identified by the project's canonical path; CLI↔Broker over Unix socket (or named pipe on Windows).
+**Verification**: `execution.start` from the CLI against a live broker responds over the socket; two invocations from the same repo use the same broker.
+
+### F-02 — Lazy startup [E2E] · P0 · [ ]
+**Criterion**: if the socket does not respond, the CLI starts the broker and retries; the broker outlives the CLI invocation that started it.
+**Verification**: kill the broker → first CLI invocation relaunches it and completes its operation; the broker process stays alive after the CLI exits.
+
+### F-03 — Concurrent sessions [E2E] · P0 · [ ]
+**Criterion**: one broker holds multiple active sessions: two parallel executions (same or different workflow, same project) progress without state interference.
+**Verification**: launch two simultaneous executions; both complete and each persists its own state without stepping on the other.
+
+### F-04 — Independent brokers per project [E2E] · P1 · [ ]
+**Criterion**: different projects have completely independent brokers, with no coordination between them.
+**Verification**: simultaneous operations in two different repos share no socket or state; stopping one does not affect the other.
+
+### F-05 — No broker duplication [E2E] · P1 · [ ]
+**Criterion**: a second CLI invocation with a live socket finds the existing broker and does not launch another one.
+**Verification**: broker process count before/after N invocations → 1.
+
+### F-06 — Broker death and fencing [E2E] · P0 · [ ]
+**Criterion**: if the broker dies with active sessions, leases expire and no write after expiration is valid even if the original process is still alive; `resume` detects the state and guides recovery.
+**Verification**: kill the broker mid-attempt → attempts expired; write retry with old fencing token → rejected.
+
+### F-07 — Clean shutdown [E2E] · P1 · [ ]
+**Criterion**: the broker stops cleanly on termination signal: releases leases and sockets; leaves no zombie sockets blocking the next startup.
+**Verification**: TERM signal → process exits, socket removed, immediate subsequent startup works.
+
+### U-01 — Socket path derivation [UNIT] · P1 · [ ]
+**Criterion**: the socket path is derived from the project's canonical path (stable hash): same repo → same socket; different repos → different sockets; the path does not exceed system length limits.
+**Verification**: table of canonical paths (incl. symlinks, trailing slashes) → stable and unique derivation.
+
+### U-02 — Robust framing [UNIT] · P1 · [ ]
+**Criterion**: socket framing (JSON-RPC 2.0) rejects malformed and oversized messages without breaking the connection, and supports concurrent connections.
+**Verification**: framing tests with invalid messages, > limit, and N simultaneous clients.
+
+---
+
+# Spec: v2-ipc — JSON-RPC IPC CLI↔Broker and event model
 
 ### F-01 — execution.start [E2E] · P0 · [ ]
-**Criterio**: `execution.start` valida el workflow (schema + grafo + ciclos), crea la ejecución y retorna `execution_id`.
-**Verificación**: workflow válido → id; workflow con ciclo/step inexistente → error estructurado sin ejecución creada.
+**Criterion**: `execution.start` validates the workflow (schema + graph + cycles), creates the execution and returns `execution_id`.
+**Verification**: valid workflow → id; workflow with cycle/nonexistent step → structured error without a created execution.
 
 ### F-02 — execution.status [E2E] · P1 · [ ]
-**Criterio**: `execution.status` devuelve el estado agregado de la ejecución y el resumen de steps.
-**Verificación**: ejecución en progreso → estados por step coherentes con las transiciones ocurridas.
+**Criterion**: `execution.status` returns the aggregated execution state and the step summary.
+**Verification**: in-progress execution → per-step states consistent with the transitions that occurred.
 
-### F-03 — step.run no bloqueante [E2E] · P0 · [ ]
-**Criterio**: `step.run` para steps agent retorna `{attempt_id, cursor}` sin bloquear; el progreso se consume por `step.events`.
-**Verificación**: step agent lento → `step.run` retorna inmediatamente; eventos posteriores aparecen vía `step.events`.
+### F-03 — Non-blocking step.run [E2E] · P0 · [ ]
+**Criterion**: `step.run` for agent steps returns `{attempt_id, cursor}` without blocking; progress is consumed through `step.events`.
+**Verification**: slow agent step → `step.run` returns immediately; subsequent events appear via `step.events`.
 
-### F-04 — step.events con paginación estable [E2E] · P0 · [ ]
-**Criterio**: `step.events {since_cursor}` devuelve los eventos posteriores y `next_cursor`; reintentar la misma consulta devuelve exactamente los mismos eventos (sin duplicados) y avanzar el cursor nunca pierde eventos.
-**Verificación**: secuencia de eventos conocida (fixture) consumida con reintentos y saltos de cursor.
+### F-04 — step.events with stable pagination [E2E] · P0 · [ ]
+**Criterion**: `step.events {since_cursor}` returns the subsequent events and `next_cursor`; retrying the same query returns exactly the same events (no duplicates) and advancing the cursor never loses events.
+**Verification**: known event sequence (fixture) consumed with retries and cursor jumps.
 
-### F-05 — step.approve idempotente [E2E] · P0 · [ ]
-**Criterio**: `step.approve` resuelve una interacción y es idempotente: reenviar la misma resolución no produce efectos duplicados.
-**Verificación**: aprobar dos veces la misma interacción con la misma clave → un único efecto observable en el harness y en el store.
+### F-05 — Idempotent step.approve [E2E] · P0 · [ ]
+**Criterion**: `step.approve` resolves an interaction and is idempotent: re-sending the same resolution produces no duplicate effects.
+**Verification**: approving the same interaction twice with the same key → a single observable effect in the harness and in the store.
 
 ### F-06 — step.cancel [E2E] · P1 · [ ]
-**Criterio**: `step.cancel` cancela el attempt en curso y el harness recibe la cancelación; el intento queda `cancelled`/`failed` según la semántica definida, sin escrituras posteriores válidas.
-**Verificación**: attempt activo → cancel → harness notificado, estado persistido.
+**Criterion**: `step.cancel` cancels the in-flight attempt and the harness receives the cancellation; the attempt ends `cancelled`/`failed` per the defined semantics, with no subsequent valid writes.
+**Verification**: active attempt → cancel → harness notified, state persisted.
 
-### F-07 — step.reopen con invalidación [E2E] · P0 · [ ]
-**Criterio**: `step.reopen` invalida la generación vigente y devuelve la lista `{invalidated: []}` de steps afectados por la cascada de generaciones.
-**Verificación**: cadena de 3 steps → reopen del primero → `invalidated` lista los descendientes reales.
+### F-07 — step.reopen with invalidation [E2E] · P0 · [ ]
+**Criterion**: `step.reopen` invalidates the current generation and returns the `{invalidated: []}` list of steps affected by the generation cascade.
+**Verification**: chain of 3 steps → reopen the first → `invalidated` lists the actual descendants.
 
-### F-08 — step.reopen con feedback opcional [E2E] · P1 · [ ]
-**Criterio**: `step.reopen` acepta feedback opcional para la re-ejecución (preservación del comportamiento v1 de `--feedback`).
-**Verificación**: reopen con feedback → el próximo intento del step recibe el feedback íntegro.
+### F-08 — step.reopen with optional feedback [E2E] · P1 · [ ]
+**Criterion**: `step.reopen` accepts optional feedback for re-execution (preserving the v1 `--feedback` behavior).
+**Verification**: reopen with feedback → the step's next attempt receives the full feedback.
 
-### F-09 — Notificaciones al CLI [E2E] · P1 · [ ]
-**Criterio**: el CLI recibe `step.status_changed` e `step.interaction_required` del broker mientras consume eventos.
-**Verificación**: suscripción de prueba recibe las notificaciones en el orden esperado con su cursor.
+### F-09 — CLI notifications [E2E] · P1 · [ ]
+**Criterion**: the CLI receives `step.status_changed` and `step.interaction_required` from the broker while consuming events.
+**Verification**: test subscription receives the notifications in the expected order with their cursor.
 
-### U-01 — Cursor monotónico y persistencia previa [UNIT] · P0 · [ ]
-**Criterio**: el cursor es monotónico por sesión/attempt; el evento se persiste **antes** de hacerse visible (un consumidor nunca ve un hueco ni un evento no persistido).
-**Verificación**: test de crash entre persistencia y publicación → sin eventos visibles no persistidos.
+### U-01 — Monotonic cursor and prior persistence [UNIT] · P0 · [ ]
+**Criterion**: the cursor is monotonic per session/attempt; the event is persisted **before** becoming visible (a consumer never sees a gap or a non-persisted event).
+**Verification**: crash test between persistence and publication → no visible non-persisted events.
 
-### U-02 — CAS de interacciones [UNIT] · P0 · [ ]
-**Criterio**: la resolución de interacción es atómica: misma `idempotency_key` → mismo resultado sin re-ejecución; clave distinta sobre la misma interacción → rechazada; cruce de identidad (attempt equivocado) → rechazado.
-**Verificación**: tabla de casos (pendiente/resuelta/duplicada/ajena).
+### U-02 — Interaction CAS [UNIT] · P0 · [ ]
+**Criterion**: interaction resolution is atomic: same `idempotency_key` → same result without re-execution; a different key on the same interaction → rejected; identity crossing (wrong attempt) → rejected.
+**Verification**: case table (pending/resolved/duplicate/foreign).
 
-### U-03 — Payload_ref sin output crudo [UNIT] · P1 · [ ]
-**Criterio**: `attempt_events.payload_ref` referencia evidencia sanitizada gestionada fuera de la tabla; nunca contiene el output crudo completo.
-**Verificación**: inspección del store tras un intento → los eventos solo contienen referencias/deltas, no blobs completos.
+### U-03 — payload_ref without raw output [UNIT] · P1 · [ ]
+**Criterion**: `attempt_events.payload_ref` references sanitized evidence managed outside the table; it never contains the full raw output.
+**Verification**: store inspection after an attempt → events only contain references/deltas, not complete blobs.
 
-### U-04 — Payloads JSON-RPC validados en la frontera [UNIT] · P1 · [ ]
-**Criterio**: todo payload entrante y saliente de los protocolos JSON-RPC (CLI↔Broker y Broker↔Adapter) se valida en la frontera contra su schema (zod, práctica vigente del repo); payload desconocido o malformado → error estructurado y fail-closed, sin efectos sobre el estado.
-**Verificación**: tabla de payloads malformados/desconocidos → rechazo con código estable y mensaje con path del campo.
-
----
-
-# Spec: v2-adapter — Contrato de adapter v2 y multi-harness
-
-### F-01 — initialize único y previo [E2E] · P0 · [ ]
-**Criterio**: `initialize` se ejecuta una sola vez por subproceso, antes de cualquier `session/*`; negocia `protocolVersion` y capacidades en ambas direcciones.
-**Verificación**: harness de prueba registra el orden de llamadas → initialize exactamente una vez y primero.
-
-### F-02 — Nunca invocar lo no anunciado [E2E] · P0 · [ ]
-**Criterio**: el broker nunca invoca un método opcional que el adapter no declaró en `Initialize`.
-**Verificación**: adapter sin `Terminal`/`LoadSession` → el broker no emite esos métodos; intento de uso desde el CLI → error `unsupported_capability`.
-
-### F-03 — request_permission solo si fue negociado [E2E] · P0 · [ ]
-**Criterio**: el harness solo llama a `session/request_permission` si el broker anunció `Permission: true`; si no, resuelve con su política por defecto o falla (fail-closed).
-**Verificación**: broker sin permiso negociado + harness que lo necesita → el harness falla cerrado, nunca se salta la política.
-
-### F-04 — Cierre de la deuda del parser JSONL [INT] · P0 · [ ]
-**Criterio**: el parser del stream JSONL de OpenCode vive en el adapter OpenCode, no en el core; el core no contiene ningún literal de proveedor.
-**Verificación**: script de verificación (grep/import graph) que falla si fuera de `adapters/` aparece `opencode`, endpoints, flags o nombres de eventos del proveedor.
-
-### F-05 — Adapter Claude Code con contract tests [E2E] · P1 · [ ]
-**Criterio**: existe un adapter Claude Code que pasa la suite de contract tests de frontera pública contra el binario real, o contra fixtures grabadas solo si el binario real no es viable en CI (caso justificado).
-**Verificación**: la suite `step run → subproceso real → protocolo → salida JSON pública → store → settle` corre contra `claude` (o sus fixtures grabadas) y pasa.
-
-### F-06 — Fallback entre harnesses sin clasificación semántica [E2E] · P0 · [ ]
-**Criterio**: un step con `harness: [opencode, claudecode]` (o inverso) hace fallback al siguiente candidato ante error limpio, sin clasificar la causa; al agotar candidatos el step falla con evidencia sanitizada de cada candidato.
-**Verificación**: primer candidato falla limpio → el segundo recibe el contexto acumulado acotado (≤ 2 MiB) y ejecuta; ambos fallan → step `failed` con evidencia de ambos.
-
-### U-01 — Negociación de capacidades por tabla [UNIT] · P0 · [ ]
-**Criterio**: cada método opcional solo se invoca si fue anunciado; las capacidades nuevas son aditivas sin incrementar la versión mayor del protocolo; la versión mayor solo cambia ante cambios incompatibles en los métodos obligatorios.
-**Verificación**: tests de tabla con combinaciones de capacidades (vacías, parciales, completas, futuras aditivas).
-
-### U-02 — Suite de contract tests de primera clase [UNIT] · P1 · [ ]
-**Criterio**: la suite de contract tests de frontera pública existe como artefacto de primera clase del repositorio desde el inicio.
-**Verificación**: el repositorio contiene la suite versionada y ejecutable, no un documento de intención.
-
-### U-03 — Adapter ACP genérico (estándar de Zed) [INT] · P1 · [ ]
-**Criterio**: el adapter "acp-generic" traduce el contrato interno a **ACP (Agent Client Protocol, estándar abierto impulsado por Zed)** y viceversa (initialize, session/new, session/prompt, session/update, session/cancel, session/request_permission) con fixtures del protocolo.
-**Verificación**: harness ACP simulado (fixtures) → el adapter completa el ciclo completo y las traducciones de capacidades son biyectivas.
-
-### U-04 — Attempt agnóstico de transporte [UNIT] · P0 · [ ]
-**Criterio**: `attempts` no contiene campos de transporte; los detalles (native_session_id, protocol_version, extra) viven en la tabla de extensión por adapter.
-**Verificación**: schema test: insertar un attempt sin transporte y con transporte → ambos válidos; los campos nativos nunca aparecen en `attempts`.
+### U-04 — JSON-RPC payloads validated at the boundary [UNIT] · P1 · [ ]
+**Criterion**: every incoming and outgoing payload of the JSON-RPC protocols (CLI↔Broker and Broker↔Adapter) is validated at the boundary against its schema (zod, current repo practice); unknown or malformed payload → structured fail-closed error, without state effects.
+**Verification**: table of malformed/unknown payloads → rejection with stable code and message with the field path.
 
 ---
 
-# Spec: v2-path-claims — path_claims y aislamiento de workspace
+# Spec: v2-adapter — v2 adapter contract and multi-harness
 
-### F-01 — Worktree por ejecución por defecto [E2E] · P0 · [ ]
-**Criterio**: el default del sistema es que cada ejecución de un workflow corre en su propio `git worktree`; el `workspace_root` efectivo es ese worktree.
-**Verificación**: `git worktree list` muestra un worktree nuevo por ejecución; el trabajo del step ocurre dentro de él.
+### F-01 — Single prior initialize [E2E] · P0 · [ ]
+**Criterion**: `initialize` runs exactly once per subprocess, before any `session/*`; negotiates `protocolVersion` and capabilities in both directions.
+**Verification**: test harness records the call order → initialize exactly once and first.
 
-### F-02 — Configuración de aislamiento en 3 niveles [E2E] · P0 · [ ]
-**Criterio**: `workspace.mode` se resuelve por herencia `sistema → workflow → step`, con override por step; `workspace.shared` en workflow desactiva el aislamiento para todos sus steps salvo override.
-**Verificación**: tres fixtures (workflow shared, step shared con workflow isolated, step isolated con workflow shared) → workspace_root correcto en cada caso.
+### F-02 — Never invoke what was not announced [E2E] · P0 · [ ]
+**Criterion**: the broker never invokes an optional method the adapter did not declare in `Initialize`.
+**Verification**: adapter without `Terminal`/`LoadSession` → the broker does not emit those methods; attempted use from the CLI → `unsupported_capability` error.
 
-### F-03 — Reclamos por identidad lógica y prefijo [E2E] · P1 · [ ]
-**Criterio**: los reclamos se hacen sobre la identidad lógica del path (relativa, canonicalizada, sin symlinks) y reclamar un directorio bloquea a sus hijos por comparación de prefijo.
-**Verificación**: reclamar `src/` → un segundo reclamo de `src/foo.ts` reporta conflicto; `src/foobar/` no colisiona con `src/foo/` (borde de prefijo).
+### F-03 — request_permission only if negotiated [E2E] · P0 · [ ]
+**Criterion**: the harness only calls `session/request_permission` if the broker announced `Permission: true`; otherwise it resolves with its default policy or fails (fail-closed).
+**Verification**: broker without negotiated permission + harness that needs it → the harness fails closed, never skips the policy.
 
-### F-04 — shared vs shared bloquea [E2E] · P0 · [ ]
-**Criterio**: dos steps `shared` con el mismo path lógico: el segundo no arranca hasta que el primer reclamo se libera; la liberación ocurre al terminar el step (éxito o fallo), no al terminar la ejecución.
-**Verificación**: step A lento con reclamo de `src/` → step B con `src/` queda bloqueado; A termina (éxito) → B arranca; caso fallo → B arranca igualmente.
+### F-04 — Closing the JSONL parser debt [INT] · P0 · [ ]
+**Criterion**: the OpenCode JSONL stream parser lives in the OpenCode adapter, not in the core; the core contains no provider literal.
+**Verification**: verification script (grep/import graph) that fails if `opencode`, provider endpoints, flags or event names appear outside `adapters/`.
 
-### F-05 — isolated vs isolated permite [E2E] · P1 · [ ]
-**Criterio**: dos steps `isolated` con el mismo path lógico corren sin bloqueo; las divergencias se descubren solo en la integración, fuera del alcance de Shardeo.
-**Verificación**: dos steps isolated concurrentes con `src/` → ambos arrancan; no se registra ningún conflicto.
+### F-05 — Claude Code adapter with contract tests [E2E] · P1 · [ ]
+**Criterion**: a Claude Code adapter exists that passes the public-boundary contract test suite against the real binary, or against recorded fixtures only if the real binary is not viable in CI (justified case).
+**Verification**: the suite `step run → real subprocess → protocol → public JSON output → store → settle` runs against `claude` (or its recorded fixtures) and passes.
 
-### F-06 — isolated vs shared gobernado por on_logical_conflict [E2E] · P0 · [ ]
-**Criterio**: `isolated` vs `shared` sobre el mismo path: `on_logical_conflict: block` (default) impide el arranque; `allow` (opt-in explícito del workflow) lo permite.
-**Verificación**: fixture block → segundo step bloqueado; fixture allow → arranca.
+### F-06 — Fallback between harnesses without semantic classification [E2E] · P0 · [ ]
+**Criterion**: a step with `harness: [opencode, claudecode]` (or the reverse) falls back to the next candidate on clean error, without classifying the cause; when candidates are exhausted the step fails with sanitized evidence from each candidate.
+**Verification**: first candidate fails cleanly → the second receives the bounded accumulated context (≤ 2 MiB) and runs; both fail → step `failed` with evidence from both.
 
-### F-07 — Recursos externos siempre shared [E2E] · P1 · [ ]
-**Criterio**: los paths declarados como externos al repo en la configuración del proyecto se tratan siempre como `shared`.
-**Verificación**: path externo (p. ej. caché) reclamado por dos steps → bloqueo compartido aunque ambos sean isolated.
+### U-01 — Capability negotiation by table [UNIT] · P0 · [ ]
+**Criterion**: each optional method is only invoked if announced; new capabilities are additive without incrementing the protocol major version; the major version only changes on incompatible changes to the mandatory methods.
+**Verification**: table tests with capability combinations (empty, partial, complete, future additive).
 
-### U-01 — Canonicalización del path lógico [UNIT] · P0 · [ ]
-**Criterio**: la canonicalización (resuelta, sin symlinks, relativa al repo) maneja symlinks, `..`, absolutos y bordes de prefijo sin falsos positivos ni escapes.
-**Verificación**: tabla de casos límite incluyendo `src/foo` vs `src/foobar`, symlink dentro/fuera del repo.
+### U-02 — First-class contract test suite [UNIT] · P1 · [ ]
+**Criterion**: the public-boundary contract test suite exists as a first-class repository artifact from the start.
+**Verification**: the repository contains the versioned, runnable suite, not an intent document.
 
-### U-02 — Acquire atómico [UNIT] · P0 · [ ]
-**Criterio**: `Acquire` es atómico (INSERT ... ON CONFLICT): dos adquisiciones concurrentes incompatibles → una gana, la otra recibe `Acquired=false` con el dueño actual.
-**Verificación**: test de concurrencia (workers / `Promise.all` sobre la misma base) con el mismo path y modos incompatibles.
+### U-03 — Generic ACP adapter (Zed's standard) [INT] · P1 · [ ]
+**Criterion**: the "acp-generic" adapter translates the internal contract to **ACP (Agent Client Protocol, open standard driven by Zed)** and back (initialize, session/new, session/prompt, session/update, session/cancel, session/request_permission) with protocol fixtures.
+**Verification**: simulated ACP harness (fixtures) → the adapter completes the full cycle and the capability translations are bijective.
 
-### U-03 — Matriz de comportamiento completa [UNIT] · P1 · [ ]
-**Criterio**: las cuatro filas de la matriz de comportamiento (isolated/isolated, shared/shared, isolated/shared block, isolated/shared allow) tienen tests de tabla; `Release` con owner incorrecto no libera el reclamo de otro.
-**Verificación**: tests de tabla parametrizados por modo y policy; release con owner/step ajeno → rechazado.
-
----
-
-# Spec: v2-composicion — Composición de workflows
-
-### F-01 — DAG plano bajo un único execution_id [E2E] · P0 · [ ]
-**Criterio**: un step `type: workflow` referencia otro YAML; la composición ocurre en planificación, el resultado es un único DAG plano bajo un único `execution_id`, sin ejecuciones hijas.
-**Verificación**: workflow con un nodo workflow → `steps next` expone los steps internos aplanados; `status` no muestra ninguna ejecución hija.
-
-### F-02 — Namespacing de steps internos [E2E] · P0 · [ ]
-**Criterio**: los steps internos se identifican `<nodo>.<step_interno>`; incluir el mismo workflow dos veces con nodos distintos no colisiona.
-**Verificación**: workflow con dos nodos al mismo archivo → ids `a.x`, `a.y`, `b.x`, `b.y` coexisten y ejecutan independientemente.
-
-### F-03 — Contrato inputs/outputs explícito [E2E] · P0 · [ ]
-**Criterio**: `inputs`/`outputs` solo son válidos en el archivo incluido; el padre cablea (`depends_on`, `requires`) solo contra ese contrato, nunca contra steps internos.
-**Verificación**: padre que referencia un step interno del incluido (no declarado como input/output) → error de validación claro.
-
-### F-04 — Bindings del nodo workflow [INT] · P1 · [ ]
-**Criterio**: `bindings` conecta `requires`/`produces` del padre con los `inputs`/`outputs` del incluido y la resolución de artefactos respeta esos mapeos.
-**Verificación**: fixture con bindings → los artefactos del padre alimentan los inputs correctos del incluido y viceversa.
-
-### F-05 — Detección estática de ciclos [E2E] · P0 · [ ]
-**Criterio**: un workflow no puede incluirse a sí mismo, directa o transitivamente; la detección es estática, sobre el grafo de referencias entre archivos, antes de aplanar.
-**Verificación**: fixture con auto-inclusión directa y transitiva → `run` falla con error de ciclo, sin ejecución creada.
-
-### F-06 — Cascada que ignora la frontera [E2E] · P0 · [ ]
-**Criterio**: la cascada de invalidación opera sobre el grafo aplanado de generaciones: reabrir un step invalida solo los steps internos cuyos `produces` alimentan realmente lo reabierto, con granularidad fina, independientemente del contrato `outputs` declarado.
-**Verificación**: nodo con dos steps internos donde solo uno alimenta lo reabierto → `step.reopen` invalida solo ese step interno, no el otro ni los de otros nodos.
-
-### F-07 — Paralelización por el mismo DAG [E2E] · P1 · [ ]
-**Criterio**: los nodos `workflow` sin `depends_on` entre sí son paralelizables por el mismo mecanismo que cualquier step.
-**Verificación**: dos nodos workflow sin dependencias → ambos aparecen en `steps next` como disponibles.
-
-### U-01 — Aplanado puro y reproducible [UNIT] · P0 · [ ]
-**Criterio**: el aplanado es una función pura: mismos archivos YAML → mismo DAG plano; incluye namespacing, contrato y orden topológico estable.
-**Verificación**: tests de igualdad estructural (hash del DAG) sobre fixtures de composición anidada, ejecutados dos veces.
-
-### U-02 — Ciclos estáticos por tabla [UNIT] · P0 · [ ]
-**Criterio**: la detección de ciclos cubre directo, transitivo y auto-inclusión con distinto nombre de nodo vs archivo.
-**Verificación**: tabla de fixtures de referencia entre archivos → resultado esperado en cada caso.
-
-### U-03 — Validación de contrato por tabla [UNIT] · P1 · [ ]
-**Criterio**: cablear contra un step interno no declarado, referenciar un input/output inexistente o declarar `inputs`/`outputs` en un archivo raíz → errores de validación específicos.
-**Verificación**: tabla de YAML inválidos → código de error y mensaje esperados.
-
-### U-04 — Schema v2 validado con zod (no JSON Schema) [UNIT] · P1 · [ ]
-**Criterio**: el schema del workflow v2 (version, steps, workspace, inputs/outputs, bindings y condicionales por tipo de step) se define con zod (práctica vigente del repo); el YAML se valida contra la representación zod equivalente, no contra JSON Schema; los errores nombran el campo exacto.
-**Verificación**: tabla de YAML inválidos → mensajes de error con path del campo y código estable.
+### U-04 — Transport-agnostic attempt [UNIT] · P0 · [ ]
+**Criterion**: `attempts` contains no transport fields; the details (native_session_id, protocol_version, extra) live in the per-adapter extension table.
+**Verification**: schema test: inserting an attempt without transport and with transport → both valid; native fields never appear in `attempts`.
 
 ---
 
-# Spec: v2-reporte — Reporte de cambios
+# Spec: v2-path-claims — path_claims and workspace isolation
 
-### F-01 — Reporte al terminar la ejecución de nivel superior [E2E] · P0 · [ ]
-**Criterio**: al terminar la ejecución de nivel superior, el sistema calcula y muestra qué archivos cambiaron respecto al punto de partida; `execution.report` devuelve `changed_files`.
-**Verificación**: ejecución que crea/modifica/elimina archivos → el reporte lista exactamente esos cambios.
+### F-01 — Worktree per execution by default [E2E] · P0 · [ ]
+**Criterion**: the system default is that each workflow execution runs in its own `git worktree`; the effective `workspace_root` is that worktree.
+**Verification**: `git worktree list` shows a new worktree per execution; the step's work happens inside it.
 
-### F-02 — Calculado una sola vez, solo a nivel superior [E2E] · P1 · [ ]
-**Criterio**: el reporte se calcula una sola vez, a nivel de la ejecución de nivel superior — nunca por cada workflow anidado internamente.
-**Verificación**: ejecución con nodos workflow anidados → un único reporte al final; ningún sub-reporte intermedio.
+### F-02 — 3-level isolation configuration [E2E] · P0 · [ ]
+**Criterion**: `workspace.mode` resolves by inheritance `system → workflow → step`, with per-step override; `workspace.shared` in a workflow disables isolation for all its steps unless overridden.
+**Verification**: three fixtures (workflow shared, step shared with isolated workflow, step isolated with shared workflow) → correct workspace_root in each case.
 
-### F-03 — Exactitud respecto al git real [INT] · P1 · [ ]
-**Criterio**: el reporte es exacto respecto al estado real del workspace: archivos nuevos, modificados, eliminados (y renombrados si aplica), contra el punto de partida.
-**Verificación**: fixture con los cuatro tipos de cambio → el reporte coincide con `git status`/`git diff --name-status` del workspace.
+### F-03 — Claims by logical identity and prefix [E2E] · P1 · [ ]
+**Criterion**: claims are made on the path's logical identity (relative, canonicalized, symlink-free) and claiming a directory blocks its children by prefix comparison.
+**Verification**: claiming `src/` → a second claim of `src/foo.ts` reports a conflict; `src/foobar/` does not collide with `src/foo/` (prefix boundary).
 
-### U-01 — Cálculo de diff por tabla [UNIT] · P1 · [ ]
-**Criterio**: el cálculo de `changed_files` compara el punto de partida (base/commit) con el estado final y cubre nuevos, modificados, eliminados y renombrados.
-**Verificación**: tests de tabla con repos de prueba (git real en memoria o directorio temporal).
+### F-04 — shared vs shared blocks [E2E] · P0 · [ ]
+**Criterion**: two `shared` steps with the same logical path: the second does not start until the first claim is released; release happens when the step finishes (success or failure), not when the execution ends.
+**Verification**: slow step A claiming `src/` → step B with `src/` stays blocked; A finishes (success) → B starts; failure case → B starts all the same.
 
----
+### F-05 — isolated vs isolated allows [E2E] · P1 · [ ]
+**Criterion**: two `isolated` steps with the same logical path run without blocking; divergences are only discovered at integration, outside Haro's scope.
+**Verification**: two concurrent isolated steps with `src/` → both start; no conflict is recorded.
 
-# Spec: v2-store — Persistencia tras interfaz de repositorio
+### F-06 — isolated vs shared governed by on_logical_conflict [E2E] · P0 · [ ]
+**Criterion**: `isolated` vs `shared` on the same path: `on_logical_conflict: block` (default) prevents startup; `allow` (explicit workflow opt-in) permits it.
+**Verification**: block fixture → second step blocked; allow fixture → starts.
 
-### F-01 — Ningún acceso directo fuera del store [INT] · P0 · [ ]
-**Criterio**: ninguna capa fuera del store accede a SQLite directamente; todo acceso pasa por las interfaces de repositorio.
-**Verificación**: script de verificación de dependencias (import graph / paquetes) que falla si un módulo de dominio o CLI importa el driver de persistencia.
+### F-07 — External resources always shared [E2E] · P1 · [ ]
+**Criterion**: paths declared as external to the repo in the project configuration are always treated as `shared`.
+**Verification**: external path (e.g. cache) claimed by two steps → shared blocking even if both are isolated.
 
-### F-02 — DDL v2 completo [INT] · P0 · [ ]
-**Criterio**: el esquema implementa las tablas de referencia: `projects`, `executions`, `execution_steps`, `generations`, `attempts`, `attempt_transport`, `leases`, `step_transition_events`, `attempt_events`, `interactions`, `path_claims` — con sus constraints y CHECK de enums.
-**Verificación**: inspección del esquema creado por el sistema (sin migraciones manuales) contra el DDL de referencia.
+### U-01 — Logical path canonicalization [UNIT] · P0 · [ ]
+**Criterion**: canonicalization (resolved, symlink-free, relative to the repo) handles symlinks, `..`, absolutes and prefix boundaries without false positives or escapes.
+**Verification**: table of edge cases including `src/foo` vs `src/foobar`, symlink inside/outside the repo.
 
-### F-03 — WAL y timestamps [INT] · P1 · [ ]
-**Criterio**: `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`; todas las columnas de tiempo son ISO 8601 UTC.
-**Verificación**: consulta de pragmas y muestreo de valores de tiempo en registros creados.
+### U-02 — Atomic Acquire [UNIT] · P0 · [ ]
+**Criterion**: `Acquire` is atomic (INSERT ... ON CONFLICT): two incompatible concurrent acquisitions → one wins, the other receives `Acquired=false` with the current owner.
+**Verification**: concurrency test (workers / `Promise.all` over the same database) with the same path and incompatible modes.
 
-### U-01 — Backend intercambiable [UNIT] · P0 · [ ]
-**Criterio**: la suite de dominio (máquina de estados, leases, claims, eventos) corre contra un backend alternativo (in-memory/fake) que implementa las mismas interfaces, sin cambios en el código de dominio (puerta abierta a concurrencia futura).
-**Verificación**: la suite completa pasa contra el backend fake y contra SQLite con los mismos tests.
-
-### U-02 — Esquema idempotente [UNIT] · P1 · [ ]
-**Criterio**: la creación/migración del esquema es idempotente y transaccional (re-ejecución no rompe, fallo a mitad no deja estado parcial).
-**Verificación**: crear dos veces + simular fallo a mitad de migración → estado consistente.
-
-### U-03 — CHECK de enums [UNIT] · P1 · [ ]
-**Criterio**: los enums (`status` de executions/steps/attempts, `type` de steps, modos de workspace) rechazan valores inválidos a nivel de base de datos.
-**Verificación**: INSERT con valor inválido → error de constraint.
+### U-03 — Complete behavior matrix [UNIT] · P1 · [ ]
+**Criterion**: the four rows of the behavior matrix (isolated/isolated, shared/shared, isolated/shared block, isolated/shared allow) have table tests; `Release` with the wrong owner does not release someone else's claim.
+**Verification**: table tests parameterized by mode and policy; release with a foreign owner/step → rejected.
 
 ---
 
-# Spec: v2-distribucion — Distribución
+# Spec: v2-composicion — Workflow composition
 
-### F-01 — Instalación de punta a punta [E2E] · P0 · [ ]
-**Criterio**: el mecanismo de distribución es el vigente — paquete npm global (`pnpm add -g shardeo`), bin `dist/index.js`, `files: ["dist"]`, `prepublishOnly` con build — y la instalación funciona en un proyecto limpio sin pasos manuales adicionales.
-**Verificación**: instalación en entorno limpio → `shardeo` resoluble y ejecutable; `npm run build` produce `dist/` completo.
+### F-01 — Flat DAG under a single execution_id [E2E] · P0 · [ ]
+**Criterion**: a `type: workflow` step references another YAML; composition happens at planning time, the result is a single flat DAG under a single `execution_id`, with no child executions.
+**Verification**: workflow with a workflow node → `steps next` exposes the flattened internal steps; `status` shows no child execution.
 
-### F-02 — Sin scripts post-install [E2E] · P1 · [ ]
-**Criterio**: la instalación no ejecuta scripts post-install que corran código (vector de ataque conocido; pnpm los desactiva por defecto).
-**Verificación**: revisión del paquete/artefacto de distribución → sin hooks de instalación ejecutables.
+### F-02 — Internal step namespacing [E2E] · P0 · [ ]
+**Criterion**: internal steps are identified `<node>.<internal_step>`; including the same workflow twice under different nodes does not collide.
+**Verification**: workflow with two nodes pointing at the same file → ids `a.x`, `a.y`, `b.x`, `b.y` coexist and run independently.
 
-### F-03 — init sin dependencias adicionales [E2E] · P1 · [ ]
-**Criterio**: `shardeo init` funciona en un proyecto sin ninguna dependencia previa instalada (herramienta local de un solo checkout, sin infraestructura de red).
-**Verificación**: proyecto vacío → init completo; ninguna llamada de red requerida (verificable por red deshabilitada).
+### F-03 — Explicit inputs/outputs contract [E2E] · P0 · [ ]
+**Criterion**: `inputs`/`outputs` are only valid in the included file; the parent wires (`depends_on`, `requires`) only against that contract, never against internal steps.
+**Verification**: parent referencing an internal step of the included file (not declared as input/output) → clear validation error.
+
+### F-04 — Workflow node bindings [INT] · P1 · [ ]
+**Criterion**: `bindings` connects the parent's `requires`/`produces` with the included file's `inputs`/`outputs` and artifact resolution respects those mappings.
+**Verification**: fixture with bindings → the parent's artifacts feed the included file's correct inputs and vice versa.
+
+### F-05 — Static cycle detection [E2E] · P0 · [ ]
+**Criterion**: a workflow cannot include itself, directly or transitively; detection is static, over the file-reference graph, before flattening.
+**Verification**: fixture with direct and transitive self-inclusion → `run` fails with a cycle error, without a created execution.
+
+### F-06 — Cascade that ignores the boundary [E2E] · P0 · [ ]
+**Criterion**: the invalidation cascade operates on the flattened generation graph: reopening a step invalidates only the internal steps whose `produces` actually feed what was reopened, with fine granularity, regardless of the declared `outputs` contract.
+**Verification**: node with two internal steps where only one feeds what was reopened → `step.reopen` invalidates only that internal step, not the other or those of other nodes.
+
+### F-07 — Parallelization through the same DAG [E2E] · P1 · [ ]
+**Criterion**: `workflow` nodes without `depends_on` between them are parallelizable through the same mechanism as any step.
+**Verification**: two workflow nodes without dependencies → both appear in `steps next` as available.
+
+### U-01 — Pure and reproducible flattening [UNIT] · P0 · [ ]
+**Criterion**: flattening is a pure function: same YAML files → same flat DAG; includes namespacing, contract and stable topological order.
+**Verification**: structural equality tests (DAG hash) on nested composition fixtures, run twice.
+
+### U-02 — Static cycles by table [UNIT] · P0 · [ ]
+**Criterion**: cycle detection covers direct, transitive and self-inclusion with different node name vs file.
+**Verification**: table of file-reference fixtures → expected result in each case.
+
+### U-03 — Contract validation by table [UNIT] · P1 · [ ]
+**Criterion**: wiring against an undeclared internal step, referencing a nonexistent input/output or declaring `inputs`/`outputs` in a root file → specific validation errors.
+**Verification**: table of invalid YAMLs → expected error code and message.
+
+### U-04 — v2 schema validated with zod (not JSON Schema) [UNIT] · P1 · [ ]
+**Criterion**: the v2 workflow schema (version, steps, workspace, inputs/outputs, bindings and per-step-type conditionals) is defined with zod (current repo practice); the YAML is validated against the equivalent zod representation, not against JSON Schema; errors name the exact field.
+**Verification**: table of invalid YAMLs → error messages with field path and stable code.
 
 ---
 
-# Spec: v2-flujo-gentle-ai — Flujo de desarrollo con gentle-ai
+# Spec: v2-reporte — Change reporting
 
-### F-01 — Cada spec como change SDD [PROC] · P0 · [ ]
-**Criterio**: cada spec de este archivo (v2-reconciliacion, v2-no-regresion, v2-broker…v2-distribucion) se desarrolla como un change SDD con proposal → spec → design → tasks → apply → verify → archive; los criterios de este archivo son la fuente de los criterios de aceptación de cada spec.
-**Verificación**: existe un change por spec con trazabilidad criterio → spec → tests.
+### F-01 — Report at top-level execution completion [E2E] · P0 · [ ]
+**Criterion**: when the top-level execution finishes, the system computes and shows which files changed relative to the starting point; `execution.report` returns `changed_files`.
+**Verification**: execution that creates/modifies/deletes files → the report lists exactly those changes.
 
-### F-02 — Verificación vía sdd-verify [PROC] · P0 · [ ]
-**Criterio**: `sdd-verify` (o la verificación equivalente del flujo gentle-ai) ejecuta las verificaciones descritas: los `[E2E]` como frontera pública, los `[UNIT]`/`[INT]` como tests del módulo.
-**Verificación**: el reporte de verificación de cada change lista los criterios cubiertos con su evidencia.
+### F-02 — Computed once, only at top level [E2E] · P1 · [ ]
+**Criterion**: the report is computed once, at the top-level execution level — never per internally nested workflow.
+**Verification**: execution with nested workflow nodes → a single report at the end; no intermediate sub-reports.
 
-### F-03 — Entrega por el flujo gentle-ai [PROC] · P0 · [ ]
-**Criterio**: la entrega de cada delta pasa por las gates del flujo gentle-ai (review receipts, delivery gates), no por el pipeline de iniciativas; no se crean nuevas iniciativas.
-**Verificación**: historial de entregas con receipts; ausencia de `.docs/initiatives/` nuevas.
+### F-03 — Accuracy against real git [INT] · P1 · [ ]
+**Criterion**: the report is accurate against the workspace's real state: new, modified, deleted files (and renamed if applicable), against the starting point.
+**Verification**: fixture with the four change types → the report matches `git status`/`git diff --name-status` of the workspace.
 
-### U-01 — Trazabilidad criterio→test [UNIT] · P1 · [ ]
-**Criterio**: cada criterio de este archivo tiene al menos un test nombrado que lo verifica (mapeo explícito, p. ej. tabla en la spec del change).
-**Verificación**: script de auditoría que recorre los IDs de criterios y confirma su test correspondiente existe y pasa.
+### U-01 — Diff computation by table [UNIT] · P1 · [ ]
+**Criterion**: the `changed_files` computation compares the starting point (base/commit) with the final state and covers new, modified, deleted and renamed.
+**Verification**: table tests with test repos (real git in memory or temporary directory).
 
 ---
 
-## Resumen de tracking
+# Spec: v2-store — Persistence behind a repository interface
 
-> **Fuente única de tracking**: este documento. Cada criterio lleva checkbox (`- [ ]` pendiente / `- [x]` cumplido) en su encabezado. La columna **Estado** de la tabla refleja la fase SDD del change de cada spec — `pendiente → proposal → spec → design → tasks → apply → verify → archive → completo` — y se actualiza al cierre de cada fase. El detalle fino (artefactos, evidencia, decisiones) vive en los artifacts del change (openspec/ + Engram).
+### F-01 — No direct access outside the store [INT] · P0 · [ ]
+**Criterion**: no layer outside the store accesses SQLite directly; all access goes through the repository interfaces.
+**Verification**: dependency verification script (import graph / packages) that fails if a domain or CLI module imports the persistence driver.
 
-| id-spec | Contenido | Criterios | P0 | Estado |
+### F-02 — Complete v2 DDL [INT] · P0 · [ ]
+**Criterion**: the schema implements the reference tables: `projects`, `executions`, `execution_steps`, `generations`, `attempts`, `attempt_transport`, `leases`, `step_transition_events`, `attempt_events`, `interactions`, `path_claims` — with their constraints and enum CHECKs.
+**Verification**: inspection of the schema created by the system (without manual migrations) against the reference DDL.
+
+### F-03 — WAL and timestamps [INT] · P1 · [ ]
+**Criterion**: `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`; all time columns are ISO 8601 UTC.
+**Verification**: pragma query and sampling of time values in created records.
+
+### U-01 — Interchangeable backend [UNIT] · P0 · [ ]
+**Criterion**: the domain suite (state machine, leases, claims, events) runs against an alternative backend (in-memory/fake) implementing the same interfaces, without changes to the domain code (door open to future concurrency).
+**Verification**: the full suite passes against the fake backend and against SQLite with the same tests.
+
+### U-02 — Idempotent schema [UNIT] · P1 · [ ]
+**Criterion**: schema creation/migration is idempotent and transactional (re-running does not break, mid-way failure leaves no partial state).
+**Verification**: create twice + simulate mid-migration failure → consistent state.
+
+### U-03 — Enum CHECKs [UNIT] · P1 · [ ]
+**Criterion**: the enums (`status` of executions/steps/attempts, `type` of steps, workspace modes) reject invalid values at the database level.
+**Verification**: INSERT with invalid value → constraint error.
+
+---
+
+# Spec: v2-distribucion — Distribution
+
+### F-01 — End-to-end installation [E2E] · P0 · [ ]
+**Criterion**: the distribution mechanism is the current one — global npm package (`pnpm add -g shardeo`), bin `dist/index.js`, `files: ["dist"]`, `prepublishOnly` with build — and installation works in a clean project without additional manual steps.
+**Verification**: installation in a clean environment → `shardeo` resolvable and executable; `npm run build` produces a complete `dist/`.
+
+### F-02 — No post-install scripts [E2E] · P1 · [ ]
+**Criterion**: installation does not run post-install scripts that execute code (known attack vector; pnpm disables them by default).
+**Verification**: review of the distribution package/artifact → no executable install hooks.
+
+### F-03 — init without additional dependencies [E2E] · P1 · [ ]
+**Criterion**: `shardeo init` works in a project without any previously installed dependency (single-checkout local tool, no network infrastructure).
+**Verification**: empty project → complete init; no network call required (verifiable with network disabled).
+
+---
+
+# Spec: v2-flujo-gentle-ai — Development flow with gentle-ai
+
+### F-01 — Each spec as an SDD change [PROC] · P0 · [ ]
+**Criterion**: each spec in this file (v2-reconciliacion, v2-no-regresion, v2-broker…v2-distribucion) is developed as an SDD change with proposal → spec → design → tasks → apply → verify → archive; the criteria in this file are the source of each spec's acceptance criteria.
+**Verification**: one change per spec with criterion → spec → tests traceability.
+
+### F-02 — Verification via sdd-verify [PROC] · P0 · [ ]
+**Criterion**: `sdd-verify` (or the equivalent verification of the gentle-ai flow) runs the described verifications: the `[E2E]` ones as public boundary, the `[UNIT]`/`[INT]` ones as module tests.
+**Verification**: each change's verification report lists the covered criteria with their evidence.
+
+### F-03 — Delivery through the gentle-ai flow [PROC] · P0 · [ ]
+**Criterion**: each delta's delivery goes through the gentle-ai flow gates (review receipts, delivery gates), not through the initiatives pipeline; no new initiatives are created.
+**Verification**: delivery history with receipts; absence of new `.docs/initiatives/`.
+
+### U-01 — Criterion→test traceability [UNIT] · P1 · [ ]
+**Criterion**: each criterion in this file has at least one named test verifying it (explicit mapping, e.g. table in the change's spec).
+**Verification**: audit script that walks the criterion IDs and confirms their corresponding test exists and passes.
+
+---
+
+## Tracking summary
+
+> **Single tracking source**: this document. Each criterion carries a checkbox (`- [ ]` pending / `- [x]` met) in its header. The **Status** column of the table reflects the SDD phase of each spec's change — `pending → proposal → spec → design → tasks → apply → verify → archive → complete` — and is updated at the close of each phase. Fine detail (artifacts, evidence, decisions) lives in the change's artifacts (openspec/ + Engram).
+
+| id-spec | Content | Criteria | P0 | Status |
 |---|---|---|---|---|
-| `v2-reconciliacion` | Reconciliación de la documentación normativa | 5 | 3 | **completo** |
-| `v2-no-regresion` | Preservación Specs 1–9 | 17 | 14 | pendiente |
-| `v2-broker` | Broker persistente por proyecto | 9 | 4 | pendiente |
-| `v2-ipc` | IPC JSON-RPC CLI↔Broker y eventos | 13 | 6 | pendiente |
-| `v2-adapter` | Contrato de adapter v2 y multi-harness | 10 | 6 | pendiente |
-| `v2-path-claims` | path_claims y aislamiento de workspace | 10 | 5 | pendiente |
-| `v2-composicion` | Composición de workflows | 11 | 6 | pendiente |
-| `v2-reporte` | Reporte de cambios | 4 | 1 | pendiente |
-| `v2-store` | Persistencia tras interfaz de repositorio | 6 | 3 | pendiente |
-| `v2-distribucion` | Distribución | 3 | 1 | pendiente |
-| `v2-flujo-gentle-ai` | Flujo de desarrollo con gentle-ai | 4 | 3 | pendiente |
+| `v2-reconciliacion` | Reconciliation of the normative documentation | 5 | 3 | **complete** |
+| `v2-no-regresion` | Preservation of Specs 1–9 | 17 | 14 | pending |
+| `v2-broker` | Persistent per-project broker | 9 | 4 | pending |
+| `v2-ipc` | JSON-RPC IPC CLI↔Broker and events | 13 | 6 | pending |
+| `v2-adapter` | v2 adapter contract and multi-harness | 10 | 6 | pending |
+| `v2-path-claims` | path_claims and workspace isolation | 10 | 5 | pending |
+| `v2-composicion` | Workflow composition | 11 | 6 | pending |
+| `v2-reporte` | Change reporting | 4 | 1 | pending |
+| `v2-store` | Persistence behind a repository interface | 6 | 3 | pending |
+| `v2-distribucion` | Distribution | 3 | 1 | pending |
+| `v2-flujo-gentle-ai` | Development flow with gentle-ai | 4 | 3 | pending |
 | **Total** | | **92** | **52** | |
 
-Última actualización: 2026-08-27 — `v2-reconciliacion` **completo** (5/5 criterios, verify PASS, archivado en `openspec/changes/archive/2026-08-27-v2-reconciliacion/`).
+Last updated: 2026-08-27 — `v2-reconciliacion` **complete** (5/5 criteria, verify PASS, archived in `openspec/changes/archive/2026-08-27-v2-reconciliacion/`).
 
-## Fuera de alcance (explícitamente no cubierto)
+## Out of scope (explicitly not covered)
 
-- `shardeo doctor`, `shardeo setup` y el registro de CLIs en `config.yaml` (roadmap "Futuro: v2" de AGENTS.md): no forman parte de la propuesta normativa v2; se gestionan como specs aparte si se deciden.
-- Concurrencia multi-usuario compartida: diferido; `v2-store/U-01` solo garantiza que la interfaz no lo bloquee.
-- Bundle CAS de interacciones (parte no implementada): diferido; `v2-no-regresion/F-08` cubre solo lo ya existente (Spec 9a).
+- `shardeo doctor`, `shardeo setup` and CLI registration in `config.yaml` (AGENTS.md's "Future: v2" roadmap): they are not part of the v2 normative proposal; they are managed as separate specs if decided.
+- Shared multi-user concurrency: deferred; `v2-store/U-01` only guarantees that the interface does not block it.
+- Interaction bundle CAS (unimplemented part): deferred; `v2-no-regresion/F-08` covers only what already exists (Spec 9a).

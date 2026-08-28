@@ -1,34 +1,35 @@
-# AGENTS.md — Convenciones para agentes IA
+# AGENTS.md — Conventions for AI agents
 
-Este repositorio es sobre agentes de codificación IA y se trabaja en él con agentes. Estas convenciones aplican a cualquier agente (o humano) que edite el repo.
+This repository is about AI coding agents and is worked on with agents. These conventions apply to any agent (or human) editing the repo.
 
-## Idioma
+## Language
 
-- El idioma del repositorio es **español**: documentación, artefactos técnicos, mensajes de commit, PRs e issues se escriben en español.
-- Sigue la convención existente de los documentos: tono profesional, sin emojis, sin relleno.
+- The repository's written language is **English**: documentation, technical artifacts (including gentle-ai/openspec/SDD artifacts), commit messages, PRs and issues are written in English.
+- Conversation with the user may be in any language.
+- Follow the existing document convention: professional tone, no emojis, no filler.
 
-## Fuentes de verdad
+## Sources of truth
 
-1. **`deltas-acceptance.md`** — el contrato: 92 criterios de aceptación organizados en specs, con IDs tipo `v2-no-regresion/F-01` (`F-<n>` funcional, `U-<n>` unitario). Un criterio está cumplido solo cuando su verificación pasa de forma reproducible.
-2. **`docs/v2/haro-constitucion.md`** — normativa del proyecto (trazabilidad, fail-closed, neutralidad metodológica, core sin literales de proveedor, reglas de estabilidad).
-3. **`docs/v2/haro-especificacion-tecnica.md`** — especificación técnica v2 (schema YAML, DDL SQLite, interfaces, protocolos JSON-RPC/ACP).
-4. **`docs/reference/`** — comportamiento v1 (oráculo de la migración; los contratos de v1 se preservan salvo que la normativa v2 diga lo contrario).
+1. **`deltas-acceptance.md`** — the contract: 92 acceptance criteria organized in specs, with IDs like `v2-no-regresion/F-01` (`F-<n>` functional, `U-<n>` unit). A criterion is met only when its verification passes reproducibly.
+2. **`docs/v2/haro-constitucion.md`** — project regulations (traceability, fail-closed, methodological neutrality, core without provider literals, stability rules).
+3. **`docs/v2/haro-especificacion-tecnica.md`** — v2 technical specification (YAML schema, SQLite DDL, interfaces, JSON-RPC/ACP protocols).
+4. **`docs/reference/`** — v1 behavior (migration oracle; v1 contracts are preserved unless v2 regulations say otherwise).
 
-En conflicto entre fuentes, la constitución y el contrato prevalecen. No modifiques los documentos existentes sin un cambio SDD que lo justifique.
+On conflict between sources, the constitution and the contract prevail. Do not modify existing documents without an SDD change that justifies it.
 
 ## Stack
 
-- **Go puro, sin cgo** (SQLite vía `modernc.org/sqlite`), CLI, JSON-RPC sobre socket Unix, YAML.
-- Aún **no existe `go.mod`**: se creará en la fase spike. No lo generes por adelantado.
-- **Postura de seguridad**: no se incorporan scripts de instalación de terceros ni hooks que ejecuten código externo en el repo (política del proyecto; la instalación de dependencias pasa por el gestor de paquetes estándar).
+- **Pure Go, no cgo** (SQLite via `modernc.org/sqlite`), CLI, JSON-RPC over Unix socket, YAML.
+- **`go.mod` does not exist yet**: it will be created in the spike phase. Do not generate it in advance.
+- **Security posture**: no third-party installation scripts or hooks that execute external code are incorporated into the repo (project policy; dependency installation goes through the standard package manager).
 
-## Fuera de alcance
+## Out of scope
 
-- **Terminal embebida / PTY**: diferida. No diseñar ni implementar nada en esa superficie.
+- **Embedded terminal / PTY**: deferred. Do not design or implement anything on that surface.
 
-## Flujo de desarrollo
+## Development flow
 
-- Cada spec de `deltas-acceptance.md` se desarrolla como un **change SDD** en `openspec/` (ciclo `proposal → spec → design → tasks → apply → verify → archive`); los cambios completados se archivan en `openspec/changes/archive/`.
-- **Gate**: CI verde (`go build ./...`, `go vet ./...`, `go test ./... -race`, golangci-lint, govulncheck). Localmente, al menos `go test ./...`.
-- **Commits convencionales** (`feat(...)`, `fix(...)`, `docs(...)`, `refactor(...)`, `test(...)`, `chore(...)`) y PRs pequeños como work units.
-- Al añadir artefactos de build o cobertura, añade las entradas correspondientes al `.gitignore` sin borrar las existentes.
+- Each spec of `deltas-acceptance.md` is developed as an **SDD change** in `openspec/` (cycle `proposal → spec → design → tasks → apply → verify → archive`); completed changes are archived in `openspec/changes/archive/`.
+- **Gate**: green CI (`go build ./...`, `go vet ./...`, `go test ./... -race`, golangci-lint, govulncheck). Locally, at least `go test ./...`.
+- **Conventional commits** (`feat(...)`, `fix(...)`, `docs(...)`, `refactor(...)`, `test(...)`, `chore(...)`) and small PRs as work units.
+- When adding build or coverage artifacts, add the corresponding entries to `.gitignore` without deleting existing ones.
