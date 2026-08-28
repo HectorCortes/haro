@@ -1,0 +1,6 @@
+version: 2
+name: sample
+steps:
+  - id: build
+    type: command
+    run: echo hello
