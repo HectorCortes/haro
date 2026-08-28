@@ -17,7 +17,7 @@ func TestHealthRoundtrip(t *testing.T) {
 		t.Fatalf("Listen: %v", err)
 	}
 	t.Cleanup(func() {
-		l.Close()
+		_ = l.Close()
 		// Remove is not strictly needed after Close, but ensures cleanup.
 		// net.Listen creates a socket file; we remove it.
 		// Error is ignored if already removed.
@@ -39,7 +39,7 @@ func TestHealthRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	req := Request{JSONRPC: "2.0", Method: "health", ID: 1}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
@@ -69,7 +69,7 @@ func TestHealthDecodeError(t *testing.T) {
 		t.Fatalf("Listen: %v", err)
 	}
 	t.Cleanup(func() {
-		l.Close()
+		_ = l.Close()
 		_ = removeSocket(sock)
 	})
 
@@ -87,7 +87,7 @@ func TestHealthDecodeError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send invalid JSON.
 	if _, err := conn.Write([]byte("not json\n")); err != nil {
@@ -110,7 +110,7 @@ func TestHealthUnsupportedMethod(t *testing.T) {
 		t.Fatalf("Listen: %v", err)
 	}
 	t.Cleanup(func() {
-		l.Close()
+		_ = l.Close()
 		_ = removeSocket(sock)
 	})
 
@@ -128,7 +128,7 @@ func TestHealthUnsupportedMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	req := Request{JSONRPC: "2.0", Method: "unknown", ID: 1}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {

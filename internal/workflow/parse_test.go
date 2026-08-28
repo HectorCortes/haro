@@ -53,7 +53,7 @@ func TestParse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("open temp file: %v", err)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			wf, err := Parse(f)
 			if (err != nil) != tt.wantErr {

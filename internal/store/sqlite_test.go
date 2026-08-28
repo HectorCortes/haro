@@ -14,7 +14,7 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 
@@ -23,7 +23,7 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Conn: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Enable foreign keys and assert it is 1.
 	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {

@@ -31,20 +31,20 @@ Project budget 20000 > est. 500, so single PR approved despite generic 400 guard
 
 ## Phase 1: Bootstrap
 
-- [ ] 1.1 Create `go.mod` (`github.com/HectorCortes/haro`, `go 1.23`) + `go get modernc.org/sqlite gopkg.in/yaml.v3 && go mod tidy`. Covers F-01,F-05. Verify: `CGO_ENABLED=0 go build ./...`.
-- [ ] 1.2 Create `main.go` (print `haro v0.0.0-spike`, exit 0). Deps: 1.1. Covers F-01. Verify: `go build -o haro . && ./haro`; `go vet ./...`.
+- [x] 1.1 Create `go.mod` (`github.com/HectorCortes/haro`, `go 1.23`) + `go get modernc.org/sqlite gopkg.in/yaml.v3 && go mod tidy`. Covers F-01,F-05. Verify: `CGO_ENABLED=0 go build ./...`.
+- [x] 1.2 Create `main.go` (print `haro v0.0.0-spike`, exit 0). Deps: 1.1. Covers F-01. Verify: `go build -o haro . && ./haro`; `go vet ./...`.
 
 ## Phase 2: Core Proofs
 
-- [ ] 2.1 Create `testdata/sample-workflow.yaml` + `internal/workflow/parse.go` + `parse_test.go` (valid/wrong version/empty). Deps: 1.1. Covers U-02. Verify: `go test ./internal/workflow -race`.
-- [ ] 2.2 Create `internal/store/sqlite_test.go` (WAL success-only, FK=1, create/insert/select). Deps: 1.1. Covers F-06. Verify: `go test ./internal/store -race`.
-- [ ] 2.3 Create `internal/ipc/health.go` + `health_test.go` (short `h.sock`, cleanup). Deps: 1.1. Covers F-07. Verify: `go test ./internal/ipc -race`.
-- [ ] 2.4 Create `internal/adapter/capabilities.go` + `capabilities_test.go` (roundtrip preserves `_` extra). Deps: 1.1. Covers U-03. Verify: `go test ./internal/adapter -race`.
+- [x] 2.1 Create `testdata/sample-workflow.yaml` + `internal/workflow/parse.go` + `parse_test.go` (valid/wrong version/empty). Deps: 1.1. Covers U-02. Verify: `go test ./internal/workflow -race`.
+- [x] 2.2 Create `internal/store/sqlite_test.go` (WAL success-only, FK=1, create/insert/select). Deps: 1.1. Covers F-06. Verify: `go test ./internal/store -race`.
+- [x] 2.3 Create `internal/ipc/health.go` + `health_test.go` (short `h.sock`, cleanup). Deps: 1.1. Covers F-07. Verify: `go test ./internal/ipc -race`.
+- [x] 2.4 Create `internal/adapter/capabilities.go` + `capabilities_test.go` (roundtrip preserves `_` extra). Deps: 1.1. Covers U-03. Verify: `go test ./internal/adapter -race`.
 
 ## Phase 3: Config
 
-- [ ] 3.1 Rewrite `openspec/config.yaml` (Go context, keep `auto`/`both`/`single-pr`, budget 20000, `strict_tdd true`, runner `go test ./...`, linter `golangci-lint run`, checker `go vet ./...`). Deps: 2.1-2.4. Covers U-01. Verify: no `npm`/`tsc`.
-- [ ] 3.2 Append `.gitignore` (`*.out`,`coverage.*`,`*.cover`), preserve 7 lines. Deps: 3.1. Covers U-01. Verify: diff only additions.
+- [x] 3.1 Rewrite `openspec/config.yaml` (Go context, keep `auto`/`both`/`single-pr`, budget 20000, `strict_tdd true`, runner `go test ./...`, linter `golangci-lint run`, checker `go vet ./...`). Deps: 2.1-2.4. Covers U-01. Verify: no `npm`/`tsc`.
+- [x] 3.2 Append `.gitignore` (`*.out`,`coverage.*`,`*.cover`), preserve 7 lines. Deps: 3.1. Covers U-01. Verify: diff only additions.
 
 ## Phase 4: Gate
 

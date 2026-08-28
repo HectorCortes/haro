@@ -30,7 +30,7 @@ type Result struct {
 // and responds with {"jsonrpc":"2.0","result":{"ok":true},"id":1}.
 // Transport, decode or write failures return errors.
 func HandleConn(c net.Conn) error {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	dec := json.NewDecoder(c)
 	var req Request
