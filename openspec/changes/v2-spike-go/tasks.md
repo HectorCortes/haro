@@ -48,7 +48,7 @@ Project budget 20000 > est. 500, so single PR approved despite generic 400 guard
 
 ## Phase 4: Gate
 
-- [ ] 4.1 Run `go build ./...`, `go build -o haro .`, `go vet ./...`, `go test ./... -race`, `golangci-lint run`, `govulncheck ./...`. Deps: all. Covers F-01..F-07,U-01..U-03. Verify: all exit 0.
+- [x] 4.1 Run `go build ./...`, `go build -o haro .`, `go vet ./...`, `go test ./... -race`, `golangci-lint run`, `govulncheck ./...`. Deps: all. Covers F-01..F-07,U-01..U-03. Verify: all exit 0.
 
 Coverage: F-01:1.1,1.2,4.1 F-02:3.1,4.1 F-03:2.1-2.4,4.1 F-04:3.1,4.1 F-05:1.1,4.1 U-01:3.1,3.2,4.1 U-02:2.1,4.1 F-06:2.2,4.1 F-07:2.3,4.1 U-03:2.4,4.1 — Threat matrix N/A.
 
