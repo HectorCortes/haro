@@ -1,85 +1,85 @@
-# Shardeo — Especificaciones Funcionales del MVP
+# Shardeo — Functional Specifications of the MVP
 
 ---
 
-## Principio de orquestación
+## Orchestration principle
 
-Shardeo ejecuta y persiste las transiciones solicitadas por un agente orquestador, pero no interpreta el significado semántico de las respuestas de los agentes ni decide qué camino debe seguir un workflow.
+Shardeo executes and persists the transitions requested by an orchestrating agent, but does not interpret the semantic meaning of agent responses nor decide which path a workflow should follow.
 
-Las instrucciones generales del workflow definen cómo debe conducir el proceso el orquestador: cuándo solicitar aprobación al usuario, cómo interpretar el resultado de un step y cuándo reintentar, reabrir u omitir trabajo. Las instrucciones de cada step describen únicamente cómo debe ejecutar su tarea el agente o comando correspondiente.
+The workflow's general instructions define how the orchestrator should conduct the process: when to ask the user for approval, how to interpret a step's outcome, and when to retry, reopen, or skip work. Each step's instructions describe only how the corresponding agent or command should execute its task.
 
-Las decisiones del orquestador se materializan mediante comandos explícitos de Shardeo para que cada transición sea validada, persistida y trazable.
+The orchestrator's decisions materialize through explicit Shardeo commands so that each transition is validated, persisted, and traceable.
 
 ---
 
-## Spec 1: Inicialización del proyecto
+## Spec 1: Project initialization
 
 status: done
 
-### Objetivo
+### Objective
 
-Permitir que un usuario prepare cualquier repositorio para usar Shardeo, generando la estructura de directorios y archivos de configuración necesarios para definir workflows.
+Let a user prepare any repository to use Shardeo, generating the directory structure and configuration files needed to define workflows.
 
-### Descripción funcional
+### Functional description
 
-El usuario instala Shardeo globalmente (`pnpm add -g shardeo`) y luego ejecuta `shardeo init` dentro de la raíz de un proyecto. Shardeo genera la carpeta `.shardeo/` con la estructura completa: `config.yaml`, y los directorios `workflows/`, `skills/`, `artifacts/` y `docs/`. Si la estructura ya existe, Shardeo informa al usuario sin sobrescribir nada.
+The user installs Shardeo globally (`pnpm add -g shardeo`) and then runs `shardeo init` inside the root of a project. Shardeo generates the `.shardeo/` folder with the complete structure: `config.yaml`, and the `workflows/`, `skills/`, `artifacts/`, and `docs/` directories. If the structure already exists, Shardeo informs the user without overwriting anything.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- `shardeo init` crea la estructura `.shardeo/` con todos los subdirectorios documentados (`workflows/`, `skills/`, `artifacts/`, `docs/`).
-- Se genera un `config.yaml` con valores por defecto válidos.
-- Si `.shardeo/` ya existe, el comando termina sin error y sin modificar el contenido existente, informando que el proyecto ya está inicializado.
-- El comando falla con un mensaje claro si se ejecuta en un directorio donde no hay permisos de escritura.
-- La salida del comando confirma la ruta de la estructura generada.
+- `shardeo init` creates the `.shardeo/` structure with all documented subdirectories (`workflows/`, `skills/`, `artifacts/`, `docs/`).
+- A `config.yaml` with valid default values is generated.
+- If `.shardeo/` already exists, the command exits without error and without modifying the existing content, reporting that the project is already initialized.
+- The command fails with a clear message if run in a directory without write permissions.
+- The command's output confirms the path of the generated structure.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ cd ~/projects/my-api
 $ shardeo init
-✓ Proyecto inicializado en /home/user/projects/my-api/.shardeo/
+✓ Project initialized at /home/user/projects/my-api/.shardeo/
 ```
 
 ---
 
-## Spec 2: Descubrimiento de workflows
+## Spec 2: Workflow discovery
 
 status: done
 
-### Objetivo
+### Objective
 
-Permitir que el orquestador (o el usuario directamente) explore qué workflows están disponibles en el proyecto, entienda su propósito y conozca su estructura antes de ejecutarlos.
+Let the orchestrator (or the user directly) explore which workflows are available in the project, understand their purpose, and know their structure before running them.
 
-### Descripción funcional
+### Functional description
 
-El usuario ejecuta `shardeo workflows list` para obtener la lista de workflows definidos en `.shardeo/workflows/`, cada uno con su nombre y descripción extraídos del `workflow.yaml`. Para un workflow específico, ejecuta `shardeo workflows describe <workflow>`, que retorna el detalle completo: descripción, instrucciones generales (contenido del `instructions.md`), lista de steps con sus tipos, dependencias y artefactos producidos.
+The user runs `shardeo workflows list` to get the list of workflows defined in `.shardeo/workflows/`, each with its name and description extracted from the `workflow.yaml`. For a specific workflow, they run `shardeo workflows describe <workflow>`, which returns the full detail: description, general instructions (content of the `instructions.md`), and the list of steps with their types, dependencies, and produced artifacts.
 
-Ambos comandos validan la estructura YAML con Zod antes de presentar resultados. Si un workflow tiene errores de schema, aparece en el listado marcado como inválido, con el error específico.
+Both commands validate the YAML structure with Zod before presenting results. If a workflow has schema errors, it appears in the listing marked as invalid, with the specific error.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- `shardeo workflows list` muestra nombre y descripción de cada workflow encontrado en `.shardeo/workflows/`.
-- Si no hay workflows definidos, el comando retorna un mensaje informativo (no un error).
-- `shardeo workflows describe <workflow>` muestra: descripción, instrucciones generales, y para cada step: id, tipo, agentes configurados (si aplica), orden de ejecución (`depends_on`), validaciones de entrada (`requires`) y validaciones de salida (`produces`).
-- Si el workflow referenciado no existe, el comando falla con un mensaje claro indicando los workflows disponibles.
-- Un workflow con YAML malformado o que no pasa la validación de schema aparece en `list` marcado como inválido, y `describe` muestra el error de validación concreto.
-- La salida es estructurada (JSON) para consumo del orquestador, con una opción de formato legible para uso humano directo.
+- `shardeo workflows list` shows the name and description of each workflow found in `.shardeo/workflows/`.
+- If no workflows are defined, the command returns an informative message (not an error).
+- `shardeo workflows describe <workflow>` shows: description, general instructions, and for each step: id, type, configured agents (if applicable), execution order (`depends_on`), input validations (`requires`), and output validations (`produces`).
+- If the referenced workflow does not exist, the command fails with a clear message listing the available workflows.
+- A workflow with malformed YAML or that fails schema validation appears in `list` marked as invalid, and `describe` shows the concrete validation error.
+- The output is structured (JSON) for orchestrator consumption, with a readable format option for direct human use.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ shardeo workflows list
 ┌──────────────────┬──────────────────────────────────────────────┐
-│ Workflow         │ Descripción                                  │
+│ Workflow         │ Description                                  │
 ├──────────────────┼──────────────────────────────────────────────┤
-│ backend-feature  │ Workflow para desarrollar una feature de     │
-│                  │ backend, desde diseño hasta tests.           │
-│ hotfix           │ Workflow para aplicar un fix crítico.        │
+│ backend-feature  │ Workflow to develop a backend feature, from  │
+│                  │ design to tests.                             │
+│ hotfix           │ Workflow to apply a critical fix.            │
 └──────────────────┴──────────────────────────────────────────────┘
 
 $ shardeo workflows describe backend-feature
 # backend-feature
-Workflow para desarrollar una feature de backend...
+Workflow to develop a backend feature...
 
 Steps:
   1. architecture (agent) → produces: architecture.md, adr.md
@@ -91,489 +91,470 @@ Steps:
 
 ---
 
-## Spec 3: Ejecución de un workflow con steps de tipo command
+## Spec 3: Running a workflow with command-type steps
 
 status: done
 
-### Objetivo
+### Objective
 
-Permitir la ejecución completa de un workflow que contenga únicamente steps de tipo `command`, validando el ciclo de vida completo: inicio, resolución de orden de ejecución (`depends_on`), validación de artefactos (`requires`/`produces`), y finalización.
+Allow the complete execution of a workflow that contains only `command`-type steps, validating the full lifecycle: start, execution order resolution (`depends_on`), artifact validation (`requires`/`produces`), and completion.
 
-### Descripción funcional
+### Functional description
 
-El usuario ejecuta `shardeo run <workflow>`, lo que registra la ejecución en la base de datos SQLite y retorna un `execution-id`. A partir de ahí, el flujo sigue el modelo de ejecución de Shardeo: el orquestador (o el usuario) consulta `shardeo steps next <execution-id>` para obtener los steps ejecutables, luego ejecuta cada uno con `shardeo step run <execution-id> <step-id>`.
+The user runs `shardeo run <workflow>`, which records the execution in the SQLite database and returns an `execution-id`. From there, the flow follows Shardeo's execution model: the orchestrator (or the user) queries `shardeo steps next <execution-id>` to get the executable steps, then runs each one with `shardeo step run <execution-id> <step-id>`.
 
-Para steps de tipo `command`, Shardeo ejecuta el comando declarado, captura stdout/stderr y el código de retorno. Si el comando retorna exit code 0, Shardeo valida que los artefactos declarados en `produces` existan y marca el step como completado automáticamente. Si el comando falla o los artefactos no fueron generados, el step se marca como fallido.
+For `command`-type steps, Shardeo executes the declared command and captures stdout/stderr and the exit code. If the command returns exit code 0, Shardeo validates that the artifacts declared in `produces` exist and marks the step as completed automatically. If the command fails or the artifacts were not generated, the step is marked as failed.
 
-`shardeo status <execution-id>` muestra el estado actual de la ejecución: qué steps se completaron, cuáles fallaron y cuáles están pendientes.
+`shardeo status <execution-id>` shows the current state of the execution: which steps were completed, which failed, and which are pending.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- `shardeo run <workflow>` crea un registro de ejecución y retorna un `execution-id` único.
-- `shardeo steps next <execution-id>` retorna los steps cuyos predecessores (`depends_on`) se han completado y que aún no han sido completados ni están en ejecución. Steps sin `depends_on` aparecen como disponibles inmediatamente.
-- Si todos los steps pendientes tienen predecessores incompletos, retorna una lista vacía.
-- `shardeo step run <execution-id> <step-id>` valida primero que los artefactos en `requires` existan. Si faltan, el step no se ejecuta y retorna un error con la lista de artefactos ausentes.
-- Si la validación de `requires` pasa, ejecuta el comando, captura su salida y código de retorno.
-- Un step de tipo `command` con exit code 0 y artefactos de `produces` generados correctamente se marca como completado sin intervención del orquestador.
-- Un step con exit code distinto de 0 se marca como fallido, incluyendo stdout y stderr en la respuesta.
-- Un step con exit code 0 pero artefactos de `produces` faltantes se marca como fallido con un mensaje que indica qué artefactos no se encontraron.
-- `shardeo status <execution-id>` muestra el estado de cada step (pendiente, completado, fallido) y el estado general del workflow.
-- No se puede ejecutar un step cuyos predecessores (`depends_on`) no se han completado; el comando retorna un error explícito.
+- `shardeo run <workflow>` creates an execution record and returns a unique `execution-id`.
+- `shardeo steps next <execution-id>` returns the steps whose predecessors (`depends_on`) are completed and that are not yet completed or in execution. Steps without `depends_on` appear as immediately available.
+- If all pending steps have incomplete predecessors, it returns an empty list.
+- `shardeo step run <execution-id> <step-id>` first validates that the artifacts in `requires` exist. If they are missing, the step is not executed and it returns an error with the list of missing artifacts.
+- If the `requires` validation passes, it executes the command and captures its output and exit code.
+- A `command`-type step with exit code 0 and `produces` artifacts generated correctly is marked as completed without orchestrator intervention.
+- A step with a non-zero exit code is marked as failed, including stdout and stderr in the response.
+- A step with exit code 0 but missing `produces` artifacts is marked as failed with a message indicating which artifacts were not found.
+- `shardeo status <execution-id>` shows the state of each step (pending, completed, failed) and the overall workflow state.
+- A step whose predecessors (`depends_on`) are not completed cannot be executed; the command returns an explicit error.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ shardeo run lint-only-workflow
-Ejecución iniciada: exec-a1b2c3
+Execution started: exec-a1b2c3
 
 $ shardeo steps next exec-a1b2c3
-Steps disponibles:
+Available steps:
   - lint (command)
 
 $ shardeo step run exec-a1b2c3 lint
-Ejecutando: npm run lint
+Running: npm run lint
 Exit code: 0
-Step completado.
+Step completed.
 
 $ shardeo status exec-a1b2c3
 Workflow: lint-only-workflow
-Estado: completado
+Status: completed
 Steps:
-  ✓ lint — completado
+  ✓ lint — completed
 ```
 
 ---
 
-## Spec 4: Ejecución de steps de tipo agent
+## Spec 4: Executing agent-type steps
 
 status: implemented
 
-### Objetivo
+### Objective
 
-Permitir que Shardeo ejecute steps que requieren un agente de IA, resolviendo qué CLI utilizar, inyectando el contexto necesario y retornando el resultado al orquestador para que decida si el step está completo.
+Let Shardeo execute steps that require an AI agent, resolving which CLI to use, injecting the necessary context, and returning the result to the orchestrator so it can decide whether the step is complete.
 
-### Descripción funcional
+### Functional description
 
-Cuando el orquestador ejecuta `shardeo step run <execution-id> <step-id>` sobre un step de tipo `agent`, Shardeo vuelve a leer y validar el YAML completo del workflow antes de ejecutar el step. Si el formato o alguna regla de negocio no es válida, retorna el error sin invocar ningún CLI ni modificar el estado del step. Esta validación se repite en cada ejecución porque el workflow puede cambiar entre steps.
+When the orchestrator runs `shardeo step run <execution-id> <step-id>` on an `agent`-type step, Shardeo re-reads and validates the complete workflow YAML before executing the step. If the format or any business rule is invalid, it returns the error without invoking any CLI or modifying the step state. This validation is repeated on every execution because the workflow can change between steps.
 
-Después de validar el workflow, Shardeo:
+After validating the workflow, Shardeo:
 
-1. Resuelve candidatos exclusivamente desde `steps[].agents`, en orden declarado. En v1, el único identificador válido es `opencode`; el modelo es opcional y opaco. Un candidato no disponible se omite sin crear intento. Después de una invocación iniciada, limpiada y con JSONL válido, cualquier error limpio hace fallback al siguiente candidato **sin clasificación semántica** de su causa.
-2. Construye el contexto del step: instrucciones operacionales (generadas por Shardeo) + instrucciones de dominio (el `instructions.md` del step) + skills referenciados + artefactos requeridos.
-3. Invoca el CLI en modo no interactivo y sin flags de bypass de permisos (`--auto` nunca se inyecta). El valor de modelo se pasa sin modificar; el CLI es responsable de la validación semántica.
-4. Monitorea el timeout de inactividad configurable (default 5 minutos), que se reinicia con cualquier evento de salida. Si el timeout expira, el step termina con `permission_timeout`.
-5. Detecta solicitudes de aprobación únicamente mediante fixtures exactos y versionados de OpenCode 1.17.18. En la versión 1, una coincidencia es terminal (`permission_required`). La resolución en vivo mediante adapters y sesiones gestionadas se define en la Spec 9 (modos `supervised` y `terminal`), ya implementada; la ruta `headless` de esta spec conserva su comportamiento salvo la migración de inactividad de la Spec 9.
-6. Captura un baseline real antes de cada intento y conserva snapshots de archivos nuevos o modificados con SHA-256. El presupuesto acumulativo de contenido crudo es 1 MiB por step; excederlo produce `artifact_context_too_large`.
-7. Persiste evidencia canónica y acotada. `DiagnosticRaw` es la única autoridad de bytes diagnósticos sin redactar: hasta 1 MiB conserva el frame exacto; si excede el límite, conserva prefijo, sufijo, tamaño y SHA-256. `AttemptEvidence`, las columnas legacy y la consola reciben únicamente proyecciones sanitizadas de hasta 16 KiB.
-8. Cuando un error limpio habilita fallback, construye para el siguiente candidato un contexto extendido con las instrucciones, skills y artefactos requeridos originales, más una proyección sanitizada de snapshots, errores concretos del proveedor y referencias de intentos anteriores. Esta proyección nunca incluye evidencia cruda y tiene un presupuesto acumulado de 2 MiB por `step run`.
+1. Resolves candidates exclusively from `steps[].agents`, in declared order. In v1, the only valid identifier is `opencode`; the model is optional and opaque. An unavailable candidate is skipped without creating an attempt. After an invocation that started, was cleaned up, and produced valid JSONL, any clean error falls back to the next candidate **without semantic classification** of its cause.
+2. Builds the step context: operational instructions (generated by Shardeo) + domain instructions (the step's `instructions.md`) + referenced skills + required artifacts.
+3. Invokes the CLI in non-interactive mode and without permission-bypass flags (`--auto` is never injected). The model value is passed unmodified; the CLI is responsible for semantic validation.
+4. Monitors the configurable inactivity timeout (default 5 minutes), which resets on any output event. If the timeout expires, the step terminates with `permission_timeout`.
+5. Detects approval requests only through exact, versioned fixtures of OpenCode 1.17.18. In version 1, a match is terminal (`permission_required`). Live resolution through adapters and managed sessions is defined in Spec 9 (modes `supervised` and `terminal`), already implemented; the `headless` path of this spec keeps its behavior except for the Spec 9 inactivity migration.
+6. Captures a real baseline before each attempt and keeps snapshots of new or modified files with SHA-256. The cumulative raw content budget is 1 MiB per step; exceeding it produces `artifact_context_too_large`.
+7. Persists canonical, bounded evidence. `DiagnosticRaw` is the only authority for unredacted diagnostic bytes: up to 1 MiB it keeps the exact frame; if it exceeds the limit, it keeps prefix, suffix, size, and SHA-256. `AttemptEvidence`, the legacy columns, and the console receive only sanitized projections of up to 16 KiB.
+8. When a clean error enables fallback, it builds for the next candidate an extended context with the original instructions, skills, and required artifacts, plus a sanitized projection of snapshots, concrete provider errors, and references to previous attempts. This projection never includes raw evidence and has an accumulated budget of 2 MiB per `step run`.
 
-El step NO se marca como completado automáticamente. El orquestador debe invocar `shardeo step complete <execution-id> <step-id>` para hacerlo. En ese momento, Shardeo valida que los artefactos declarados en `produces` existan bajo `.shardeo/artifacts/`. Si no existen, el comando falla y el step permanece en estado "en progreso".
+The step is NOT marked as completed automatically. The orchestrator must invoke `shardeo step complete <execution-id> <step-id>` to do so. At that moment, Shardeo validates that the artifacts declared in `produces` exist under `.shardeo/artifacts/`. If they do not exist, the command fails and the step remains in the "in progress" state.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- Shardeo obtiene los candidatos exclusivamente de `steps[].agents`, recorre la lista en orden y usa el primer CLI soportado que esté disponible en el PATH.
-- En v1, el único CLI soportado es `opencode`.
-- Antes de ejecutar cada step, Shardeo vuelve a leer y valida el YAML completo del workflow, incluyendo su formato y reglas de negocio.
-- Un workflow que declara cualquier agente distinto de `opencode` es inválido. La ejecución retorna un error antes de invocar un CLI o modificar el estado del step.
-- Si un CLI soportado no está instalado o no está disponible, Shardeo intenta con el siguiente candidato declarado sin crear un intento para el candidato descartado durante el sondeo.
-- Si ninguna sonda de disponibilidad supera la validación antes de invocar un CLI, el step falla con una respuesta que incluye evidencia sanitizada de todos los candidatos evaluados y no se crea ningún intento.
-- Todo error limpio de OpenCode que cumpla los gates de proceso y JSONL se registra y avanza al siguiente candidato, sin inferir si proviene de cuota, contexto, modelo o proveedor.
-- `permission_required`, `permission_timeout`, `artifact_context_too_large`, `adapter_contract_error`, `process_start_failed`, `process_cleanup_failed`, `context_error` y `persistence_error` son terminales en la versión 1 y no hacen fallback. Los modos gestionados que resuelven permisos en vivo (`supervised` y `terminal`) se definen en la Spec 9, ya implementada; la ruta `headless` de esta spec conserva estos códigos salvo que la inactividad pasa a reportarse como `process_inactivity_timeout` según la migración de la Spec 9.
-- Cada invocación de un CLI se registra como un intento independiente del mismo step.
-- Cada candidato invocado por fallback recibe un contexto extendido con las instrucciones, skills y artefactos requeridos originales, una proyección sanitizada de snapshots y errores previos, y referencias de intentos anteriores. La proyección nunca contiene evidencia cruda y su presupuesto acumulado es 2 MiB por `step run`.
-- El contexto inyectado al CLI incluye, en este orden: instrucciones operacionales, instrucciones de dominio, skills, y contenido de los artefactos requeridos.
-- El CLI se invoca en modo no interactivo con `shell: false`. No se inyecta `--auto` ni ningún otro flag de bypass de permisos.
-- La respuesta visible se sanitiza y limita; la evidencia local acotada conserva el material de diagnóstico y su digest.
-- `shardeo step complete <execution-id> <step-id>` valida `produces` bajo `.shardeo/artifacts/` con contención: rechaza paths absolutos, `..` y escapes por symlink; permite symlinks cuyo destino permanece dentro de la raíz.
-- Para un step `agent`, `shardeo step complete` valida primero que todos los artefactos declarados en `produces` existan y sean seguros. Solo entonces marca el step como completado. Los steps cuyos predecesores declarados en `depends_on` estén completados pasan a estar disponibles en `steps next`; `requires` se valida únicamente al ejecutar el step.
-- La respuesta completa o parcial, el CLI utilizado, el modelo y el motivo de finalización de cada intento se almacenan en la base de datos.
-- Los snapshots de artefactos se capturan con hash SHA-256, excluyendo archivos sin cambios. El presupuesto acumulativo es 1 MiB por step.
-- La validación de artefactos (`requires`/`produces`) rechaza paths absolutos, `..` y escapes por symlink para steps `agent` y `command`.
+- Shardeo gets the candidates exclusively from `steps[].agents`, walks the list in order, and uses the first supported CLI available in the PATH.
+- In v1, the only supported CLI is `opencode`.
+- Before executing each step, Shardeo re-reads and validates the complete workflow YAML, including its format and business rules.
+- A workflow that declares any agent other than `opencode` is invalid. Execution returns an error before invoking a CLI or modifying the step state.
+- If a supported CLI is not installed or unavailable, Shardeo tries the next declared candidate without creating an attempt for the discarded candidate during probing.
+- If no availability probe passes validation before invoking a CLI, the step fails with a response that includes sanitized evidence of all evaluated candidates and no attempt is created.
+- Every clean OpenCode error that meets the process and JSONL gates is recorded and advances to the next candidate, without inferring whether it comes from quota, context, model, or provider.
+- `permission_required`, `permission_timeout`, `artifact_context_too_large`, `adapter_contract_error`, `process_start_failed`, `process_cleanup_failed`, `context_error`, and `persistence_error` are terminal in version 1 and do not fall back. The managed modes that resolve permissions live (`supervised` and `terminal`) are defined in Spec 9, already implemented; the `headless` path of this spec keeps these codes except that inactivity is reported as `process_inactivity_timeout` per the Spec 9 migration.
+- Each CLI invocation is recorded as an independent attempt of the same step.
+- Each candidate invoked by fallback receives an extended context with the original instructions, skills, and required artifacts, a sanitized projection of snapshots and previous errors, and references to previous attempts. The projection never contains raw evidence and its accumulated budget is 2 MiB per `step run`.
+- The context injected into the CLI includes, in this order: operational instructions, domain instructions, skills, and the content of the required artifacts.
+- The CLI is invoked in non-interactive mode with `shell: false`. Neither `--auto` nor any other permission-bypass flag is injected.
+- The visible response is sanitized and limited; the bounded local evidence keeps the diagnostic material and its digest.
+- `shardeo step complete <execution-id> <step-id>` validates `produces` under `.shardeo/artifacts/` with containment: it rejects absolute paths, `..`, and symlink escapes; it allows symlinks whose destination stays within the root.
+- For an `agent` step, `shardeo step complete` first validates that all artifacts declared in `produces` exist and are safe. Only then does it mark the step as completed. Steps whose predecessors declared in `depends_on` are completed become available in `steps next`; `requires` is validated only when executing the step.
+- The complete or partial response, the CLI used, the model, and the completion reason of each attempt are stored in the database.
+- Artifact snapshots are captured with SHA-256 hashing, excluding unchanged files. The cumulative budget is 1 MiB per step.
+- Artifact validation (`requires`/`produces`) rejects absolute paths, `..`, and symlink escapes for `agent` and `command` steps.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ shardeo step run exec-a1b2c3 architecture
-Resolviendo candidato... opencode (openai/gpt-4o) ✓
-Inyectando contexto: instrucciones + 2 skills
-Ejecutando en modo no interactivo...
+Resolving candidate... opencode (openai/gpt-4o) ✓
+Injecting context: instructions + 2 skills
+Running in non-interactive mode...
 
-Respuesta del agente:
-  [proyección sanitizada de la respuesta de OpenCode]
+Agent response:
+  [sanitized projection of the OpenCode response]
 
 $ shardeo step complete exec-a1b2c3 architecture
-Validando artefactos:
+Validating artifacts:
   ✓ architecture.md
   ✓ adr.md
-Step completado.
+Step completed.
 ```
 
 ---
 
-## Spec 5: Grafo de ejecución y resolución de paralelismo
+## Spec 5: Execution graph and parallelism resolution
 
 status: pending
 
-### Objetivo
+### Objective
 
-Permitir que Shardeo resuelva el orden de ejecución de los steps basándose en el grafo definido por `depends_on`, y que informe al orquestador cuándo hay steps que pueden ejecutarse en paralelo.
+Let Shardeo resolve the execution order of steps based on the graph defined by `depends_on`, and report to the orchestrator when there are steps that can run in parallel.
 
-### Descripción funcional
+### Functional description
 
-Shardeo construye un grafo dirigido acíclico (DAG) a partir de las relaciones `depends_on` entre steps. Cada propiedad tiene una sola responsabilidad: `depends_on` define orden, `requires` valida entradas, `produces` valida salidas. Solo `depends_on` participa en la construcción del grafo.
+Shardeo builds a directed acyclic graph (DAG) from the `depends_on` relationships between steps. Each property has a single responsibility: `depends_on` defines order, `requires` validates inputs, `produces` validates outputs. Only `depends_on` participates in graph construction.
 
-Al iniciar un workflow (`shardeo run`), Shardeo ejecuta tres validaciones sobre el grafo antes de registrar la ejecución:
+When starting a workflow (`shardeo run`), Shardeo performs three validations on the graph before recording the execution:
 
-1. Que exista al menos un step sin `depends_on` (punto de entrada del workflow).
-2. Que no haya ciclos (A después de B, B después de A).
-3. Que todo ID referenciado en `depends_on` corresponda a un step existente en el workflow.
+1. That at least one step without `depends_on` exists (the workflow's entry point).
+2. That there are no cycles (A after B, B after A).
+3. That every ID referenced in `depends_on` corresponds to a step that exists in the workflow.
 
-Cuando el orquestador consulta `shardeo steps next`, Shardeo retorna todos los steps cuyos predecessores (`depends_on`) se han completado. Si hay múltiples steps disponibles simultáneamente, los retorna todos. La decisión de ejecutarlos en paralelo o secuencialmente es del orquestador. Shardeo no ejecuta nada en paralelo por sí mismo.
+When the orchestrator queries `shardeo steps next`, Shardeo returns all steps whose predecessors (`depends_on`) are completed. If multiple steps are available simultaneously, it returns them all. The decision to run them in parallel or sequentially belongs to the orchestrator. Shardeo does not run anything in parallel by itself.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- `shardeo run` valida el grafo al iniciar. Si no hay ningún step sin `depends_on`, rechaza la ejecución indicando que no hay punto de entrada.
-- Si detecta un ciclo, rechaza la ejecución con un mensaje que identifica los steps involucrados.
-- Si un `depends_on` referencia un step ID que no existe en el workflow, rechaza la ejecución con el código `invalid_depends_on_reference` e indica la referencia inválida.
-- `shardeo steps next` retorna múltiples steps cuando sus predecessores (`depends_on`) se han completado simultáneamente (e.g., `api-design` y `database-design` después de completar `architecture`).
-- Un step con `depends_on: [api-design, database-design]` solo aparece como disponible cuando ambos se han completado.
-- Steps sin `depends_on` aparecen como disponibles inmediatamente al iniciar el workflow.
-- La respuesta de `steps next` incluye metadata suficiente para que el orquestador decida: id del step, tipo, y lista de agentes configurados.
-- La validación de `requires` (existencia de artefactos) ocurre al momento de ejecutar el step (`step run`), no al resolver el grafo.
+- `shardeo run` validates the graph on start. If there is no step without `depends_on`, it rejects the execution indicating there is no entry point.
+- If it detects a cycle, it rejects the execution with a message identifying the steps involved.
+- If a `depends_on` references a step ID that does not exist in the workflow, it rejects the execution with the code `invalid_depends_on_reference` and indicates the invalid reference.
+- `shardeo steps next` returns multiple steps when their predecessors (`depends_on`) are completed simultaneously (e.g., `api-design` and `database-design` after completing `architecture`).
+- A step with `depends_on: [api-design, database-design]` only appears as available when both are completed.
+- Steps without `depends_on` appear as available immediately when the workflow starts.
+- The `steps next` response includes enough metadata for the orchestrator to decide: step id, type, and the list of configured agents.
+- The `requires` validation (artifact existence) happens when executing the step (`step run`), not when resolving the graph.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ shardeo run backend-feature
-Validando grafo de ejecución... ✓
-Ejecución iniciada: exec-x7y8z9
+Validating execution graph... ✓
+Execution started: exec-x7y8z9
 
 $ shardeo steps next exec-x7y8z9
-Steps disponibles:
-  - architecture (agent) — sin predecessores
+Available steps:
+  - architecture (agent) — no predecessors
 
-  [orquestador completa 'architecture']
+  [orchestrator completes 'architecture']
 
 $ shardeo steps next exec-x7y8z9
-Steps disponibles:
+Available steps:
   - api-design (agent) — depends_on: architecture ✓
   - database-design (agent) — depends_on: architecture ✓
 
-  [ambos pueden ejecutarse en paralelo]
+  [both can run in parallel]
 ```
 
 ---
 
-## Spec 6: Re-ejecución de steps con contexto acumulado
+## Spec 6: Step re-execution with accumulated context
 
 status: pending
 
-### Objetivo
+### Objective
 
-Permitir que un step de tipo `agent` se ejecute múltiples veces antes de ser marcado como completado, entregando al agente el contexto de intentos anteriores y el feedback del usuario para que pueda iterar sobre su propio trabajo.
+Let an `agent`-type step run multiple times before being marked as completed, delivering to the agent the context of previous attempts and the user's feedback so it can iterate over its own work.
 
-### Descripción funcional
+### Functional description
 
-La Spec 4 define completamente el fallback automático entre candidatos dentro de un mismo `step run`, incluido su contexto acumulado, evidencia sanitizada y límites. Esta spec no modifica ese comportamiento. Añade la re-ejecución manual posterior de un step no completado y el parámetro `--feedback`.
+Spec 4 fully defines the automatic fallback between candidates within the same `step run`, including its accumulated context, sanitized evidence, and limits. This spec does not modify that behavior. It adds the later manual re-execution of an uncompleted step and the `--feedback` parameter.
 
-El feedback se envía como parámetro del comando: `shardeo step run <execution-id> <step-id> --feedback "El ADR no incluye alternativas evaluadas"`.
+Feedback is sent as a command parameter: `shardeo step run <execution-id> <step-id> --feedback "The ADR does not include evaluated alternatives"`.
 
-Cada invocación de un CLI se registra en la base de datos como un intento separado, vinculado al step y la ejecución. Esto incluye las invocaciones realizadas automáticamente por fallback. Cada intento almacena: número de intento, respuesta completa o parcial del agente, feedback recibido, artefactos generados, CLI utilizado y motivo de finalización.
+Each CLI invocation is recorded in the database as a separate attempt, linked to the step and the execution. This includes invocations made automatically by fallback. Each attempt stores: attempt number, complete or partial agent response, received feedback, generated artifacts, CLI used, and completion reason.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- Un step no completado puede re-ejecutarse con `shardeo step run` sin error.
-- En la re-ejecución, el contexto entregado al CLI incluye los artefactos generados en intentos anteriores.
-- Si se provee `--feedback`, el texto se incluye en el contexto entregado al agente, claramente delimitado de las instrucciones.
-- Cada intento se registra como una entrada separada en la base de datos con: timestamp, número de intento, respuesta completa o parcial, feedback, artefactos generados, CLI utilizado y motivo de finalización.
-- Los artefactos generados en una re-ejecución sobrescriben los de intentos anteriores en el filesystem (`.shardeo/artifacts/`), pero los anteriores permanecen registrados en la base de datos.
-- `shardeo step complete` valida los artefactos del último intento, independientemente de cuántos intentos haya habido.
+- An uncompleted step can be re-executed with `shardeo step run` without error.
+- On re-execution, the context delivered to the CLI includes the artifacts generated in previous attempts.
+- If `--feedback` is provided, the text is included in the context delivered to the agent, clearly delimited from the instructions.
+- Each attempt is recorded as a separate entry in the database with: timestamp, attempt number, complete or partial response, feedback, generated artifacts, CLI used, and completion reason.
+- Artifacts generated in a re-execution overwrite those of previous attempts on the filesystem (`.shardeo/artifacts/`), but the previous ones remain recorded in the database.
+- `shardeo step complete` validates the artifacts of the last attempt, regardless of how many attempts there have been.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ shardeo step run exec-x7y8z9 architecture
-[...respuesta del agente...]
+[...agent response...]
 
 $ shardeo step complete exec-x7y8z9 architecture
-✗ Artefacto faltante: adr.md
+✗ Missing artifact: adr.md
 
-$ shardeo step run exec-x7y8z9 architecture --feedback "Falta el ADR. Debe incluir alternativas evaluadas y justificación de la decisión."
-Intento #2
-Contexto: instrucciones + skills + architecture.md (intento anterior) + feedback
-[...respuesta del agente...]
+$ shardeo step run exec-x7y8z9 architecture --feedback "The ADR is missing. It must include evaluated alternatives and the justification of the decision."
+Attempt #2
+Context: instructions + skills + architecture.md (previous attempt) + feedback
+[...agent response...]
 
 $ shardeo step complete exec-x7y8z9 architecture
 ✓ architecture.md
 ✓ adr.md
-Step completado.
+Step completed.
 ```
 
 ---
 
-## Spec 7: Persistencia de ejecuciones y reanudación de workflows
+## Spec 7: Execution persistence and workflow resumption
 
 status: done
 
-### Objetivo
+### Objective
 
-Permitir que un workflow interrumpido (por error, cierre de terminal o cancelación) pueda retomarse desde el último estado conocido, sin perder el trabajo ya realizado.
+Let an interrupted workflow (due to an error, terminal closure, or cancellation) be resumed from the last known state, without losing the work already done.
 
-### Descripción funcional
+### Functional description
 
-Shardeo persiste toda la metadata de ejecución en una base de datos SQLite embebida. Cuando el usuario ejecuta `shardeo resume <execution-id>`, Shardeo consulta la base de datos, identifica qué steps se completaron, verifica que sus artefactos sigan presentes en el filesystem, y retoma el workflow desde ese punto.
+Shardeo persists all execution metadata in an embedded SQLite database. When the user runs `shardeo resume <execution-id>`, Shardeo queries the database, identifies which steps were completed, verifies that their artifacts are still present on the filesystem, and resumes the workflow from that point.
 
-El estado general persistido de la ejecución debe mantenerse sincronizado con las transiciones de sus steps. Cuando todos los steps del workflow se han completado, Shardeo persiste `executions.status = completed`; `shardeo status` no puede limitarse a calcular y mostrar `completed` mientras la fila de la ejecución permanece en `running`. La actualización debe ser atómica con la transición que completa el workflow o idempotente y recuperable si se realiza inmediatamente después.
+The persisted overall state of the execution must stay synchronized with its steps' transitions. When all steps of the workflow are completed, Shardeo persists `executions.status = completed`; `shardeo status` cannot merely compute and display `completed` while the execution row remains in `running`. The update must be atomic with the transition that completes the workflow, or idempotent and recoverable if performed immediately after.
 
-Si un artefacto fue completado en la base de datos pero su archivo no existe en `.shardeo/artifacts/`, Shardeo marca el step como "requiere reconstrucción" y entrega la respuesta anterior del agente como contexto para que el orquestador pueda reconstruirlo.
+If an artifact was completed in the database but its file does not exist in `.shardeo/artifacts/`, Shardeo marks the step as "requires reconstruction" and delivers the previous agent response as context so the orchestrator can reconstruct it.
 
-`shardeo status <execution-id>` muestra el estado completo de la ejecución incluyendo: steps completados (con timestamps y número de intentos), steps fallidos (con el error), steps pendientes y estado general del workflow.
+`shardeo status <execution-id>` shows the complete execution state including: completed steps (with timestamps and attempt counts), failed steps (with the error), pending steps, and the overall workflow state.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- Toda ejecución de workflow persiste en SQLite: workflow, fecha de inicio, estado general.
-- El estado general almacenado se actualiza después de cada transición que pueda cambiar el estado agregado del workflow.
-- Cuando se completa el último step pendiente, `executions.status` queda persistido como `completed`; la respuesta de `shardeo status` y la fila almacenada no pueden divergir.
-- Cada step ejecutado persiste: estado, timestamps, número de intentos, CLI utilizado.
-- Cada intento persiste: respuesta del agente, feedback, artefactos generados, métricas (duración).
-- `shardeo resume <execution-id>` retoma la ejecución sin re-ejecutar steps ya completados.
-- Si un artefacto completado no existe en el filesystem, `resume` marca el step correspondiente para reconstrucción y entrega la respuesta del agente anterior como contexto.
-- `shardeo status <execution-id>` muestra un resumen completo con estados, timestamps y número de intentos por step.
-- Si el `execution-id` no existe, `resume` y `status` fallan con un mensaje claro.
-- Un workflow cuyo último step se completó aparece con estado "completado" en `status`.
+- Every workflow execution is persisted in SQLite: workflow, start date, overall state.
+- The stored overall state is updated after every transition that can change the workflow's aggregate state.
+- When the last pending step is completed, `executions.status` is persisted as `completed`; the `shardeo status` response and the stored row cannot diverge.
+- Each executed step persists: state, timestamps, attempt count, CLI used.
+- Each attempt persists: agent response, feedback, generated artifacts, metrics (duration).
+- `shardeo resume <execution-id>` resumes the execution without re-running already completed steps.
+- If a completed artifact does not exist on the filesystem, `resume` marks the corresponding step for reconstruction and delivers the previous agent response as context.
+- `shardeo status <execution-id>` shows a complete summary with states, timestamps, and attempt counts per step.
+- If the `execution-id` does not exist, `resume` and `status` fail with a clear message.
+- A workflow whose last step was completed appears with a "completed" state in `status`.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```
 $ shardeo status exec-x7y8z9
 Workflow: backend-feature
-Estado: en progreso
-Inicio: 2026-07-05 10:30:00
+Status: in progress
+Start: 2026-07-05 10:30:00
 
 Steps:
-  ✓ architecture — completado (2 intentos, 10:32)
-  ✓ api-design — completado (1 intento, 10:45)
-  ✓ database-design — completado (1 intento, 10:44)
-  ✗ lint — fallido (exit code 1, 10:50)
-  ○ implementation — pendiente
+  ✓ architecture — completed (2 attempts, 10:32)
+  ✓ api-design — completed (1 attempt, 10:45)
+  ✓ database-design — completed (1 attempt, 10:44)
+  ✗ lint — failed (exit code 1, 10:50)
+  ○ implementation — pending
 
 $ shardeo resume exec-x7y8z9
-Retomando ejecución exec-x7y8z9...
-Steps completados: 3/5
-Verificando artefactos... ✓
+Resuming execution exec-x7y8z9...
+Steps completed: 3/5
+Verifying artifacts... ✓
 
 $ shardeo steps next exec-x7y8z9
-Steps disponibles:
-  - lint (command) — último intento falló, puede re-ejecutarse
+Available steps:
+  - lint (command) — last attempt failed, can be re-run
 ```
 
 ---
 
-## Spec 8: Control de iteración dirigido por el orquestador
+## Spec 8: Orchestrator-driven iteration control
 
 status: pending
 
-### Objetivo
+### Objective
 
-Permitir que el agente orquestador reabra trabajo completado u omita trabajo pendiente en respuesta al resultado de otros steps o a una decisión del usuario, sin incorporar condiciones de negocio ni decisiones metodológicas dentro de Shardeo.
+Allow the orchestrating agent to reopen completed work or skip pending work in response to the outcome of other steps or a user decision, without embedding business conditions or methodological decisions inside Shardeo.
 
-### Descripción funcional
+### Functional description
 
-El grafo definido por `depends_on` permanece estático. El orquestador interpreta las instrucciones del workflow y las respuestas de los steps, y solicita a Shardeo transiciones explícitas cuando necesita iterar o tomar una rama opcional.
+The graph defined by `depends_on` remains static. The orchestrator interprets the workflow instructions and the steps' responses, and requests explicit transitions from Shardeo when it needs to iterate or take an optional branch.
 
-Si un step posterior detecta que el resultado de un predecessor debe corregirse, el orquestador ejecuta:
-
-```
-shardeo step reopen <execution-id> <step-id> --cascade --feedback "<motivo>"
-```
-
-Shardeo conserva los intentos anteriores, reabre el step, invalida su generación completada y reinicia el estado de los descendientes afectados. El feedback queda asociado a la reapertura y se incluye en el contexto del siguiente intento del step.
-
-Los artefactos de una generación invalidada permanecen en el filesystem y en el historial para auditoría, pero no satisfacen `requires` ni permiten completar nuevamente el step de forma inmediata. Después de que finalice con éxito al menos un nuevo intento, `step complete` vuelve a validar el conjunto actual de artefactos declarados en `produces` y registra una nueva generación válida. Un artefacto puede conservar los mismos bytes si no necesitaba cambios; la validez pertenece a la nueva generación del step y no exige reescrituras artificiales de cada archivo.
-
-Si las instrucciones del workflow indican que un step pendiente no es necesario, el orquestador ejecuta:
+If a later step detects that the result of a predecessor must be corrected, the orchestrator runs:
 
 ```
-shardeo step skip <execution-id> <step-id> --reason "<motivo>"
+shardeo step reopen <execution-id> <step-id> --cascade --feedback "<reason>"
 ```
 
-El step pasa a estado `skipped`. Este estado se considera terminal al resolver dependencias `depends_on`, pero no genera artefactos ni satisface validaciones `requires`.
+Shardeo keeps the previous attempts, reopens the step, invalidates its completed generation, and resets the state of the affected descendants. The feedback stays associated with the reopening and is included in the context of the step's next attempt.
 
-Shardeo no evalúa expresiones condicionales ni interpreta respuestas de agentes. La decisión de reabrir u omitir un step pertenece exclusivamente al orquestador; Shardeo valida y persiste la transición solicitada.
+The artifacts of an invalidated generation remain on the filesystem and in the history for audit, but do not satisfy `requires` nor allow the step to be completed again immediately. After at least one new attempt finishes successfully, `step complete` revalidates the current set of artifacts declared in `produces` and records a new valid generation. An artifact can keep the same bytes if it needed no changes; validity belongs to the step's new generation and does not require artificial rewrites of every file.
 
-### Criterios de aceptación
+If the workflow instructions indicate that a pending step is not needed, the orchestrator runs:
 
-- `shardeo step reopen <execution-id> <step-id> --cascade --feedback <texto>` permite reabrir un step completado o fallido.
-- La reapertura conserva todos los intentos anteriores, sus respuestas, artefactos, feedback, timestamps y CLI utilizado.
-- El step reabierto vuelve a estar disponible para ejecución cuando sus predecessors originales permanecen completados o `skipped`.
-- El feedback de la reapertura se almacena y se incluye claramente delimitado en el contexto del siguiente intento.
-- `--cascade` reinicia a estado pendiente todos los descendientes que estuvieran en progreso, completados o fallidos, invalida sus generaciones completadas y conserva su historial de intentos.
-- Los artefactos de una generación invalidada no pueden satisfacer `requires` ni permitir `step complete` hasta que finalice con éxito al menos un nuevo intento del step y el conjunto actual de `produces` sea revalidado como una nueva generación. Los archivos que no requerían cambios pueden conservar sus bytes.
-- Si la reapertura afecta descendientes y no se proporciona `--cascade`, el comando falla e informa qué steps serían invalidados.
-- No se puede reabrir un step pendiente, en ejecución o `skipped`; el comando falla indicando su estado actual.
-- `shardeo step skip <execution-id> <step-id> --reason <texto>` permite omitir un step pendiente que todavía no tenga intentos iniciados.
-- No se puede omitir un step en ejecución, completado o fallido sin reabrir o resolver primero su estado actual.
-- Un step `skipped` se considera terminal para resolver dependencias `depends_on`.
-- Omitir un step no crea sus artefactos. Cualquier step posterior que los declare en `requires` falla normalmente al validar sus entradas.
-- Tanto `reopen` como `skip` registran el motivo, actor, timestamp y transición de estado en la base de datos.
-- `shardeo status <execution-id>` muestra steps reabiertos u omitidos, sus motivos y el historial de transiciones.
-- `shardeo steps next <execution-id>` recalcula los steps disponibles después de cada reapertura u omisión.
-- Las transiciones son rechazadas si el `execution-id` o el `step-id` no existen.
+```
+shardeo step skip <execution-id> <step-id> --reason "<reason>"
+```
 
-### Ejemplo de flujo de usuario
+The step moves to the `skipped` state. This state is considered terminal when resolving `depends_on` dependencies, but it generates no artifacts and does not satisfy `requires` validations.
+
+Shardeo does not evaluate conditional expressions nor interpret agent responses. The decision to reopen or skip a step belongs exclusively to the orchestrator; Shardeo validates and persists the requested transition.
+
+### Acceptance criteria
+
+- `shardeo step reopen <execution-id> <step-id> --cascade --feedback <text>` allows reopening a completed or failed step.
+- The reopening keeps all previous attempts, their responses, artifacts, feedback, timestamps, and CLI used.
+- The reopened step becomes available for execution again when its original predecessors remain completed or `skipped`.
+- The reopening feedback is stored and included clearly delimited in the context of the next attempt.
+- `--cascade` resets to pending state all descendants that were in progress, completed, or failed, invalidates their completed generations, and keeps their attempt history.
+- The artifacts of an invalidated generation cannot satisfy `requires` nor allow `step complete` until at least one new attempt of the step finishes successfully and the current `produces` set is revalidated as a new generation. Files that needed no changes can keep their bytes.
+- If the reopening affects descendants and `--cascade` is not provided, the command fails and reports which steps would be invalidated.
+- A pending, in-execution, or `skipped` step cannot be reopened; the command fails indicating its current state.
+- `shardeo step skip <execution-id> <step-id> --reason <text>` allows skipping a pending step that does not yet have started attempts.
+- A step in execution, completed, or failed cannot be skipped without first reopening or resolving its current state.
+- A `skipped` step is considered terminal when resolving `depends_on` dependencies.
+- Skipping a step does not create its artifacts. Any later step that declares them in `requires` fails normally when validating its inputs.
+- Both `reopen` and `skip` record the reason, actor, timestamp, and state transition in the database.
+- `shardeo status <execution-id>` shows reopened or skipped steps, their reasons, and the transition history.
+- `shardeo steps next <execution-id>` recomputes the available steps after each reopening or skip.
+- Transitions are rejected if the `execution-id` or the `step-id` does not exist.
+
+### Example user flow
 
 ```
 $ shardeo status exec-x7y8z9
 Steps:
-  ✓ implementation — completado (intento #1)
-  ✗ verification — fallido: criterio AC-3 no cumplido
+  ✓ implementation — completed (attempt #1)
+  ✗ verification — failed: criterion AC-3 not met
 
 $ shardeo step reopen exec-x7y8z9 implementation \
     --cascade \
     --feedback "Verification failed: criterion AC-3 is not satisfied"
 
-Step reabierto: implementation
-Descendientes reiniciados:
+Step reopened: implementation
+Descendants reset:
   - verification
 
 $ shardeo steps next exec-x7y8z9
-Steps disponibles:
-  - implementation (agent) — intento #2
+Available steps:
+  - implementation (agent) — attempt #2
 
 $ shardeo step run exec-x7y8z9 implementation
-Contexto: instrucciones + skills + artefactos anteriores + feedback de reapertura
+Context: instructions + skills + previous artifacts + reopen feedback
 ```
 
 ---
 
-## Spec 9: Superficies de ejecución e interacción gestionada para steps agent
+## Spec 9: Execution surfaces and managed interaction for agent steps
 
 status: implemented
 
-### Objetivo
+### Objective
 
-Definir una arquitectura multi-harness y neutral respecto del proveedor para
-ejecutar steps `agent` en tres superficies distintas: `headless`, `supervised` y
-`terminal`. Shardeo debe poder mediar permisos estructurados sin acoplar el core
-a un protocolo concreto, entregar el control exclusivo de una terminal a una
-persona cuando corresponda, entregar a cada intento gestionado un contexto
-reproducible sin depender de los límites de argumentos del sistema operativo y
-mantener separados los eventos de control de bajo volumen y el output completo.
+Define a multi-harness, provider-neutral architecture for running `agent` steps on three distinct surfaces: `headless`, `supervised`, and `terminal`. Shardeo must be able to mediate structured permissions without coupling the core to a specific protocol, hand exclusive control of a terminal to a person when appropriate, deliver reproducible context to each managed attempt without depending on operating-system argument limits, and keep low-volume control events and full output separate.
 
-Esta spec reemplaza la propuesta futura y no implementada de v2 basada en
-`interactive: boolean`, antes documentada en AGENTS.md; no reemplaza el
-comportamiento implementado de la Spec 4 en `headless`, salvo la migración
-explícita del resultado de inactividad (ver §8). Se implementó en tres rebanadas
-entregadas en `main`: `01-bundle-manifiesto-sondeo` (9a: bundle, manifiesto,
-sondeo, resolución de modo, transporte, contención), `02-supervised-events` (9b:
-supervisor, lease con fencing, IPC, broker de interacciones, eventos, output,
-política de permisos, timeouts) y `03-terminal-pty` (9c: PTY adjuntable,
-attach/reattach, timeout de presencia humana y handoff). Los contratos de
-adapters, comandos y eventos aquí documentados son la autoridad de
-comportamiento de los modos `supervised` y `terminal`; en `headless`, la Spec 4
-sigue siendo la autoridad para la ruta no interactiva salvo la migración
-documentada en §8.
+This spec replaces the future, unimplemented v2 proposal based on `interactive: boolean`, previously documented in AGENTS.md; it does not replace the implemented Spec 4 behavior in `headless`, except for the explicit migration of the inactivity outcome (see §8). It was implemented in three slices delivered on `main`: `01-bundle-manifiesto-sondeo` (9a: bundle, manifest, probing, mode resolution, transport, containment), `02-supervised-events` (9b: supervisor, lease with fencing, IPC, interaction broker, events, output, permission policy, timeouts), and `03-terminal-pty` (9c: attachable PTY, attach/reattach, human-presence timeout, and handoff). The adapter, command, and event contracts documented here are the behavioral authority of the `supervised` and `terminal` modes; in `headless`, Spec 4 remains the authority for the non-interactive path except for the migration documented in §8.
 
-### Resumen de decisiones
+### Decision summary
 
-| Tema | Decisión |
+| Topic | Decision |
 |---|---|
-| Superficies | Los modos son `headless`, `supervised` y `terminal`; no son variantes intercambiables de una misma sesión interactiva. |
-| Herencia | `step.mode > workflow.mode > config.yaml defaults.agent_mode`; el valor por defecto es `headless`. |
-| Override | `shardeo step run ... --mode <mode>` sobrescribe la configuración solo para ese intento. |
-| Integración | Cada harness se integra mediante un adapter que sondea capacidades reales en tiempo de ejecución. |
-| Contexto por intento | El core crea y congela un `context bundle` inmutable por intento gestionado, con un manifiesto neutral respecto del proveedor que conserva orden, límites y digests. |
-| Transporte de contexto | El adapter selecciona un transporte anunciado y seguro. El contrato del core es el manifiesto, nunca una sintaxis del proveedor como `@path`. |
-| Carga diferida | Referenciar contenido evita límites de tamaño del transporte y permite carga bajo demanda; todo contenido cargado sigue consumiendo tokens del modelo. |
-| Supervisión | `supervised` usa un supervisor local en background que mantiene la sesión y media interacciones estructuradas. |
-| Terminal | `terminal` crea una terminal adjuntable controlada únicamente por una persona. El orquestador no maneja ni interpreta su pantalla. |
-| Comandos gestionados | En `supervised` y `terminal`, `step run` inicia el intento y retorna de inmediato; el seguimiento se realiza con `step events`, `step status` y `step output`. |
-| Permisos | `step approve` resuelve un `interaction_id` normalizado usando solo una decisión anunciada por el adapter. |
-| Coordinación | La señalización en vivo usa comunicación local explícita entre procesos. SQLite conserva estado y auditoría, pero no funciona como bus de mensajes. |
-| Fallo seguro | Una capacidad ausente produce `unsupported_capability`; Shardeo no cambia de modo ni amplía permisos silenciosamente. |
+| Surfaces | The modes are `headless`, `supervised`, and `terminal`; they are not interchangeable variants of a single interactive session. |
+| Inheritance | `step.mode > workflow.mode > config.yaml defaults.agent_mode`; the default value is `headless`. |
+| Override | `shardeo step run ... --mode <mode>` overrides the configuration only for that attempt. |
+| Integration | Each harness is integrated through an adapter that probes real capabilities at runtime. |
+| Context per attempt | The core creates and freezes an immutable `context bundle` per managed attempt, with a provider-neutral manifest that preserves order, limits, and digests. |
+| Context transport | The adapter selects an announced and safe transport. The core's contract is the manifest, never a provider syntax such as `@path`. |
+| Lazy loading | Referencing content avoids transport size limits and enables on-demand loading; all loaded content still consumes model tokens. |
+| Supervision | `supervised` uses a local background supervisor that maintains the session and mediates structured interactions. |
+| Terminal | `terminal` creates an attachable terminal controlled only by a person. The orchestrator neither handles nor interprets its screen. |
+| Managed commands | In `supervised` and `terminal`, `step run` starts the attempt and returns immediately; tracking is done with `step events`, `step status`, and `step output`. |
+| Permissions | `step approve` resolves a normalized `interaction_id` using only a decision announced by the adapter. |
+| Coordination | Live signaling uses explicit local inter-process communication. SQLite keeps state and audit records, but does not act as a message bus. |
+| Fail-safe | A missing capability produces `unsupported_capability`; Shardeo neither changes mode nor silently broadens permissions. |
 
-### Terminología
+### Terminology
 
-| Término | Significado en esta spec |
+| Term | Meaning in this spec |
 |---|---|
-| Spec | `Specification` (especificación: contrato documentado de comportamiento y criterios de aceptación). |
-| Harness | Producto o runtime de agente que ejecuta el trabajo, por ejemplo OpenCode hoy y otros harnesses en el futuro. |
-| Adapter | Límite de integración que conoce el lanzamiento, el sondeo y los protocolos nativos de un harness. |
-| CLI | `Command-Line Interface` (interfaz de línea de comandos: programa operado mediante comandos de texto). Es una posible superficie de un harness, no el contrato del core. |
-| API | `Application Programming Interface` (interfaz de programación de aplicaciones: contrato estructurado entre programas). |
-| SDK | `Software Development Kit` (kit de desarrollo de software: biblioteca y herramientas que un proveedor ofrece para integraciones). |
-| PTY | `Pseudoterminal` (pseudoterminal: par de dispositivos que proporciona semántica real de terminal a un proceso). |
-| TUI | `Terminal User Interface` (interfaz de usuario en terminal: pantalla interactiva destinada a una persona). |
-| IPC | `Inter-Process Communication` (comunicación entre procesos: canal local para enviar comandos al supervisor activo). |
-| Supervisor | Proceso local en background que posee una sesión gestionada, normaliza eventos y aplica resoluciones mediante el adapter. |
-| Interacción | Solicitud estructurada del harness que requiere una decisión o una acción externa. El mínimo soportado es `permission`. |
-| Evento de control | Evento normalizado y de bajo volumen que describe cambios semánticos del intento. No contiene el output completo. |
-| Cursor | Identificador opaco y persistido que permite continuar el polling de eventos sin perderlos ni procesarlos dos veces. |
-| Context bundle | Paquete de contexto: copia inmutable y contenida de los materiales autorizados para un intento, junto con su manifiesto. |
-| Manifiesto de contexto | Contrato neutral que identifica el bundle y describe cada entrada sin imponer cómo debe admitirla un harness. |
-| Admisión de contexto | Prueba producida por el adapter de que las entradas obligatorias quedaron disponibles para la sesión mediante el transporte seleccionado. |
-| SHA-256 | `Secure Hash Algorithm 256-bit` (algoritmo de hash seguro de 256 bits: digest criptográfico usado para verificar identidad e integridad). |
+| Spec | `Specification` (a documented contract of behavior and acceptance criteria). |
+| Harness | Agent product or runtime that performs the work, e.g., OpenCode today and other harnesses in the future. |
+| Adapter | Integration boundary that knows a harness's launch, probing, and native protocols. |
+| CLI | `Command-Line Interface` (a program operated through text commands). It is one possible surface of a harness, not the core contract. |
+| API | `Application Programming Interface` (a structured contract between programs). |
+| SDK | `Software Development Kit` (a library and tooling a provider offers for integrations). |
+| PTY | `Pseudoterminal` (a device pair that provides real terminal semantics to a process). |
+| TUI | `Terminal User Interface` (an interactive screen meant for a person). |
+| IPC | `Inter-Process Communication` (a local channel to send commands to the active supervisor). |
+| Supervisor | Local background process that owns a managed session, normalizes events, and applies resolutions through the adapter. |
+| Interaction | Structured harness request that requires an external decision or action. The minimum supported kind is `permission`. |
+| Control event | Low-volume, normalized event describing semantic changes of the attempt. It does not contain the full output. |
+| Cursor | Opaque, persisted identifier that lets event polling continue without losing or double-processing events. |
+| Context bundle | A package of context: an immutable, contained copy of the materials authorized for an attempt, together with its manifest. |
+| Context manifest | Neutral contract that identifies the bundle and describes each entry without imposing how a harness must admit it. |
+| Context admission | Proof produced by the adapter that the mandatory entries became available to the session through the selected transport. |
+| SHA-256 | `Secure Hash Algorithm 256-bit` (a cryptographic digest used to verify identity and integrity). |
 
-Los tipos de interacción forman un contrato extensible. Esta spec define el flujo
-completo para `permission` y reserva `question`, `authentication` y
-`terminal_handoff` para adapters que anuncien soporte explícito. Declarar un tipo
-no implica que Shardeo ya pueda resolverlo.
+The interaction types form an extensible contract. This spec defines the complete
+flow for `permission` and reserves `question`, `authentication`, and
+`terminal_handoff` for adapters that announce explicit support. Declaring a type
+does not imply that Shardeo can already resolve it.
 
-### Arquitectura y responsabilidades
+### Architecture and responsibilities
 
-#### Core de Shardeo
+#### Shardeo core
 
-El core valida la configuración, resuelve el modo efectivo, selecciona el
-adapter, construye y verifica el bundle de contexto, aplica políticas sobre datos
-normalizados, persiste el estado y expone los comandos públicos. No conoce
-endpoints, flags, eventos, sintaxis de referencias ni valores de respuesta
-propios de un proveedor.
+The core validates configuration, resolves the effective mode, selects the
+adapter, builds and verifies the context bundle, applies policies over normalized
+data, persists state, and exposes the public commands. It knows nothing about
+provider-specific endpoints, flags, events, reference syntax, or response values.
 
 #### Harness adapter
 
-El adapter encapsula todo comportamiento específico del harness:
+The adapter encapsulates all harness-specific behavior:
 
-- Sondea en runtime las capacidades de la instalación seleccionada.
-- Lanza el proceso o la sesión con el mecanismo adecuado para el modo.
-- Selecciona un transporte de contexto anunciado, admite las entradas del
-  manifiesto y devuelve evidencia verificable de disponibilidad.
-- Convierte eventos nativos en interacciones y eventos normalizados.
-- Traduce una decisión normalizada anunciada en `available_decisions` al
-  protocolo nativo.
-- Declara si puede reanudar o reconciliar una sesión después de una caída.
-- Expone únicamente metadatos de política que puede mapear sin ambigüedad.
+- Probes the capabilities of the selected installation at runtime.
+- Launches the process or session with the mechanism appropriate for the mode.
+- Selects an announced context transport, admits the manifest entries, and
+  returns verifiable evidence of availability.
+- Converts native events into normalized interactions and events.
+- Translates a normalized decision announced in `available_decisions` to the
+  native protocol.
+- Declares whether it can resume or reconcile a session after a crash.
+- Exposes only policy metadata it can map unambiguously.
 
-El core no presupone que un harness emita `JSONL (JSON Lines, basado en
-JavaScript Object Notation: formato de un objeto estructurado por línea)` ni que
-acepte decisiones por entrada estándar. Tampoco codifica versiones de fixtures,
-flags de comandos o respuestas específicas del proveedor.
+The core does not assume that a harness emits `JSONL (JSON Lines, based on
+JavaScript Object Notation: a format of one structured object per line)` nor that
+it accepts decisions through standard input. It also does not hardcode fixture
+versions, command flags, or provider-specific responses.
 
-El lanzamiento es responsabilidad del adapter. Debe preferir la ejecución
-directa con un `argv (argument vector: lista estructurada de argumentos entregada
-al proceso)` y evitar interpolación de shell. Si
-un harness requiere un shell, el adapter debe justificarlo y escapar de forma
-segura los valores no confiables. Activar un shell no crea una PTY; el modo
-`terminal` debe asignar una PTY real de forma explícita.
+Launching is the adapter's responsibility. It must prefer direct execution with
+an `argv (argument vector: a structured list of arguments passed to the process)`
+and avoid shell interpolation. If
+a harness requires a shell, the adapter must justify it and safely escape
+untrusted values. Activating a shell does not create a PTY; the `terminal` mode
+must allocate a real PTY explicitly.
 
-#### Bundle y manifiesto de contexto
+#### Context bundle and manifest
 
-Para cada intento `supervised` o `terminal`, el supervisor, como componente del
-core, materializa un bundle antes de iniciar la sesión del proveedor. El bundle
-contiene copias por intento, no referencias mutables a los archivos vivos del
-proyecto. Una vez calculados sus digests y escrito el manifiesto, ambos quedan
-congelados. Esto evita enviar el contexto combinado como un único argumento,
-superar límites del sistema operativo y perder reproducibilidad si un archivo
-cambia durante el intento.
+For each `supervised` or `terminal` attempt, the supervisor, as a component of the
+core, materializes a bundle before starting the provider session. The bundle
+contains per-attempt copies, not mutable references to the project's live files.
+Once its digests are computed and the manifest is written, both are frozen. This
+avoids sending the combined context as a single argument, exceeding
+operating-system limits, and losing reproducibility if a file changes during the
+attempt.
 
-El manifiesto preserva el orden semántico y las fronteras exigidos por la Spec 4:
-instrucciones operacionales, instrucciones de dominio, skills, artefactos
-requeridos y contexto previo o de fallback cuando corresponda. El campo `order`
-define ese orden total y cada entrada conserva su propio archivo. Un adapter no
-puede concatenar, reordenar ni omitir entradas de forma que altere esas
-fronteras. Los valores de `role` son identificadores lógicos estables y neutrales
-respecto del adapter; un transporte puede mapearlos, pero no reinterpretarlos.
+The manifest preserves the semantic order and boundaries required by Spec 4:
+operational instructions, domain instructions, skills, required artifacts, and
+prior or fallback context when applicable. The `order` field defines that total
+order and each entry keeps its own file. An adapter cannot concatenate, reorder,
+nor omit entries in a way that alters those boundaries. `role` values are stable,
+adapter-neutral logical identifiers; a transport may map them, but not
+reinterpret them.
 
-Ejemplo neutral respecto del proveedor:
+Provider-neutral example:
 
 ```json
 {
@@ -635,62 +616,61 @@ Ejemplo neutral respecto del proveedor:
 }
 ```
 
-Las instrucciones operacionales y de dominio son obligatorias y `eager`. Los
-skills requeridos y artefactos requeridos son referencias obligatorias: antes de
-que comience el trabajo, el adapter debe probar que la sesión puede obtener los
-bytes exactos identificados por el manifiesto. El material opcional o previo se
-carga `on_demand`. `on_demand` difiere la transferencia de bytes, pero no vuelve
-opcional una entrada con `required: true` ni permite al agente omitir material
-exigido por el contrato. Si el transporte no puede probar la disponibilidad de
-todas las entradas obligatorias, el intento falla cerrado antes del trabajo del
-proveedor.
+Operational and domain instructions are mandatory and `eager`. Required skills
+and required artifacts are mandatory references: before work begins, the adapter
+must prove that the session can obtain the exact bytes identified by the
+manifest. Optional or prior material is loaded `on_demand`. `on_demand` defers
+the byte transfer, but does not make an entry with `required: true` optional nor
+allow the agent to skip contractually required material. If the transport cannot
+prove the availability of all mandatory entries, the attempt fails closed before
+provider work.
 
-El bundle reduce el tamaño del transporte inicial y permite no cargar material
-opcional innecesario. No reduce por sí mismo el uso de tokens: cuando una entrada
-se inyecta o el agente la lee, su contenido consume tokens del modelo como
-cualquier otro contexto.
+The bundle reduces the initial transport size and avoids loading unnecessary
+optional material. It does not by itself reduce token usage: when an entry is
+injected or the agent reads it, its content consumes model tokens like any other
+context.
 
-El core valida la prueba de admisión contra `bundle_id`, digest del manifiesto y
-digests de las entradas obligatorias antes de permitir trabajo del proveedor. La
-prueba demuestra disponibilidad e identidad de bytes, no que el contenido sea
-gratuito para el modelo ni que una entrada obligatoria pueda ignorarse.
+The core validates the admission proof against `bundle_id`, the manifest digest,
+and the digests of the mandatory entries before allowing provider work. The proof
+demonstrates availability and byte identity, not that the content is free for the
+model nor that a mandatory entry can be ignored.
 
-#### Supervisor de intentos gestionados
+#### Managed-attempt supervisor
 
-Cada intento `supervised` o `terminal` tiene un único supervisor propietario. El
-supervisor mantiene el handle del proceso o de la sesión, captura output, recibe
-comandos por IPC, renueva su lease y publica eventos de control persistidos.
-`step run` espera un handshake de readiness que confirma bundle congelado,
-contexto admitido y sesión iniciada; después retorna.
+Each `supervised` or `terminal` attempt has a single owning supervisor. The
+supervisor holds the process or session handle, captures output, receives
+commands over IPC, renews its lease, and publishes persisted control events.
+`step run` waits for a readiness handshake confirming a frozen bundle, admitted
+context, and started session; then it returns.
 
-#### Broker de interacción
+#### Interaction broker
 
-El broker normaliza solicitudes nativas, asigna un `interaction_id`, registra
-`available_decisions` y aplica una resolución una sola vez. La interacción
-normalizada preserva el mínimo necesario para decidir sin exponer contratos
-internos del proveedor como parte de la API pública de Shardeo.
+The broker normalizes native requests, assigns an `interaction_id`, records
+`available_decisions`, and applies a resolution exactly once. The normalized
+interaction preserves the minimum needed to decide without exposing the
+provider's internal contracts as part of Shardeo's public API.
 
-#### Almacén de estado y output
+#### State and output store
 
-SQLite conserva intentos, sesiones, leases, interacciones, decisiones, cursores
-y auditoría. Un almacén de archivos contenido bajo la raíz de runtime conserva
-el output completo por intento. Ninguno reemplaza el canal IPC usado para
-señalización en tiempo real.
+SQLite keeps attempts, sessions, leases, interactions, decisions, cursors, and
+audit records. A contained file store under the runtime root keeps the full
+output per attempt. Neither replaces the IPC channel used for real-time
+signaling.
 
-#### Relación con Traycer
+#### Relationship with Traycer
 
-La arquitectura toma de Traycer únicamente la separación entre harnesses y el
-patrón de interacción mediada. No asume que Traycer limite OpenCode a una TUI ni
-depende de detalles privados de su implementación.
+The architecture takes from Traycer only the separation between harnesses and
+the mediated interaction pattern. It does not assume that Traycer limits OpenCode
+to a TUI, nor does it depend on private details of its implementation.
 
-### Sondeo de capacidades
+### Capability probing
 
-El adapter produce un manifiesto de capacidades después de consultar la
-instalación real que se utilizará. El sondeo puede validar comandos, endpoints,
-negociación de protocolo o callbacks, pero no puede inferir soporte solo desde
-una versión semántica declarada.
+The adapter produces a capability manifest after consulting the actual
+installation that will be used. Probing can validate commands, endpoints,
+protocol negotiation, or callbacks, but cannot infer support from a declared
+semantic version alone.
 
-Forma ilustrativa en TypeScript:
+Illustrative TypeScript shape:
 
 ```ts
 type ExecutionMode = "headless" | "supervised" | "terminal";
@@ -766,81 +746,79 @@ interface NormalizedInteraction {
 }
 ```
 
-El manifiesto de capacidades describe soporte, no autorización. Que un adapter
-soporte una decisión de alcance `session` no autoriza a Shardeo a seleccionarla.
-Cada interacción anuncia el subconjunto válido en `available_decisions`.
+The capability manifest describes support, not authorization. That an adapter
+supports a `session`-scoped decision does not authorize Shardeo to select it.
+Each interaction announces the valid subset in `available_decisions`.
 
-El adapter elige un transporte que soporte el modo efectivo, las estrategias de
-carga y los límites reales del bundle. También debe poder verificar SHA-256 y
-probar la disponibilidad de entradas obligatorias. `direct_injection` es válido
-solo si el payload cabe de forma segura; `file_reference`, `api_attachment` y
-`tool_read` pueden diferir la carga, pero no relajan la admisión ni la política de
-lectura. Si ninguna combinación satisface el manifiesto, Shardeo falla con
-`unsupported_capability` antes de iniciar trabajo del proveedor.
+The adapter chooses a transport that supports the effective mode, the loading
+strategies, and the bundle's real limits. It must also be able to verify SHA-256
+and prove the availability of mandatory entries. `direct_injection` is valid only
+if the payload fits safely; `file_reference`, `api_attachment`, and `tool_read`
+may defer loading, but do not relax admission nor the read policy. If no
+combination satisfies the manifest, Shardeo fails with `unsupported_capability`
+before starting provider work.
 
-Si el modo solicitado no está soportado por el adapter y la instalación
-seleccionados, `step run` falla con `unsupported_capability` antes de lanzar el
-proceso del harness. El error incluye `adapter_id`, `harness_identity`,
-`requested_mode` y una razón sanitizada. No existe fallback silencioso a
-`terminal`, a otro modo ni a permisos más amplios.
+If the requested mode is not supported by the selected adapter and installation,
+`step run` fails with `unsupported_capability` before launching the harness
+process. The error includes `adapter_id`, `harness_identity`, `requested_mode`,
+and a sanitized reason. There is no silent fallback to `terminal`, to another
+mode, or to broader permissions.
 
-### Mapeos de adapters no normativos
+### Non-normative adapter mappings
 
-Estos ejemplos explican cómo podrían implementarse adapters concretos; no forman
-parte del contrato del core:
+These examples explain how concrete adapters could be implemented; they are not
+part of the core contract:
 
-- OpenCode puede usar un servidor gestionado, un stream estructurado mediante
-  `SSE (Server-Sent Events: eventos enviados por el servidor sobre una conexión
-  persistente)` y una respuesta de permiso mediante
-  `HTTP (Hypertext Transfer Protocol: protocolo de comunicación para recursos y
-  operaciones web)`.
-- Codex puede usar su app-server y
-  `JSON-RPC (JavaScript Object Notation Remote Procedure Call: protocolo de
-  llamadas remotas con mensajes estructurados)` para solicitudes y respuestas de
-  aprobación.
-- Un harness futuro puede usar callbacks de un SDK, hooks u otro protocolo
-  estructurado.
-- Para contexto, OpenCode puede resolver entradas mediante referencias `@path` o
-  una sesión gestionada; otro harness puede usar attachments nativos, payloads de
-  API o SDK, lecturas mediante tools, o inyección directa.
+- OpenCode could use a managed server, a structured stream via
+  `SSE (Server-Sent Events: events sent by the server over a persistent
+  connection)`, and a permission response via
+  `HTTP (Hypertext Transfer Protocol: a communication protocol for web resources
+  and operations)`.
+- Codex could use its app-server and
+  `JSON-RPC (JavaScript Object Notation Remote Procedure Call: a remote call
+  protocol with structured messages)` for approval requests and responses.
+- A future harness could use SDK callbacks, hooks, or another structured
+  protocol.
+- For context, OpenCode could resolve entries via `@path` references or a
+  managed session; another harness could use native attachments, API or SDK
+  payloads, tool-based reads, or direct injection.
 
-El adapter debe ocultar nombres de eventos, rutas, métodos y valores de respuesta
-nativos. Ninguno de estos ejemplos obliga a otros adapters a reproducir el mismo
-transporte. En particular, `@path` no aparece en el manifiesto ni en el core: es
-solo una posible traducción interna del adapter de OpenCode.
+The adapter must hide native event names, paths, methods, and response values.
+None of these examples obliges other adapters to reproduce the same transport.
+In particular, `@path` does not appear in the manifest nor in the core: it is
+only a possible internal translation of the OpenCode adapter.
 
-Ejemplo no normativo para una terminal de OpenCode. El directorio de trabajo
-permanece en el proyecto o worktree asignado; el bundle vive bajo una raíz de
-runtime contenida y se referencia mediante un path relativo:
+Non-normative example for an OpenCode terminal. The working directory stays in
+the assigned project or worktree; the bundle lives under a contained runtime
+root and is referenced with a relative path:
 
 ```bash
-# Inicio directo de la TUI con un bootstrap corto creado por el adapter.
+# Direct start of the TUI with a short bootstrap created by the adapter.
 opencode <project-or-worktree> \
-  --prompt 'Carga @.shardeo/runtime/attempt-7/context/manifest.json y sigue el orden declarado.'
+  --prompt 'Load @.shardeo/runtime/attempt-7/context/manifest.json and follow the declared order.'
 
-# Preferido: attach de la TUI a una sesión ya creada en un servidor gestionado.
+# Preferred: attach the TUI to an already created session on a managed server.
 opencode attach <managed-server-url>
 ```
 
-En la segunda variante, el adapter adjunta previamente el manifiesto mediante la
-API o el SDK de la sesión y abre la TUI contra el servidor gestionado; selecciona
-la sesión exacta mediante una capacidad nativa comprobada o falla con
-`unsupported_capability`, sin pedir a la persona que la infiera. No vuelve a
-transportar el contexto en el prompt. Es la opción preferida cuando la sesión ya
-existe. Los comandos son ilustrativos y no convierten flags ni referencias de
-OpenCode en contrato normativo de Shardeo.
+In the second variant, the adapter first attaches the manifest through the
+session's API or SDK and opens the TUI against the managed server; it selects
+the exact session through a verified native capability or fails with
+`unsupported_capability`, without asking the person to infer it. It does not
+re-transport the context in the prompt. It is the preferred option when the
+session already exists. The commands are illustrative and do not turn OpenCode
+flags or references into normative Shardeo contract.
 
-### Resolución del modo
+### Mode resolution
 
-La configuración declarativa usa una única propiedad `mode`:
+The declarative configuration uses a single `mode` property:
 
 ```text
 step.mode > workflow.mode > config.yaml defaults.agent_mode
 ```
 
-Si ninguna capa la declara, el modo efectivo es `headless`. El flag `--mode`
-sobrescribe el valor efectivo únicamente para el intento iniciado por ese
-comando.
+If no layer declares it, the effective mode is `headless`. The `--mode` flag
+overrides the effective value only for the attempt started by that command.
 
 ```yaml
 # config.yaml
@@ -857,97 +835,96 @@ steps:
     instructions: steps/architecture/instructions.md
 ```
 
-Los steps `command` no usan `agent_mode` ni aceptan estas superficies.
+`command` steps do not use `agent_mode` nor accept these surfaces.
 
-### Comportamiento por modo
+### Behavior by mode
 
-| Aspecto | `headless` | `supervised` | `terminal` |
+| Aspect | `headless` | `supervised` | `terminal` |
 |---|---|---|---|
-| Control principal | Proceso invocado por `step run` | Supervisor de Shardeo | Persona conectada a una PTY gestionada |
-| Retorno de `step run` | Bloquea hasta terminar, como en Spec 4 | Retorna tras iniciar el supervisor | Retorna tras iniciar el supervisor y preparar la PTY |
-| Interacción | No se resuelve en vivo si el adapter no puede hacerlo | Eventos estructurados y decisiones mediadas | Interacción humana nativa en terminal |
-| Permiso no resoluble | Termina con `permission_required` | Queda en `awaiting_interaction` | Lo decide la persona dentro del harness |
-| Uso por el orquestador | Recibe resultado final | Consulta eventos y emite decisiones explícitas | Solo solicita el modo y comunica el handoff |
-| Pantalla de terminal | No requerida | No requerida | Nunca se controla ni se interpreta por un agente |
-| Contexto | Inyección directa de Spec 4 mientras siga siendo segura y soportada | Bundle congelado y admitido antes de abrir la sesión | Bundle congelado y bootstrap del adapter antes de `awaiting_human` |
-| Output completo | Evidencia y proyección según Spec 4 | Buffer en disco, consultable | Buffer en disco, consultable |
+| Primary control | Process invoked by `step run` | Shardeo supervisor | Person attached to a managed PTY |
+| Return of `step run` | Blocks until finished, as in Spec 4 | Returns after starting the supervisor | Returns after starting the supervisor and preparing the PTY |
+| Interaction | Not resolved live if the adapter cannot do so | Structured events and mediated decisions | Native human interaction in the terminal |
+| Unresolvable permission | Terminates with `permission_required` | Remains in `awaiting_interaction` | Decided by the person inside the harness |
+| Orchestrator usage | Receives the final result | Polls events and issues explicit decisions | Only requests the mode and communicates the handoff |
+| Terminal screen | Not required | Not required | Never controlled or interpreted by an agent |
+| Context | Direct injection from Spec 4 while it remains safe and supported | Bundle frozen and admitted before opening the session | Bundle frozen and adapter bootstrap before `awaiting_human` |
+| Full output | Evidence and projection per Spec 4 | On-disk buffer, queryable | On-disk buffer, queryable |
 
-#### Modo `headless`
+#### `headless` mode
 
-`headless` conserva el comportamiento de la Spec 4 salvo la migración explícita
-del resultado de inactividad descrita en esta spec. `step run` permanece
-bloqueante y el adapter ejecuta la ruta no interactiva existente. Cuando detecta
-una solicitud que no puede resolver mediante una política soportada, termina el
-intento con `permission_required`. Desde la implementación de Spec 9, una
-expiración por falta de actividad pasa de `permission_timeout` a
-`process_inactivity_timeout`. Esta spec no
-convierte fixtures de OpenCode en un mecanismo de supervisión ni cambia las reglas
-de fallback de v1. El adapter implementado puede continuar inyectando directamente
-el contexto combinado por entrada estándar cuando sea seguro y esté soportado.
-Adoptar bundles para `supervised` y `terminal` no cambia silenciosamente esa ruta.
-Un adapter `headless` solo puede usar bundles después de anunciar y validar
-soporte explícito para el transporte elegido.
+`headless` preserves Spec 4 behavior except for the explicit inactivity outcome
+migration described in this spec. `step run` remains blocking and the adapter
+executes the existing non-interactive path. When it detects a request it cannot
+resolve through a supported policy, it terminates the attempt with
+`permission_required`. Since Spec 9's implementation, an expiry due to lack of
+activity changes from `permission_timeout` to `process_inactivity_timeout`. This
+spec does not turn OpenCode fixtures into a supervision mechanism nor change the
+v1 fallback rules. The implemented adapter may continue injecting directly the
+combined context through standard input when safe and supported. Adopting bundles
+for `supervised` and `terminal` does not silently change that path. A `headless`
+adapter can only use bundles after announcing and validating explicit support
+for the chosen transport.
 
-#### Modo `supervised`
+#### `supervised` mode
 
-1. `step run` resuelve configuración, adapter y modo.
-2. El adapter sondea capacidades de la instalación seleccionada.
-3. Shardeo crea la identidad del intento y adquiere un lease de propietario.
-4. Shardeo inicia el supervisor.
-5. El supervisor crea y congela el bundle del intento, verifica sus límites e
-   integridad y persiste su identidad.
-6. El adapter selecciona un transporte anunciado, verifica los digests y devuelve
-   prueba de que todas las entradas obligatorias quedaron disponibles.
-7. Solo entonces el supervisor abre la sesión nativa y comienza a capturar el
-   output completo; el handshake de readiness confirma estos pasos.
-8. `step run` retorna `attempt_id`, `session_id`, estado, identidad del bundle,
-   transporte y cursor inicial.
-9. El adapter recibe una solicitud nativa y la normaliza como
+1. `step run` resolves configuration, adapter, and mode.
+2. The adapter probes the capabilities of the selected installation.
+3. Shardeo creates the attempt identity and acquires an owner lease.
+4. Shardeo starts the supervisor.
+5. The supervisor creates and freezes the attempt's bundle, verifies its limits
+   and integrity, and persists its identity.
+6. The adapter selects an announced transport, verifies the digests, and returns
+   proof that all mandatory entries became available.
+7. Only then does the supervisor open the native session and start capturing the
+   full output; the readiness handshake confirms these steps.
+8. `step run` returns `attempt_id`, `session_id`, state, bundle identity,
+   transport, and initial cursor.
+9. The adapter receives a native request and normalizes it as
    `interaction_required`.
-10. El supervisor persiste el evento y pasa a `awaiting_interaction` sin cerrar la
-   sesión.
-11. El orquestador consulta `step events` y selecciona una decisión incluida en
-   `available_decisions`.
-12. `step approve` envía la resolución al supervisor por IPC.
-13. El supervisor realiza una resolución compare-and-set idempotente, pide al
-    adapter traducirla y publica `interaction_resolved`.
+10. The supervisor persists the event and moves to `awaiting_interaction`
+    without closing the session.
+11. The orchestrator polls `step events` and selects a decision included in
+    `available_decisions`.
+12. `step approve` sends the resolution to the supervisor over IPC.
+13. The supervisor performs an idempotent compare-and-set resolution, asks the
+    adapter to translate it, and publishes `interaction_resolved`.
 
-Una resolución no escribe bytes genéricos en la entrada estándar. El adapter usa
-la API, el SDK o el protocolo estructurado que anunció durante el sondeo.
+A resolution does not write generic bytes to standard input. The adapter uses
+the API, SDK, or structured protocol it announced during probing.
 
-#### Modo `terminal`
+#### `terminal` mode
 
-1. `step run` crea la identidad del intento, un supervisor y una PTY adjuntable en
-   background.
-2. El supervisor crea y congela el bundle antes de iniciar la sesión del
-   proveedor.
-3. El adapter verifica los digests y admite el contexto mediante un mecanismo
-   nativo o inicia el harness con una instrucción bootstrap corta que apunta al
-   manifiesto y preserva el orden y la obligatoriedad declarados.
-4. Solo después de esa admisión el harness queda activo dentro de la PTY y el
-   supervisor pasa a `awaiting_human`.
-5. `step run` retorna la identidad del intento, la identidad del bundle y el
-   comando exacto de attach.
-6. El orquestador muestra el handoff; no escribe el bootstrap, no ejecuta teclas,
-   no captura la pantalla y
-   no intenta interpretar la TUI.
-7. La persona abre otra terminal y ejecuta
+1. `step run` creates the attempt identity, a supervisor, and an attachable PTY
+   in the background.
+2. The supervisor creates and freezes the bundle before starting the provider
+   session.
+3. The adapter verifies the digests and admits the context through a native
+   mechanism, or starts the harness with a short bootstrap instruction pointing
+   at the manifest and preserving the declared order and mandatory nature.
+4. Only after that admission does the harness become active inside the PTY and
+   the supervisor moves to `awaiting_human`.
+5. `step run` returns the attempt identity, the bundle identity, and the exact
+   attach command.
+6. The orchestrator shows the handoff; it does not write the bootstrap, does not
+   send keystrokes, does not capture the screen, and does not attempt to
+   interpret the TUI.
+7. The person opens another terminal and runs
    `shardeo step attach <execution-id> <step-id> --attempt-id <attempt-id>`.
-8. Al desconectarse, el proceso hijo continúa vivo y el supervisor vuelve a
-   `awaiting_human`. La persona puede ejecutar el mismo comando para reattach
-   mientras el intento siga activo y no expire el plazo sin presencia humana.
-9. Al terminar el harness, el supervisor cierra la PTY, persiste el resultado y
-   publica el evento terminal del intento.
+8. On disconnect, the child process stays alive and the supervisor returns to
+   `awaiting_human`. The person can run the same command to reattach while the
+   attempt remains active and the no-human-presence window has not expired.
+9. When the harness finishes, the supervisor closes the PTY, persists the result,
+   and publishes the attempt's terminal event.
 
-El modo portable requiere otra terminal porque el harness orquestador puede
-seguir abierto. Suspender la terminal actual, integrar Tmux o Zellij, o instalar
-plugins de harness son mejoras futuras de experiencia de usuario, no parte del
-contrato central.
+The portable mode requires another terminal because the orchestrating harness
+may remain open. Suspending the current terminal, integrating Tmux or Zellij, or
+installing harness plugins are future UX improvements, not part of the central
+contract.
 
-### Contrato de comandos y eventos
+### Command and event contract
 
-Los comandos gestionados usan siempre la identidad retornada por `step run`. Los
-ejemplos siguientes pertenecen al mismo intento.
+Managed commands always use the identity returned by `step run`. The following
+examples belong to the same attempt.
 
 ```bash
 $ shardeo step run exec-abc architecture --mode supervised
@@ -960,7 +937,7 @@ $ shardeo step status exec-abc architecture --attempt-id attempt-7
 {"attempt_id":"attempt-7","state":"awaiting_interaction","pending_interaction_id":"interaction-42","event_cursor":"event-1"}
 
 $ shardeo step output exec-abc architecture --attempt-id attempt-7 --tail 100
-[proyección sanitizada de las últimas 100 líneas]
+[sanitized projection of the last 100 lines]
 
 $ shardeo step approve exec-abc architecture --interaction-id interaction-42 --decision allow_once
 {"type":"interaction_resolved","interaction_id":"interaction-42","decision":"allow_once","actor":"orchestrator","state":"running","cursor":"event-2"}
@@ -969,65 +946,64 @@ $ shardeo step events exec-abc architecture --attempt-id attempt-7 --after event
 {"events":[{"cursor":"event-2","type":"interaction_resolved","interaction_id":"interaction-42","decision":"allow_once"},{"cursor":"event-3","type":"attempt_completed","exit_code":0}],"next_cursor":"event-3","has_more":false}
 
 $ shardeo step output exec-abc architecture --attempt-id attempt-7 --full
-[stream del output completo retenido y sanitizado]
+[stream of the retained and sanitized full output]
 ```
 
-`--after` es exclusivo: retorna eventos posteriores al cursor indicado. Repetir
-la consulta con el mismo cursor retorna el mismo conjunto estable dentro de la
-retención. El consumidor guarda `next_cursor` solo después de procesar la
-respuesta completa. El orden se define por intento, no por timestamp.
+`--after` is exclusive: it returns events after the given cursor. Repeating the
+query with the same cursor returns the same stable set within retention. The
+consumer stores `next_cursor` only after processing the complete response.
+Ordering is defined per attempt, not by timestamp.
 
-`step status` entrega una vista actual y puede omitir transiciones intermedias;
-`step events` es la fuente para consumir transiciones semánticas. `step output`
-es la única interfaz para leer output de alto volumen y no avanza el cursor de
-eventos. `--tail <líneas>` devuelve una vista instantánea sanitizada y puede
-usarse mientras el intento está activo o después de su finalización. `--full`
-solo se acepta para un intento terminal y transmite mediante streaming todo el
-output retenido y sanitizado; si la política de retención eliminó contenido, la
-respuesta incluye metadata de truncado. Cada `interaction_id` es único y queda
-vinculado al execution, step e intento que lo originaron; `step approve` rechaza
-cualquier cruce de identidad.
+`step status` provides a current view and may omit intermediate transitions;
+`step events` is the source for consuming semantic transitions. `step output` is
+the only interface for reading high-volume output and does not advance the event
+cursor. `--tail <lines>` returns a sanitized instantaneous view and can be used
+while the attempt is active or after it finishes. `--full` is only accepted for a
+terminal attempt and streams the entire retained and sanitized output; if the
+retention policy dropped content, the response includes truncation metadata.
+Each `interaction_id` is unique and bound to the execution, step, and attempt
+that originated it; `step approve` rejects any identity crossing.
 
-Los eventos mínimos son:
+The minimum events are:
 
-| Evento | Propósito |
+| Event | Purpose |
 |---|---|
-| `attempt_started` | Confirma identidad, modo, cursor inicial, `bundle_id`, digest del manifiesto, transporte y cantidad de entradas obligatorias admitidas. No incluye contenido del bundle. |
-| `attempt_state_changed` | Publica una transición relevante de estado. |
-| `interaction_required` | Presenta una interacción y sus decisiones disponibles. |
-| `interaction_resolved` | Registra la decisión aplicada y su actor. |
-| `output_available` | Indica que existe output consultable sin incluirlo. |
-| `attempt_completed` | Publica finalización exitosa y resumen acotado. |
-| `attempt_failed` | Publica error estructurado y resumen acotado. |
+| `attempt_started` | Confirms identity, mode, initial cursor, `bundle_id`, manifest digest, transport, and number of admitted mandatory entries. It does not include bundle content. |
+| `attempt_state_changed` | Publishes a relevant state transition. |
+| `interaction_required` | Presents an interaction and its available decisions. |
+| `interaction_resolved` | Records the applied decision and its actor. |
+| `output_available` | Indicates that queryable output exists without including it. |
+| `attempt_completed` | Publishes successful completion and a bounded summary. |
+| `attempt_failed` | Publishes a structured error and a bounded summary. |
 
-### Handoff humano en terminal
+### Human handoff in terminal
 
 ```bash
 $ shardeo step run exec-abc architecture --mode terminal
 {"type":"attempt_started","execution_id":"exec-abc","step_id":"architecture","attempt_id":"attempt-8","session_id":"session-8","mode":"terminal","state":"awaiting_human","event_cursor":"event-0","context_bundle":{"bundle_id":"bundle-attempt-8","manifest_sha256":"c12f09abc12f09abc12f09abc12f09abc12f09abc12f09abc12f09abc12f09ab","transport":"file_reference","required_entries_admitted":4},"attach_command":"shardeo step attach exec-abc architecture --attempt-id attempt-8"}
 
-# La persona ejecuta esto en otra terminal:
+# The person runs this in another terminal:
 $ shardeo step attach exec-abc architecture --attempt-id attempt-8
 Attached to attempt-8. Use the configured detach sequence to keep the child alive.
 ```
 
-Si no existe un único intento `terminal` vivo para ese execution y step, el
-comando falla de forma explícita y lista las identidades candidatas; nunca se
-adjunta a una sesión por inferencia ambigua. El detach no envía una señal de
-terminación al hijo.
+If no single live `terminal` attempt exists for that execution and step, the
+command fails explicitly and lists the candidate identities; it never attaches to
+a session through ambiguous inference. Detach does not send a termination signal
+to the child.
 
-### Política de permisos
+### Permission policy
 
-Shardeo reemplaza reglas basadas en patrones de paths o comandos por políticas
-sobre capacidades normalizadas que el adapter puede mapear con precisión. La
-declaración más cercana reemplaza el objeto completo:
+Shardeo replaces rules based on path or command patterns with policies over
+normalized capabilities that the adapter can map precisely. The closest
+declaration replaces the whole object:
 
 ```text
 step.permission_policy > workflow.permission_policy > config.yaml defaults.permission_policy
 ```
 
-El valor por defecto es `prompt`. No se mezclan listas entre capas porque una
-combinación implícita puede ampliar autoridad.
+The default value is `prompt`. Lists are not merged across layers because an
+implicit combination could broaden authority.
 
 ```yaml
 permission_policy:
@@ -1040,259 +1016,262 @@ permission_policy:
       decision: deny
 ```
 
-| Modo de política | Comportamiento |
+| Policy mode | Behavior |
 |---|---|
-| `prompt` | Toda solicitud soportada se publica para decisión explícita. |
-| `deny` | Toda solicitud que el adapter pueda rechazar con seguridad se rechaza; si no puede, el intento falla cerrado. |
-| `rules` | Aplica solo reglas con una capacidad normalizada exacta; `default` debe ser `prompt` o `deny`. |
+| `prompt` | Every supported request is published for explicit decision. |
+| `deny` | Every request the adapter can safely deny is denied; if it cannot, the attempt fails closed. |
+| `rules` | Applies only rules with an exact normalized capability; `default` must be `prompt` or `deny`. |
 
-Una regla automática solo puede seleccionar una decisión presente en
-`available_decisions`. `allow_once` autoriza exclusivamente la solicitud actual.
-Una aprobación persistente o para toda la sesión solo está disponible si el
-adapter anuncia esa decisión y ese alcance para la interacción concreta. Si una
-regla solicita una decisión ausente, el resultado es
-`unsupported_policy_decision`; Shardeo no la degrada a otra decisión.
+An automatic rule can only select a decision present in `available_decisions`.
+`allow_once` authorizes exclusively the current request. A persistent or
+session-wide approval is only available if the adapter announces that decision
+and scope for the concrete interaction. If a rule requests a missing decision,
+the result is `unsupported_policy_decision`; Shardeo does not degrade it to
+another decision.
 
-`deny` siempre tiene precedencia sobre una autorización automática que pudiera
-aplicar a la misma capacidad. Una capacidad desconocida o un mapeo ambiguo nunca
-coincide con una regla de autorización; usa el `default` seguro. Toda resolución
-automática publica `interaction_resolved` con `actor: "policy"` y referencia la
-regla aplicada.
+`deny` always takes precedence over an automatic authorization that could apply
+to the same capability. An unknown capability or an ambiguous mapping never
+matches an authorization rule; it uses the safe `default`. Every automatic
+resolution publishes `interaction_resolved` with `actor: "policy"` and
+references the applied rule.
 
-El vocabulario inicial de capacidades incluye `filesystem.read`,
-`filesystem.write`, `process.execute`, `network.request` y `unknown`. Un adapter
-puede anunciar extensiones namespaced. El core compara identificadores exactos y
-no interpreta paths, comandos ni payloads específicos del proveedor para crear
-autorizaciones propias.
+The initial capability vocabulary includes `filesystem.read`, `filesystem.write`,
+`process.execute`, `network.request`, and `unknown`. An adapter can announce
+namespaced extensions. The core compares exact identifiers and does not
+interpret provider-specific paths, commands, or payloads to create its own
+authorizations.
 
-### Persistencia, concurrencia y recuperación
+### Persistence, concurrency, and recovery
 
-#### Integridad, permisos y retención del bundle
+#### Bundle integrity, permissions, and retention
 
-- El core resuelve `realpath` tanto para la raíz como para cada entrada, exige
-  paths relativos contenidos y rechaza paths absolutos, segmentos `..` y escapes
-  mediante symlinks antes de copiar o admitir contenido.
-- Cada entrada y el bundle completo tienen límites configurables de bytes. Una
-  entrada o suma que exceda su límite falla antes de iniciar trabajo del
-  proveedor; no se trunca contexto obligatorio.
-- Los archivos se crean con permisos locales restrictivos donde el sistema
-  operativo lo permita. El bundle no incorpora secretos ni fuentes adicionales:
-  solo material ya autorizado para el step.
-- El adapter recalcula y verifica cada digest antes de admitir una entrada. Una
-  diferencia respecto del manifiesto se trata como drift o manipulación, invalida
-  la admisión y falla cerrado.
-- Si el proveedor soporta reglas de permiso acotadas, el adapter preautoriza solo
-  lectura de la raíz exacta del bundle. Nunca concede lectura amplia del proyecto
-  o del filesystem para facilitar `file_reference` o `tool_read`.
-- Si no puede expresar ese alcance exacto, el adapter debe usar inyección directa,
-  attachments u otro mecanismo nativo que no requiera ampliar permisos. La
-  ausencia de una opción segura produce `unsupported_capability`.
-- El manifiesto, la prueba de admisión y los digests se vinculan a la evidencia
-  del intento. Las copias se retienen con límites de tamaño y antigüedad durante
-  el periodo necesario para auditoría, reanudación o recuperación, y después se
-  eliminan mediante cleanup verificable. Un intento activo u `orphaned` no pierde
-  su bundle mientras todavía pueda recuperarse.
+- The core resolves `realpath` for both the root and each entry, requires
+  contained relative paths, and rejects absolute paths, `..` segments, and
+  symlink escapes before copying or admitting content.
+- Each entry and the whole bundle have configurable byte limits. An entry or sum
+  exceeding its limit fails before starting provider work; mandatory context is
+  never truncated.
+- Files are created with restrictive local permissions where the operating
+  system allows it. The bundle does not incorporate secrets or additional
+  sources: only material already authorized for the step.
+- The adapter recomputes and verifies each digest before admitting an entry. A
+  difference from the manifest is treated as drift or tampering, invalidates the
+  admission, and fails closed.
+- If the provider supports scoped permission rules, the adapter preauthorizes
+  read access only to the exact bundle root. It never grants broad project or
+  filesystem read access to ease `file_reference` or `tool_read`.
+- If it cannot express that exact scope, the adapter must use direct injection,
+  attachments, or another native mechanism that does not require broadening
+  permissions. The absence of a safe option produces `unsupported_capability`.
+- The manifest, the admission proof, and the digests are linked to the attempt's
+  evidence. Copies are retained with size and age limits for the period needed
+  for audit, resumption, or recovery, and are then removed through verifiable
+  cleanup. An active or `orphaned` attempt does not lose its bundle while it can
+  still be recovered.
 
-#### Propiedad única y lease
+#### Single ownership and lease
 
-- Solo un supervisor puede poseer un intento gestionado.
-- El lease incluye identidad del intento, generación de fencing, identidad del
-  proceso propietario y heartbeat.
-- Todo comando IPC debe dirigirse al endpoint y a la generación activos. Un
-  supervisor con una generación anterior no puede persistir eventos ni aplicar
-  decisiones.
-- Antes de reemplazar un lease vencido, Shardeo verifica que el propietario no
-  siga activo. Un identificador de proceso reutilizado no es evidencia suficiente
-  para matar un proceso.
+- Only one supervisor can own a managed attempt.
+- The lease includes attempt identity, fencing generation, owning process
+  identity, and heartbeat.
+- Every IPC command must target the active endpoint and generation. A supervisor
+  with a previous generation cannot persist events nor apply decisions.
+- Before replacing an expired lease, Shardeo verifies that the owner is no
+  longer active. A reused process identifier is not sufficient evidence to kill
+  a process.
 
-#### Resolución idempotente
+#### Idempotent resolution
 
-Una interacción transiciona mediante compare-and-set desde `pending` a
-`resolving` y después a `resolved` o `resolution_failed`. Repetir la misma
-decisión retorna el resultado almacenado sin reenviarla al harness. Intentar una
-decisión distinta después de adquirir la resolución retorna
-`interaction_already_resolved` con la decisión vigente.
+An interaction transitions via compare-and-set from `pending` to `resolving` and
+then to `resolved` or `resolution_failed`. Repeating the same decision returns
+the stored result without re-sending it to the harness. Attempting a different
+decision after the resolution is acquired returns `interaction_already_resolved`
+with the current decision.
 
-La aplicación al proveedor y la persistencia no constituyen una transacción
-distribuida. Si el supervisor cae en `resolving`, solo reconcilia o reenvía cuando
-el adapter anuncia soporte explícito e idempotente. En caso contrario marca el
-intento `orphaned`, conserva la evidencia y exige recuperación humana; nunca
-repite una autorización a ciegas.
+Applying to the provider and persisting do not constitute a distributed
+transaction. If the supervisor crashes in `resolving`, it only reconciles or
+re-sends when the adapter announces explicit, idempotent support. Otherwise it
+marks the attempt `orphaned`, keeps the evidence, and requires human recovery;
+it never repeats an authorization blindly.
 
-#### Restart y cleanup
+#### Restart and cleanup
 
-Al iniciar o consultar una ejecución, Shardeo identifica leases vencidos y
-supervisores ausentes. Puede reconectar una sesión solo cuando el adapter anuncia
-`session_resume: supported` y valida la identidad nativa. Si no puede probar una
-reanudación segura, marca el intento `orphaned`, cierra únicamente recursos cuya
-propiedad pueda demostrar y conserva output, eventos e interacciones para
-auditoría.
+When starting or querying an execution, Shardeo identifies expired leases and
+absent supervisors. It can reconnect a session only when the adapter announces
+`session_resume: supported` and validates the native identity. If it cannot
+prove a safe resumption, it marks the attempt `orphaned`, closes only resources
+whose ownership it can demonstrate, and keeps output, events, and interactions
+for audit.
 
-El cleanup de sockets, archivos de lease y PTYs ocurre después de persistir el
-estado terminal. El restart de Shardeo no transforma automáticamente un intento
-`orphaned` en fallido ni crea un segundo supervisor.
+Cleanup of sockets, lease files, and PTYs happens after persisting the terminal
+state. Restarting Shardeo does not automatically turn an `orphaned` attempt into
+failed nor create a second supervisor.
 
-### Timeouts y estados de espera
+### Timeouts and waiting states
 
-Los tres temporizadores son independientes y configurables. Pueden compartir el
-mismo valor por defecto de 300 segundos, pero nunca el mismo contador. El
-temporizador de inactividad del proceso aplica a las tres superficies; el de
-decisión aplica solo a `supervised` y el de presencia humana solo a `terminal`:
+The three timers are independent and configurable. They can share the same
+default value of 300 seconds, but never the same counter. The process inactivity
+timer applies to all three surfaces; the decision timer applies only to
+`supervised`, and the human presence timer only to `terminal`:
 
-| Timeout | Corre cuando | Se pausa cuando | Resultado al expirar |
+| Timeout | Runs when | Paused when | Result on expiry |
 |---|---|---|---|
-| `process_inactivity_seconds` | El harness debería estar progresando y no produce actividad observable | En `supervised`, existe una interacción pendiente; en `terminal`, se espera attach humano | `process_inactivity_timeout` |
-| `interaction_decision_seconds` | El estado es `awaiting_interaction` | La interacción entra en resolución | `interaction_timeout` |
-| `human_presence_seconds` | Un intento `terminal` está activo sin una persona adjunta, tanto antes del primer attach como después de un detach | Hay una persona adjunta | `human_presence_timeout` |
+| `process_inactivity_seconds` | The harness should be making progress and produces no observable activity | In `supervised`, an interaction is pending; in `terminal`, a human attach is awaited | `process_inactivity_timeout` |
+| `interaction_decision_seconds` | The state is `awaiting_interaction` | The interaction enters resolution | `interaction_timeout` |
+| `human_presence_seconds` | A `terminal` attempt is active with no person attached, both before the first attach and after a detach | A person is attached | `human_presence_timeout` |
 
-Actividad observable significa output o un evento nativo de progreso reconocido
-por el adapter; un heartbeat interno no cuenta. Cada expiración genera un evento
-de control, solicita al adapter el cierre seguro y conserva la evidencia. Si el
-cierre no puede confirmarse, el intento pasa a `orphaned` en lugar de declararse
-terminado.
+Observable activity means output or a native progress event recognized by the
+adapter; an internal heartbeat does not count. Each expiry generates a control
+event, asks the adapter for a safe shutdown, and keeps the evidence. If the
+shutdown cannot be confirmed, the attempt moves to `orphaned` instead of being
+declared finished.
 
-### Eventos de control y output completo
+### Control events and full output
 
-Los eventos de control contienen solo identidades, estados, interacciones,
-decisiones, identidad del bundle, digest del manifiesto, transporte, conteos y
-resúmenes acotados. Nunca incluyen el manifiesto completo ni el contenido de sus
-entradas. El supervisor persiste el evento y su cursor antes de hacerlo visible.
-Los cursores son monotónicos dentro del intento y una restricción de unicidad
-impide duplicar el mismo evento semántico durante un retry interno.
+Control events contain only identities, states, interactions, decisions, bundle
+identity, manifest digest, transport, counts, and bounded summaries. They never
+include the full manifest nor the content of its entries. The supervisor
+persists the event and its cursor before making it visible. Cursors are
+monotonic within the attempt and a uniqueness constraint prevents duplicating
+the same semantic event during an internal retry.
 
-El output operativo se sanitiza de forma incremental antes de escribirse en disco
-por intento y queda sujeto a límites configurables de tamaño y antigüedad. Las
-rutas se derivan únicamente de identificadores validados y deben permanecer bajo
-una raíz de runtime de Shardeo; se rechazan paths absolutos, `..` y escapes
-mediante symlinks. `step output` nunca revela una ruta interna como autoridad para
-que el consumidor abra archivos directamente.
+The operational output is sanitized incrementally before being written to disk
+per attempt and is subject to configurable size and age limits. Paths are
+derived only from validated identifiers and must remain under a Shardeo runtime
+root; absolute paths, `..`, and symlink escapes are rejected. `step output`
+never reveals an internal path as authority for the consumer to open files
+directly.
 
-La retención o truncado del buffer genera metadata visible, no una finalización
-del intento. `--tail` devuelve las últimas líneas retenidas como una respuesta
-acotada. `--full` transmite por streaming todo el buffer retenido una vez que el
-intento alcanza un estado terminal y no está sujeto al límite de las proyecciones
-de evidencia. La evidencia sigue las reglas de Spec 4: los resúmenes, eventos,
-salida normal de comandos y proyecciones persistidas se limitan a 16
-`KiB (kibibytes: unidades binarias de 1024 bytes)`; `DiagnosticRaw` es la única
-autoridad diagnóstica de bytes crudos, acotada hasta 1
-`MiB (mebibyte: unidad binaria de 1 048 576 bytes)` y, al exceder el límite,
-conserva prefijo, sufijo, tamaño original y digest SHA-256. El buffer operativo
-sanitizado no amplía la evidencia persistida ni se convierte en una segunda
-autoridad diagnóstica.
+Buffer retention or truncation generates visible metadata, not an attempt
+completion. `--tail` returns the last retained lines as a bounded response.
+`--full` streams the whole retained buffer once the attempt reaches a terminal
+state and is not subject to the evidence projection limit. Evidence follows the
+Spec 4 rules: summaries, events, normal command output, and persisted
+projections are limited to 16
+`KiB (kibibytes: binary units of 1024 bytes)`; `DiagnosticRaw` is the only raw
+diagnostic authority, bounded to 1
+`MiB (mebibyte: binary unit of 1,048,576 bytes)` and, when the limit is
+exceeded, keeps prefix, suffix, original size, and SHA-256 digest. The sanitized
+operational buffer does not extend the persisted evidence nor become a second
+diagnostic authority.
 
-### Comparación de superficies
+### Surface comparison
 
-| Criterio | `headless` | `supervised` | `terminal` |
+| Criterion | `headless` | `supervised` | `terminal` |
 |---|---|---|---|
-| Caso principal | Automatización sin interacción en vivo | Control de máquina mediante protocolo estructurado | Control humano de una terminal nativa |
-| Compatibilidad v1 | Preserva Spec 4 salvo la migración explícita de `permission_timeout` a `process_inactivity_timeout` | Nueva capacidad del adapter | Nueva capacidad del adapter |
-| Propietario de la sesión | `step run` | Supervisor local | Supervisor local; persona controla la PTY |
-| Resolución de permisos | Política soportada o finalización terminal | `step approve` con decisión anunciada | La persona responde en la interfaz nativa |
-| Canal de decisión | Ninguno universal | API, SDK o protocolo nativo a través del adapter | Entrada humana en PTY |
-| Seguimiento | Resultado bloqueante | Polling de control y output bajo demanda | Polling de control, attach y output bajo demanda |
-| Riesgo evitado | Bypass de permisos | Acoplamiento a eventos de un proveedor | Automatización frágil o screen scraping de una TUI |
+| Primary case | Automation without live interaction | Machine control through a structured protocol | Human control of a native terminal |
+| v1 compatibility | Preserves Spec 4 except the explicit migration of `permission_timeout` to `process_inactivity_timeout` | New adapter capability | New adapter capability |
+| Session owner | `step run` | Local supervisor | Local supervisor; the person controls the PTY |
+| Permission resolution | Supported policy or terminal termination | `step approve` with an announced decision | The person responds in the native interface |
+| Decision channel | None universal | API, SDK, or native protocol through the adapter | Human input on the PTY |
+| Tracking | Blocking result | Control polling and on-demand output | Control polling, attach, and on-demand output |
+| Risk avoided | Permission bypass | Coupling to a provider's events | Fragile automation or screen scraping of a TUI |
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- Spec 9 está implementada y es la autoridad de comportamiento de los modos
-  `supervised` y `terminal`; en `headless`, la Spec 4 sigue siendo la autoridad de
-  la ruta no interactiva salvo la migración del resultado de inactividad. Spec 9
-  reemplaza únicamente la propuesta futura no
-  implementada de `interactive: boolean` antes documentada en AGENTS.md por
-  `headless`, `supervised` y `terminal`.
-- El modo se resuelve mediante
-  `step.mode > workflow.mode > config.yaml defaults.agent_mode`, con `headless`
-  como default, y `--mode` aplica solo al intento actual.
-- El core depende de un contrato de adapter neutral y no contiene endpoints,
-  flags, fixtures, nombres de eventos ni valores de respuesta de OpenCode, Codex
-  u otro proveedor.
-- El contrato de contexto del core es un manifiesto neutral con `bundle_id`,
-  `attempt_id`, metadata de creación y entradas ordenadas; nunca contiene ni
-  requiere sintaxis específica como `@path`.
-- Cada entrada conserva su rol lógico, path relativo contenido, obligatoriedad,
-  estrategia `eager` u `on_demand`, tamaño en bytes y digest SHA-256.
-- El orden y las fronteras son los de Spec 4: instrucciones operacionales,
-  instrucciones de dominio, skills, artefactos requeridos y contexto previo o de
-  fallback cuando aplique.
-- Las instrucciones operacionales y de dominio son obligatorias y `eager`; los
-  skills y artefactos requeridos siguen siendo obligatorios aunque se admitan por
-  referencia. `on_demand` no permite omitir material contractual.
-- La carga diferida puede reducir bytes del transporte inicial, pero todo
-  contenido cargado consume tokens del modelo; el manifiesto no declara ese
-  contenido libre de costo de contexto.
-- El adapter sondea la instalación real en runtime; una versión declarada no
-  basta para afirmar capacidad.
-- La selección de transporte considera modo, estrategias de carga, límites por
-  entrada y totales, verificación de digests, prueba de disponibilidad obligatoria
-  y soporte de permisos de lectura acotados.
-- Un modo no soportado falla antes del lanzamiento con
-  `unsupported_capability`, sin cambiar de superficie ni conceder permisos.
-- `headless` preserva el comportamiento de Spec 4, incluido
-  `permission_required` cuando el adapter no puede resolver la interacción y la
-  inyección directa por entrada estándar cuando siga siendo segura y soportada,
-  salvo la migración explícita del resultado de inactividad desde
-  `permission_timeout` a `process_inactivity_timeout` (implementada).
-- La adopción de bundles no cambia silenciosamente la ruta `headless` de v1; un
-  adapter debe anunciar soporte explícito antes de usarlos en ese modo.
-- En `supervised`, `step run` inicia un supervisor y retorna de inmediato con
-  `attempt_id`, `session_id`, estado, identidad del bundle, transporte y cursor
-  inicial, después de congelar y admitir el contexto y abrir la sesión.
-- Antes de iniciar trabajo `supervised`, el adapter prueba que todas las entradas
-  obligatorias y sus bytes exactos están disponibles para la sesión.
-- Una solicitud de permiso supervisada se publica como `interaction_required`
-  con `kind: "permission"`, `interaction_id` y `available_decisions`.
-- `step approve` acepta solo una decisión anunciada para esa interacción y el
-  adapter la traduce mediante su protocolo nativo; no existe inyección universal
-  por entrada estándar.
-- En `terminal`, `step run` crea una PTY adjuntable, retorna `awaiting_human` y el
-  comando `shardeo step attach <execution-id> <step-id> --attempt-id <attempt-id>`.
-- Antes de `awaiting_human`, Shardeo congela el bundle y el adapter admite el
-  contexto o escribe el bootstrap corto al iniciar el harness. El orquestador
-  nunca escribe ese bootstrap en la TUI.
-- Solo una persona controla la terminal. El orquestador no envía teclas, no lee
-  celdas de pantalla y no realiza screen scraping.
-- Detach no mata al hijo y reattach funciona mientras la sesión permanezca viva.
-- `step events` soporta polling por cursor persistido sin pérdida ni duplicación
-  semántica; `step status` no sustituye el historial de eventos.
-- `step output --tail <líneas>` devuelve una vista instantánea sanitizada durante
-  o después del intento. `step output --full` solo se acepta para intentos
-  terminales y transmite por streaming todo el buffer retenido y sanitizado, con
-  metadata de truncado cuando corresponda. Este canal mantiene contención de
-  paths y retención acotada, y no altera los límites ni la autoridad de la
-  evidencia definida por Spec 4.
-- Cada bundle usa copias inmutables por intento, paths contenidos verificados por
-  `realpath`, límites por entrada y totales, permisos locales restrictivos y
-  detección de drift o manipulación antes de la admisión.
-- La retención y eliminación del bundle están acotadas y vinculadas a evidencia,
-  reanudación y recuperación del intento; no se añade material secreto que no
-  estuviera ya autorizado para el step.
-- La lectura preautorizada, cuando exista, se limita al bundle exacto. Ningún
-  adapter concede silenciosamente acceso amplio al proyecto o al filesystem; si
-  no puede admitir el contexto sin esa ampliación, falla cerrado.
-- `attempt_started` registra identidad del bundle, digest del manifiesto,
-  transporte y cantidad de entradas obligatorias admitidas, sin emitir contenido
-  completo en eventos de control.
-- Los comandos al supervisor usan IPC local explícito. SQLite conserva estado y
-  auditoría, pero no es el canal de señalización en vivo.
-- Un lease con fencing garantiza un solo supervisor propietario por intento.
-- La resolución compare-and-set es idempotente; un retry no reenvía una decisión
-  ya aplicada y una decisión conflictiva falla de forma explícita.
-- Un supervisor stale o una caída durante la resolución se recuperan solo cuando
-  el adapter puede probar resume o reconciliación segura; en caso contrario el
-  intento pasa a `orphaned` sin repetir autorizaciones.
-- El timeout de inactividad del proceso aplica a `headless`, `supervised` y
-  `terminal`; el timeout de decisión aplica solo a `supervised` y el de presencia
-  humana solo a `terminal`. Los tres usan contadores y errores distintos.
-- La política por defecto es `prompt`; `deny` está soportado y toda autorización
-  automática requiere un mapeo exacto y una decisión anunciada por el adapter.
-- Las aprobaciones de alcance persistente o de sesión solo existen cuando el
-  adapter las anuncia para la interacción concreta.
-- El lanzamiento no presupone shell ni PTY. El adapter evita interpolación de
-  shell salvo requisito justificado y crea una PTY real para `terminal`.
+- Spec 9 is implemented and is the behavioral authority of the `supervised` and
+  `terminal` modes; in `headless`, Spec 4 remains the authority of the
+  non-interactive path except for the inactivity outcome migration. Spec 9
+  replaces only the future, unimplemented
+  `interactive: boolean` proposal previously documented in AGENTS.md with
+  `headless`, `supervised`, and `terminal`.
+- The mode is resolved via
+  `step.mode > workflow.mode > config.yaml defaults.agent_mode`, with `headless`
+  as default, and `--mode` applies only to the current attempt.
+- The core depends on a neutral adapter contract and contains no endpoints,
+  flags, fixtures, event names, nor response values of OpenCode, Codex, or any
+  other provider.
+- The core's context contract is a neutral manifest with `bundle_id`,
+  `attempt_id`, creation metadata, and ordered entries; it never contains nor
+  requires provider-specific syntax such as `@path`.
+- Each entry keeps its logical role, contained relative path, mandatory nature,
+  `eager` or `on_demand` loading strategy, size in bytes, and SHA-256 digest.
+- Order and boundaries are those of Spec 4: operational instructions, domain
+  instructions, skills, required artifacts, and prior or fallback context when
+  applicable.
+- Operational and domain instructions are mandatory and `eager`; required
+  skills and artifacts remain mandatory even when admitted by reference.
+  `on_demand` does not allow skipping contractual material.
+- Lazy loading can reduce initial transport bytes, but every loaded content
+  consumes model tokens; the manifest does not declare that content free of
+  context cost.
+- The adapter probes the real installation at runtime; a declared version is not
+  enough to claim capability.
+- Transport selection considers mode, loading strategies, per-entry and total
+  limits, digest verification, mandatory availability proof, and scoped read
+  permission support.
+- An unsupported mode fails before launch with `unsupported_capability`, without
+  switching surfaces or granting permissions.
+- `headless` preserves Spec 4 behavior, including `permission_required` when the
+  adapter cannot resolve the interaction and direct injection through standard
+  input when it remains safe and supported, except for the explicit inactivity
+  outcome migration from `permission_timeout` to `process_inactivity_timeout`
+  (implemented).
+- Adopting bundles does not silently change the v1 `headless` path; an adapter
+  must announce explicit support before using them in that mode.
+- In `supervised`, `step run` starts a supervisor and returns immediately with
+  `attempt_id`, `session_id`, state, bundle identity, transport, and initial
+  cursor, after freezing and admitting the context and opening the session.
+- Before starting `supervised` work, the adapter proves that all mandatory
+  entries and their exact bytes are available to the session.
+- A supervised permission request is published as `interaction_required` with
+  `kind: "permission"`, `interaction_id`, and `available_decisions`.
+- `step approve` accepts only a decision announced for that interaction and the
+  adapter translates it through its native protocol; there is no universal
+  standard-input injection.
+- In `terminal`, `step run` creates an attachable PTY, returns `awaiting_human`
+  and the command `shardeo step attach <execution-id> <step-id> --attempt-id
+  <attempt-id>`.
+- Before `awaiting_human`, Shardeo freezes the bundle and the adapter admits the
+  context or writes the short bootstrap when starting the harness. The
+  orchestrator never writes that bootstrap into the TUI.
+- Only one person controls the terminal. The orchestrator does not send
+  keystrokes, read screen cells, nor perform screen scraping.
+- Detach does not kill the child and reattach works while the session remains
+  alive.
+- `step events` supports polling by persisted cursor without semantic loss or
+  duplication; `step status` does not replace the event history.
+- `step output --tail <lines>` returns a sanitized instantaneous view during or
+  after the attempt. `step output --full` is only accepted for terminal attempts
+  and streams the entire retained and sanitized buffer, with truncation metadata
+  when applicable. This channel keeps path containment and bounded retention,
+  and does not alter the limits nor the authority of the evidence defined by
+  Spec 4.
+- Each bundle uses immutable per-attempt copies, contained paths verified by
+  `realpath`, per-entry and total limits, restrictive local permissions, and
+  drift or tampering detection before admission.
+- Bundle retention and removal are bounded and tied to the attempt's evidence,
+  resumption, and recovery; no secret material is added beyond what was already
+  authorized for the step.
+- Preauthorized reads, when they exist, are limited to the exact bundle. No
+  adapter silently grants broad project or filesystem access; if it cannot admit
+  the context without that broadening, it fails closed.
+- `attempt_started` records bundle identity, manifest digest, transport, and the
+  number of admitted mandatory entries, without emitting full content in control
+  events.
+- Commands to the supervisor use explicit local IPC. SQLite keeps state and
+  audit records, but is not the live signaling channel.
+- A lease with fencing guarantees a single owning supervisor per attempt.
+- Compare-and-set resolution is idempotent; a retry does not re-send an already
+  applied decision and a conflicting decision fails explicitly.
+- A stale supervisor or a crash during resolution is recovered only when the
+  adapter can prove safe resume or reconciliation; otherwise the attempt moves
+  to `orphaned` without repeating authorizations.
+- The process inactivity timeout applies to `headless`, `supervised`, and
+  `terminal`; the decision timeout applies only to `supervised` and the human
+  presence timeout only to `terminal`. The three use distinct counters and
+  errors.
+- The default policy is `prompt`; `deny` is supported and every automatic
+  authorization requires an exact mapping and a decision announced by the
+  adapter.
+- Persistent- or session-scoped approvals exist only when the adapter announces
+  them for the concrete interaction.
+- Launching does not assume a shell or a PTY. The adapter avoids shell
+  interpolation unless justified and creates a real PTY for `terminal`.
 
-### Flujos completos concisos
+### Concise complete flows
 
-#### Permiso supervisado
+#### Supervised permission
 
 ```bash
 $ shardeo step run exec-abc implementation --mode supervised
@@ -1308,34 +1287,34 @@ $ shardeo step events exec-abc implementation --attempt-id attempt-9 --after eve
 {"events":[{"cursor":"event-3","type":"attempt_completed","exit_code":0}],"next_cursor":"event-3","has_more":false}
 ```
 
-#### Handoff humano
+#### Human handoff
 
 ```bash
 $ shardeo step run exec-abc architecture --mode terminal
 {"type":"attempt_started","attempt_id":"attempt-10","session_id":"session-10","state":"awaiting_human","context_bundle":{"bundle_id":"bundle-attempt-10","manifest_sha256":"ef71a0c4ef71a0c4ef71a0c4ef71a0c4ef71a0c4ef71a0c4ef71a0c4ef71a0c4","transport":"file_reference","required_entries_admitted":4},"attach_command":"shardeo step attach exec-abc architecture --attempt-id attempt-10"}
 
-# En otra terminal, ejecutado por la persona:
+# In another terminal, run by the person:
 $ shardeo step attach exec-abc architecture --attempt-id attempt-10
 Attached to attempt-10. Use the configured detach sequence to keep the child alive.
 
-# El orquestador solo observa el estado:
+# The orchestrator only observes the status:
 $ shardeo step status exec-abc architecture --attempt-id attempt-10
 {"attempt_id":"attempt-10","state":"running","human_attached":true,"event_cursor":"event-2"}
 ```
 
-## Spec 10: Override semántico de modelo/proveedor en `step run` con fallback a `steps[].agents`
+## Spec 10: Semantic model/provider override in `step run` with fallback to `steps[].agents`
 
 status: draft
 
-### Objetivo
+### Objective
 
-Permitir que el orquestador escale o cambie el proveedor/modelo/variante de un step sin editar el `workflow.yaml`, manteniendo `steps[].agents` como default versionable y trazable. El override de CLI es prioritario sobre la lista hardcodeada; si el override falla por causa del proveedor/modelo elegido, Shardeo hace fallback automático a los candidatos declarados en `steps[].agents`.
+Let the orchestrator scale or change the provider/model/variant of a step without editing the `workflow.yaml`, keeping `steps[].agents` as the versionable, traceable default. The CLI override takes priority over the hardcoded list; if the override fails due to the chosen provider/model, Shardeo automatically falls back to the candidates declared in `steps[].agents`.
 
-Este enfoque reemplaza el port literal de `custom-tools.json` / `initiative_tier_resolver` / `model-tier-agents.ts` a Shardeo: el workflow declara `agents: [{opencode: deepseek/deepseek-v4-flash}]` como baseline (ej. tier `medium`), y el orquestador escala a `openai/gpt-5.6-sol + xhigh` vía flags de `step run`, sin reescribir YAML ni introducir un `agents_command` declarativo en el schema.
+This approach replaces the literal port of `custom-tools.json` / `initiative_tier_resolver` / `model-tier-agents.ts` to Shardeo: the workflow declares `agents: [{opencode: deepseek/deepseek-v4-flash}]` as the baseline (e.g., tier `medium`), and the orchestrator scales up to `openai/gpt-5.6-sol + xhigh` via `step run` flags, without rewriting YAML or introducing a declarative `agents_command` in the schema.
 
-### Descripción funcional
+### Functional description
 
-El workflow declara sus candidatos de forma hardcodeada en `steps[].agents`, igual que en Spec 4 (solo `opencode` en v1, con `model` opaco y `variant` opcional). Esa lista es el default y la fuente de fallback. El orquestador puede, en cualquier `shardeo step run`, especificar un override directo:
+The workflow declares its candidates hardcoded in `steps[].agents`, as in Spec 4 (only `opencode` in v1, with opaque `model` and optional `variant`). That list is the default and the fallback source. The orchestrator can, on any `shardeo step run`, specify a direct override:
 
 ```bash
 shardeo step run <execution-id> <step-id> \
@@ -1343,86 +1322,86 @@ shardeo step run <execution-id> <step-id> \
   --provider openrouter/deepseek \
   --model deepseek-v4-flash \
   --variant max \
-  [--feedback "<texto>"]
+  [--feedback "<text>"]
 ```
 
-Shardeo valida los flags, antepone el candidato de override a la lista `steps[].agents` (deduplicando `harness+provider/model+variant` idéntico), y ejecuta con la misma máquina de probe/claim/invoke/heartbeat de Spec 4. Si el override falla por causa del proveedor/modelo, Shardeo continúa automáticamente con el siguiente candidato de `steps[].agents` sin requerir intervención del orquestador. Si el orquestador no especifica override, el comportamiento es idéntico a Spec 4.
+Shardeo validates the flags, prepends the override candidate to the `steps[].agents` list (deduplicating an identical `harness+provider/model+variant`), and executes with the same probe/claim/invoke/heartbeat machinery of Spec 4. If the override fails due to the provider/model, Shardeo automatically continues with the next candidate of `steps[].agents` without requiring orchestrator intervention. If the orchestrator does not specify an override, behavior is identical to Spec 4.
 
-Fuera de Spec 10, el orquestador puede resolver dinámicamente el modelo vía composición del DAG —sin azúcar en el schema— usando un `command` que escribe `resolved.json` y un `agent` posterior que depende de él. No se añade `agents_command` ni `agentsFile` al schema.
+Outside Spec 10, the orchestrator can resolve the model dynamically via DAG composition — without schema sugar — using a `command` that writes `resolved.json` and a later `agent` that depends on it. Neither `agents_command` nor `agentsFile` is added to the schema.
 
-Relación con el destino de artefactos: Spec 10 no cambia la raíz de validación de artefactos ni el contrato de contención. `.shardeo/artifacts` permanece como única raíz validada por `validateProduces` / `validateRequires` / `validateContainedPath`. La proyección hacia `.docs/initiatives/**` o cualquier otra raíz versionada es, cuando se necesite (ej. migración del pipeline de initiatives), un `type: command` explícito en el DAG que copia/promociona el artefacto, o un comando dedicado que resuelve la ruta del step. Esa decisión se registra en `.docs/spikes/02_migracion-pipeline-initiatives-moldeable.md` y no forma parte del criterio de aceptación de esta spec.
+Relationship with the artifacts destination: Spec 10 does not change the artifact validation root nor the containment contract. `.shardeo/artifacts` remains the only root validated by `validateProduces` / `validateRequires` / `validateContainedPath`. Projection toward `.docs/initiatives/**` or any other versioned root is, when needed (e.g., migrating the initiatives pipeline), an explicit `type: command` in the DAG that copies/promotes the artifact, or a dedicated command that resolves the step's path. That decision is recorded in `.docs/spikes/02_migracion-pipeline-initiatives-moldeable.md` and is not part of this spec's acceptance criteria.
 
-### Schema y validación
+### Schema and validation
 
-- `steps[].agents` se extiende para soportar `variant` sin romper compatibilidad: cada entrada admite `string` (`"opencode"`), `Record<string, string>` (`{opencode: "openai/gpt-4.1"}`) o `Record<string, {model: string, variant?: string}>` (`{opencode: {model: "openai/gpt-4.1", variant: "high"}}`). La whitelist de `VALID_AGENT_IDENTIFIERS` sigue restringida a `opencode` en v1.
-- Los flags de CLI se validan antes de cualquier probe o claim:
-  - `--harness` solo admite `opencode` en v1; cualquier otro valor es `workflow_invalid`.
-  - `--provider` debe tener forma `provider/model` sin espacios ni `NUL`; no se permiten tokens de entorno.
-  - `--model` es requerido si se especifica `--provider` o `--variant`.
-  - `--variant` sin `--model` es error de validación.
-  - `--variant` es un string sin `NUL` y de longitud acotada (máx. 64 bytes UTF-8).
-  - `--harness` aislado sin `--model` es error; el override es atómico (harness + modelo, opcionalmente provider y variant) o no existe.
-  - Si se especifica `--provider`, el modelo efectivo es `provider/model`; de lo contrario, es `model` tal cual. No se admiten ambos formatos simultáneamente de forma contradictoria.
-- Un workflow con `agents` inválido sigue siendo inválido con el mismo rechazo de Spec 4; el override no vuelve válido un workflow malformado fuera del override.
+- `steps[].agents` is extended to support `variant` without breaking compatibility: each entry accepts a `string` (`"opencode"`), a `Record<string, string>` (`{opencode: "openai/gpt-4.1"}`), or a `Record<string, {model: string, variant?: string}>` (`{opencode: {model: "openai/gpt-4.1", variant: "high"}}`). The `VALID_AGENT_IDENTIFIERS` whitelist remains restricted to `opencode` in v1.
+- CLI flags are validated before any probe or claim:
+  - `--harness` only accepts `opencode` in v1; any other value is `workflow_invalid`.
+  - `--provider` must have the form `provider/model` with no spaces or `NUL`; environment tokens are not allowed.
+  - `--model` is required when `--provider` or `--variant` is specified.
+  - `--variant` without `--model` is a validation error.
+  - `--variant` is a string without `NUL` and of bounded length (max 64 UTF-8 bytes).
+  - `--harness` alone without `--model` is an error; the override is atomic (harness + model, optionally provider and variant) or it does not exist.
+  - If `--provider` is specified, the effective model is `provider/model`; otherwise, it is `model` as-is. Both formats are not accepted simultaneously in a contradictory way.
+- A workflow with invalid `agents` remains invalid with the same Spec 4 rejection; the override does not make a malformed workflow valid outside the override.
 
-### Resolución de candidatos y variantes
+### Candidate resolution and variants
 
-- Cuando existe override, el candidato sintético `({harness: --harness, model: "<provider/model o model>", variant: --variant})` se antepone a la lista `steps[].agents` resuelta del workflow, preservando el orden declarado de `steps[].agents` para el fallback. Si el candidato sintético coincide exactamente (harness + modelo + variante) con una entrada de `steps[].agents`, se deduplica y aparece una sola vez al inicio.
-- `invokeAgent` (`src/utils/agent.ts`) pasa `--model <model>` y, cuando `variant` está presente y no es vacío, `--variant <variant>` al `spawn` de `opencode` con `shell: false`, `detached` y `stdio` inalterados. El orden de flags es `run --format json [--model <model>] [--variant <variant>]`.
-- La implementación no introduce un nuevo tipo de transporte de contexto ni modifica `assembleAgentContext` / `getArtifactsDir` / `captureArtifactSnapshot`.
+- When an override exists, the synthetic candidate `({harness: --harness, model: "<provider/model or model>", variant: --variant})` is prepended to the resolved `steps[].agents` list of the workflow, preserving the declared order of `steps[].agents` for fallback. If the synthetic candidate exactly matches (harness + model + variant) an entry of `steps[].agents`, it is deduplicated and appears only once at the beginning.
+- `invokeAgent` (`src/utils/agent.ts`) passes `--model <model>` and, when `variant` is present and non-empty, `--variant <variant>` to the `opencode` `spawn` with `shell: false`, `detached`, and unmodified `stdio`. The flag order is `run --format json [--model <model>] [--variant <variant>]`.
+- The implementation does not introduce a new context transport type nor modify `assembleAgentContext` / `getArtifactsDir` / `captureArtifactSnapshot`.
 
 ### Fallback
 
-- Si el intento con el candidato de override falla y `completionReason` es `unknown_error` con `providerError` no nulo (error proveniente del proveedor/modelo, ej. cuota, modelo inexistente, auth) o `process_start_failed` atribuible al modelo/proveedor, Shardeo lo trata como fallback y continúa con el siguiente candidato de `steps[].agents` usando el mismo contexto de `fallbackContext` de hasta 2 MiB y presupuesto de snapshot de 1 MiB de Spec 4.
-- Los siguientes `completionReason` son **terminales** y no hacen fallback al siguiente candidato, aunque provengan de un override: `permission_required`, `permission_timeout`, `context_error`, `artifact_context_too_large`, `adapter_contract_error`, `process_cleanup_failed`, `persistence_error`. `exhaustion` cierra el `step run`.
-- Cuando el override falla y existe al menos un candidato de fallback disponible, el error del proveedor se preserva en la evidencia sanitizada del intento (hasta 16 KiB, `DiagnosticRaw` hasta 1 MiB) y el siguiente intento recibe la proyección sanitizada como `fallbackContext`.
-- Si el override tiene éxito, el step queda `running` y requiere `step complete` como en Spec 4.
+- If the attempt with the override candidate fails and `completionReason` is `unknown_error` with a non-null `providerError` (an error coming from the provider/model, e.g., quota, nonexistent model, auth) or `process_start_failed` attributable to the model/provider, Shardeo treats it as fallback and continues with the next candidate of `steps[].agents` using the same `fallbackContext` of up to 2 MiB and the 1 MiB snapshot budget of Spec 4.
+- The following `completionReason` values are **terminal** and do not fall back to the next candidate, even when they come from an override: `permission_required`, `permission_timeout`, `context_error`, `artifact_context_too_large`, `adapter_contract_error`, `process_cleanup_failed`, `persistence_error`. `exhaustion` closes the `step run`.
+- When the override fails and at least one fallback candidate is available, the provider error is preserved in the attempt's sanitized evidence (up to 16 KiB, `DiagnosticRaw` up to 1 MiB) and the next attempt receives the sanitized projection as `fallbackContext`.
+- If the override succeeds, the step remains `running` and requires `step complete` as in Spec 4.
 
-### Persistencia y observabilidad
+### Persistence and observability
 
-- Se añade migración idempotente `migrateSpec10` que crea `step_attempts.variant TEXT` (nullable, sin default) compatible con bases existentes, con reintentos `SQLITE_BUSY` como en migraciones previas.
-- Cada intento persiste `agent_used` (harness), `model` (`provider/model` efectivo) y `variant` (valor literal o `NULL` cuando no se especificó). `getExecutionStatusSummary` / `shardeo status` exponen `variant` por intento sin romper consumidores que lo ignoren.
-- El resumen de `steps next` y `workflows describe` no cambian; el override es propiedad del `step run`, no del workflow.
+- An idempotent `migrateSpec10` migration is added that creates `step_attempts.variant TEXT` (nullable, no default) compatible with existing databases, with `SQLITE_BUSY` retries as in previous migrations.
+- Each attempt persists `agent_used` (harness), `model` (effective `provider/model`), and `variant` (literal value or `NULL` when not specified). `getExecutionStatusSummary` / `shardeo status` expose `variant` per attempt without breaking consumers that ignore it.
+- The `steps next` and `workflows describe` summaries do not change; the override belongs to the `step run`, not to the workflow.
 
-### Criterios de aceptación
+### Acceptance criteria
 
-- `shardeo step run <execution-id> <step-id> --harness opencode --provider openrouter/deepseek --model deepseek-v4-flash --variant max` ejecuta el step con ese modelo/variante y lo persiste; el mismo step sin flags usa `steps[].agents` sin cambios respecto a Spec 4.
-- La declaración `agents: [{opencode: {model: "openai/gpt-4.1", variant: "high"}}]` en el workflow es válida y equivale a `--model openai/gpt-4.1 --variant high` como fallback, con el mismo `invokeAgent` subyacente.
-- Un workflow que declara `agents: ["opencode"]` sin modelo sigue siendo válido; `variant` es opcional y no se requiere en ningún nivel.
-- Flags incompletos o inválidos (`--variant` sin `--model`, `--provider` sin `--model`, `--harness` no soportado, `provider` mal formado, `variant` con `NUL` o vacío) fallan antes de probe/claim con error estructurado y no crean intento.
-- Cuando el override falla con `unknown_error` + `providerError` no nulo, Shardeo hace fallback automático al siguiente candidato de `steps[].agents` en el mismo `step run`; el intento fallido queda persistido con `completion_reason: unknown_error` y `decision: fallback`.
-- Cuando el override falla con `permission_required`, `context_error`, `artifact_context_too_large`, `adapter_contract_error`, `process_cleanup_failed` o `persistence_error`, el step termina con `completion_reason` terminal, `decision: terminal` y no hace fallback al siguiente candidato.
-- Si el override es idéntico a un candidato de `steps[].agents`, se ejecuta una sola vez (deduplicado) y no se duplica el intento.
-- `variant` se persiste por intento (`TEXT`, nullable) y aparece en `shardeo status`; una base creada antes de esta spec sigue funcionando tras la migración y los intentos previos muestran `variant: null`.
-- El comportamiento de `step complete`, `reopen --cascade`, `skip`, `steps next`, `resume` y la validación de `requires`/`produces` bajo `.shardeo/artifacts` permanece sin cambios respecto a Specs 4, 6, 7 y 8.
+- `shardeo step run <execution-id> <step-id> --harness opencode --provider openrouter/deepseek --model deepseek-v4-flash --variant max` runs the step with that model/variant and persists it; the same step without flags uses `steps[].agents` unchanged with respect to Spec 4.
+- The declaration `agents: [{opencode: {model: "openai/gpt-4.1", variant: "high"}}]` in the workflow is valid and is equivalent to `--model openai/gpt-4.1 --variant high` as fallback, with the same underlying `invokeAgent`.
+- A workflow that declares `agents: ["opencode"]` without a model remains valid; `variant` is optional and not required at any level.
+- Incomplete or invalid flags (`--variant` without `--model`, `--provider` without `--model`, unsupported `--harness`, malformed `provider`, `variant` with `NUL` or empty) fail before probe/claim with a structured error and create no attempt.
+- When the override fails with `unknown_error` + non-null `providerError`, Shardeo automatically falls back to the next candidate of `steps[].agents` in the same `step run`; the failed attempt remains persisted with `completion_reason: unknown_error` and `decision: fallback`.
+- When the override fails with `permission_required`, `context_error`, `artifact_context_too_large`, `adapter_contract_error`, `process_cleanup_failed`, or `persistence_error`, the step terminates with a terminal `completion_reason`, `decision: terminal`, and does not fall back to the next candidate.
+- If the override is identical to a candidate of `steps[].agents`, it runs only once (deduplicated) and the attempt is not duplicated.
+- `variant` is persisted per attempt (`TEXT`, nullable) and appears in `shardeo status`; a database created before this spec keeps working after the migration and previous attempts show `variant: null`.
+- The behavior of `step complete`, `reopen --cascade`, `skip`, `steps next`, `resume`, and the `requires`/`produces` validation under `.shardeo/artifacts` remains unchanged with respect to Specs 4, 6, 7, and 8.
 
-### Ejemplo de flujo de usuario
+### Example user flow
 
 ```bash
-# workflow declara medium como default versionable
+# workflow declares medium as the versionable default
 # .shardeo/workflows/initiative-spec/workflow.yaml
 # steps:
 #   - id: implement
 #     type: agent
 #     agents: [{opencode: {model: deepseek/deepseek-v4-flash, variant: max}}]
 
-# Orquestador mantiene medium por defecto
+# Orchestrator keeps medium as the default
 $ shardeo step run exec-abc implement
-→ usa deepseek/deepseek-v4-flash (max) de steps[].agents
+→ uses deepseek/deepseek-v4-flash (max) from steps[].agents
 
-# Escalado a sota sin editar YAML
+# Scaled up to sota without editing the YAML
 $ shardeo step run exec-abc implement \
     --harness opencode --provider openai --model gpt-5.6-sol --variant xhigh
-→ antepone openai/gpt-5.6-sol (xhigh); si falla por cuota/modelo, fallback a deepseek/deepseek-v4-flash
+→ prepends openai/gpt-5.6-sol (xhigh); if it fails due to quota/model, falls back to deepseek/deepseek-v4-flash
 
-# Declarativo alternativo (equivalente al override) dentro del workflow
+# Alternative declarative form (equivalent to the override) inside the workflow
 # agents: [{opencode: {model: "openai/gpt-5.6-sol", variant: "xhigh"}}, {opencode: deepseek/deepseek-v4-flash}]
 ```
 
-### No objetivos
+### Non-goals
 
-- Portar `custom-tools.json` / `initiative_tier_resolver` / `model-tier-agents.ts` a Shardeo ni introducir un `tier` semántico en el schema del workflow. Los tiers viven en el orquestador y se traducen a `provider/model+variant` al invocar `step run`.
-- Añadir `agents_command` o `agentsFile` al schema para resolver candidatos dinámicamente vía script. La composición recomendada es un `type: command` que escribe `.shardeo/artifacts/resolved.json` seguido de un `agent` que depende de él; el orquestador lee el JSON y decide el override por `step run`.
-- Cambiar la raíz de artefactos (`getArtifactsDir`), la contención de paths o el presupuesto de snapshots/evidencia de Spec 4. La promoción a `.docs/initiatives/**` se hace con un `command` explícito en el DAG (ver `.docs/spikes/02_migracion-pipeline-initiatives-moldeable.md`), no con un `artifacts_dir` configurable en esta spec.
-- Cambiar el orden de validación del workflow: la carga y validación completa del YAML se repite en cada `step run` antes de resolver el override, igual que en Spec 4.
-- Introducir un nuevo transporte de contexto ni modificar el formato de `fallbackContext` más allá de lo ya definido por Spec 4.
+- Porting `custom-tools.json` / `initiative_tier_resolver` / `model-tier-agents.ts` to Shardeo or introducing a semantic `tier` in the workflow schema. Tiers live in the orchestrator and are translated into `provider/model+variant` when invoking `step run`.
+- Adding `agents_command` or `agentsFile` to the schema to resolve candidates dynamically via script. The recommended composition is a `type: command` that writes `.shardeo/artifacts/resolved.json` followed by an `agent` that depends on it; the orchestrator reads the JSON and decides the override per `step run`.
+- Changing the artifacts root (`getArtifactsDir`), path containment, or the snapshot/evidence budget of Spec 4. Promotion to `.docs/initiatives/**` is done with an explicit `command` in the DAG (see `.docs/spikes/02_migracion-pipeline-initiatives-moldeable.md`), not with a configurable `artifacts_dir` in this spec.
+- Changing the workflow validation order: the full YAML load and validation is repeated on each `step run` before resolving the override, as in Spec 4.
+- Introducing a new context transport or modifying the `fallbackContext` format beyond what Spec 4 already defines.

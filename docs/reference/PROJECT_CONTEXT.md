@@ -1,122 +1,122 @@
-# Contexto del Proyecto — Shardeo
+# Project Context — Shardeo
 
-> Documento de referencia técnica generado a partir de la evidencia del repositorio (commit `0c813f7`, rama `main`, agosto de 2026). Su propósito es servir como fuente integral de contexto para desarrolladores y agentes LLM que trabajen sobre este proyecto, minimizando la exploración adicional.
+> Technical reference document generated from repository evidence (commit `0c813f7`, branch `main`, August 2026). Its purpose is to serve as a comprehensive source of context for developers and LLM agents working on this project, minimizing additional exploration.
 >
-> Convención usada en todo el documento: **(Hecho)** = verificado en el repositorio · **(Inferencia)** = deducción del análisis · **(Recomendación)** = sugerencia no respaldada por un pendiente explícito.
+> Convention used throughout the document: **(Fact)** = verified in the repository · **(Inference)** = deduction from the analysis · **(Recommendation)** = suggestion not backed by an explicit pending item.
 
 ---
 
-## 1. Resumen ejecutivo
+## 1. Executive summary
 
-**Shardeo** (v0.1.0, licencia MIT) es una herramienta CLI escrita en TypeScript que estructura y gestiona la ejecución de workflows de desarrollo de software asistidos por IA (Hecho: `package.json`, `README.md`, `AGENTS.md`).
+**Shardeo** (v0.1.0, MIT license) is a CLI tool written in TypeScript that structures and manages the execution of AI-assisted software development workflows (Fact: `package.json`, `README.md`, `AGENTS.md`).
 
-No es un agente ni un IDE: no reemplaza a OpenCode, Codex CLI, Claude Code ni similares. Les da estructura: define qué ejecutar, con qué contexto, en qué orden y con qué runtime. Un **agente orquestador** (un LLM en un CLI como OpenCode) consume los comandos de Shardeo para avanzar por un workflow paso a paso; Shardeo valida el workflow, prepara e inyecta el contexto, invoca el runtime de agente, aplica políticas y persiste toda la evidencia de ejecución en SQLite (Hecho: `AGENTS.md`, `SPECS.md`).
+It is not an agent or an IDE: it does not replace OpenCode, Codex CLI, Claude Code or similar tools. It gives them structure: it defines what to execute, with what context, in what order and with what runtime. An **orchestrator agent** (an LLM in a CLI such as OpenCode) consumes Shardeo's commands to advance through a workflow step by step; Shardeo validates the workflow, prepares and injects context, invokes the agent runtime, applies policies and persists all execution evidence in SQLite (Fact: `AGENTS.md`, `SPECS.md`).
 
-- **Usuarios objetivo**: ingenieros y equipos que usan agentes de codificación y quieren procesos reproducibles, contexto consistente y trazabilidad completa (Hecho: `AGENTS.md` §Propuesta de valor).
-- **Estado actual**: MVP funcional con las especificaciones funcionales 1–9 implementadas y entregadas en `main`; Spec 10 en borrador; la iniciativa 008 (incorporar Codex como segundo harness) está bloqueada esperando revisión humana (Hecho: `SPECS.md`, `.docs/initiatives/008-*/01-*/status.json`). Suite de tests: 550 casos, todos verdes en ejecución verificada; `tsc --noEmit` limpio (Hecho: verificación propia de este análisis).
-- **Tamaño**: 50 archivos TypeScript en `src/` (~16.3k LOC), 87 archivos en `test/` (~74 suites referenciadas en el script `test`) (Hecho).
+- **Target users**: engineers and teams that use coding agents and want reproducible processes, consistent context and full traceability (Fact: `AGENTS.md` §Value proposition).
+- **Current state**: functional MVP with functional specifications 1–9 implemented and delivered on `main`; Spec 10 in draft; initiative 008 (incorporating Codex as a second harness) is blocked awaiting human review (Fact: `SPECS.md`, `.docs/initiatives/008-*/01-*/status.json`). Test suite: 550 cases, all green in verified execution; `tsc --noEmit` clean (Fact: own verification of this analysis).
+- **Size**: 50 TypeScript files in `src/` (~16.3k LOC), 87 files in `test/` (~74 suites referenced in the `test` script) (Fact).
 
-## 2. Objetivo y alcance
+## 2. Objective and scope
 
-### Problema que resuelve
-Los agentes de codificación carecen de estructura: cada invocación parte de cero, el contexto se pasa manualmente, no hay registro de qué se ejecutó ni con qué resultado, y las convenciones del equipo no se traducen en procesos reproducibles (Hecho: `AGENTS.md` §El problema que resuelve).
+### Problem it solves
+Coding agents lack structure: every invocation starts from scratch, context is passed manually, there is no record of what was executed or with what result, and team conventions do not translate into reproducible processes (Fact: `AGENTS.md` §The problem it solves).
 
-Shardeo separa tres responsabilidades: **metodología** (qué hacer: workflows), **conocimiento** (con qué contexto: skills/artefactos) y **ejecución** (quién lo hace: runtimes intercambiables vía adapters) (Hecho: `AGENTS.md`).
+Shardeo separates three responsibilities: **methodology** (what to do: workflows), **knowledge** (with what context: skills/artifacts) and **execution** (who does it: interchangeable runtimes via adapters) (Fact: `AGENTS.md`).
 
-### Funcionalidades principales (implementadas)
-1. Inicialización de proyecto (`shardeo init`) y estructura `.shardeo/`.
-2. Descubrimiento de workflows (`workflows list/describe`) con validación Zod.
-3. Ejecución de workflows como DAG dirigido por `depends_on` (`run`, `steps next`, `step run`, `step complete`).
-4. Steps `command` (deterministas, auto-completados) y steps `agent` (vía runtime externo, hoy solo OpenCode).
-5. Re-ejecución de steps con feedback (`--feedback`), fallback entre candidatos y contexto acumulado acotado.
-6. Persistencia total en SQLite + reconciliación/reanudación (`resume`, `status`).
-7. Control de iteración dirigido por el orquestador (`step reopen --cascade`, `step skip`) con generaciones de artefactos y auditoría.
-8. Tres superficies de ejecución para steps agent (Spec 9): `headless`, `supervised` (supervisor local, permisos mediados, eventos con cursor, `step approve`) y `terminal` (PTY adjuntable con handoff humano, `step attach`).
-9. Contexto reproducible por intento mediante *bundles* inmutables con manifiesto neutral (orden, límites, SHA-256).
-10. Detección adapter-native de solicitudes de permiso (fixtures versionadas de OpenCode 1.17.18 + puente HTTP/SSE contra servidor gestionado de OpenCode 1.18.x).
+### Main features (implemented)
+1. Project initialization (`shardeo init`) and `.shardeo/` structure.
+2. Workflow discovery (`workflows list/describe`) with Zod validation.
+3. Workflow execution as a DAG driven by `depends_on` (`run`, `steps next`, `step run`, `step complete`).
+4. `command` steps (deterministic, self-completed) and `agent` steps (via external runtime, today only OpenCode).
+5. Step re-execution with feedback (`--feedback`), fallback between candidates and bounded accumulated context.
+6. Full persistence in SQLite + reconciliation/resumption (`resume`, `status`).
+7. Orchestrator-driven iteration control (`step reopen --cascade`, `step skip`) with artifact generations and audit.
+8. Three execution surfaces for agent steps (Spec 9): `headless`, `supervised` (local supervisor, mediated permissions, events with cursor, `step approve`) and `terminal` (attachable PTY with human handoff, `step attach`).
+9. Reproducible per-attempt context through immutable *bundles* with neutral manifest (order, limits, SHA-256).
+10. Adapter-native detection of permission requests (versioned OpenCode 1.17.18 fixtures + HTTP/SSE bridge against the managed OpenCode 1.18.x server).
 
-### Fuera de alcance / no implementado
-- **Interpretación semántica** de respuestas de agentes o decisiones de workflow: eso pertenece al orquestador (Hecho: `SPECS.md` §Principio de orquestación).
-- **Segundo harness (Codex)**: iniciativa 008 bloqueada (Spec 01 headless) y su Spec 02 (app-server supervised) sin iniciar (Hecho: `.docs/initiatives/008-*`).
-- **Spec 10** (override semántico de modelo/proveedor en `step run`): solo draft en `SPECS.md`, sin código (Hecho: `SPECS.md` líneas 1326+; no hay flags `--harness/--provider/--model/--variant` en `src/index.ts`).
-- **Roadmap v2** descrito pero no implementado: registro explícito de CLIs en config, `shardeo doctor`, `shardeo setup` (Hecho: `AGENTS.md` §Futuro: v2).
-- Paralelismo real: Shardeo informa qué steps son ejecutables; nunca ejecuta en paralelo por sí mismo (Hecho: `SPECS.md` Spec 5).
+### Out of scope / not implemented
+- **Semantic interpretation** of agent responses or workflow decisions: that belongs to the orchestrator (Fact: `SPECS.md` §Orchestration principle).
+- **Second harness (Codex)**: initiative 008 blocked (Spec 01 headless) and its Spec 02 (app-server supervised) not started (Fact: `.docs/initiatives/008-*`).
+- **Spec 10** (semantic model/provider override in `step run`): only a draft in `SPECS.md`, no code (Fact: `SPECS.md` lines 1326+; no `--harness/--provider/--model/--variant` flags in `src/index.ts`).
+- **Roadmap v2** described but not implemented: explicit CLI registration in config, `shardeo doctor`, `shardeo setup` (Fact: `AGENTS.md` §Future: v2).
+- Real parallelism: Shardeo reports which steps are executable; it never executes in parallel by itself (Fact: `SPECS.md` Spec 5).
 
-## 3. Estado actual del desarrollo
+## 3. Current development state
 
-### Implementado (verificado en código + tests + git)
-| Área | Evidencia |
+### Implemented (verified in code + tests + git)
+| Area | Evidence |
 |---|---|
-| Init y estructura | `src/commands/init.ts`, `test/test-init.mjs` |
-| Descubrimiento y validación de workflows | `src/utils/workflow.ts`, `src/schema/workflow.ts`, `test/test-workflows.mjs`, `test/workflow-schema.test.mjs` |
-| DAG `depends_on` (Spec 5) | `src/utils/dag.ts`, `test/utils/dag-execution.test.mjs` |
-| Steps command (Spec 3) | `src/utils/execution.ts`, `test/e2e/spec3-e2e.test.mjs` |
-| Steps agent headless + fallback (Spec 4) | `src/utils/agent.ts`, `src/commands/steps.ts`, `test/agent-contract/lifecycle/fallback/snapshot.test.mjs` |
-| Re-ejecución con feedback (Spec 6) | migración `migrateSpec6`, `test/re-execution.test.mjs` |
-| Persistencia y resume (Spec 7) | `src/db/queries.ts`, `src/commands/resume.ts`, `test/execution-persistence.test.mjs`, `test/spec7-retry-regressions.test.mjs` |
-| Iteración reopen/skip con generaciones (Spec 8) | `migrateSpec8`, `test/spec8-iteration-control.test.mjs`, `test/e2e/spec8-e2e.test.mjs`, commit `3f8918a` |
-| Superficies headless/supervised/terminal (Spec 9a/9b/9c) | `src/runtime/*` completo, `src/adapters/*`, tests `spec9a-*`, `supervised-*`, `terminal-*`; commits `e11954f`…`aeccd82` |
-| Detección nativa de permisos + puente servidor gestionado (iniciativa 007) | `src/adapters/opencode.ts` + `src/adapters/opencode-http.ts`, commits `148306e`…`0c813f7`; ambas specs entregadas a `main` ff-only según sus `status.json` |
+| Init and structure | `src/commands/init.ts`, `test/test-init.mjs` |
+| Workflow discovery and validation | `src/utils/workflow.ts`, `src/schema/workflow.ts`, `test/test-workflows.mjs`, `test/workflow-schema.test.mjs` |
+| `depends_on` DAG (Spec 5) | `src/utils/dag.ts`, `test/utils/dag-execution.test.mjs` |
+| Command steps (Spec 3) | `src/utils/execution.ts`, `test/e2e/spec3-e2e.test.mjs` |
+| Headless agent steps + fallback (Spec 4) | `src/utils/agent.ts`, `src/commands/steps.ts`, `test/agent-contract/lifecycle/fallback/snapshot.test.mjs` |
+| Re-execution with feedback (Spec 6) | `migrateSpec6` migration, `test/re-execution.test.mjs` |
+| Persistence and resume (Spec 7) | `src/db/queries.ts`, `src/commands/resume.ts`, `test/execution-persistence.test.mjs`, `test/spec7-retry-regressions.test.mjs` |
+| Reopen/skip iteration with generations (Spec 8) | `migrateSpec8`, `test/spec8-iteration-control.test.mjs`, `test/e2e/spec8-e2e.test.mjs`, commit `3f8918a` |
+| Headless/supervised/terminal surfaces (Spec 9a/9b/9c) | Full `src/runtime/*`, `src/adapters/*`, tests `spec9a-*`, `supervised-*`, `terminal-*`; commits `e11954f`…`aeccd82` |
+| Native permission detection + managed server bridge (initiative 007) | `src/adapters/opencode.ts` + `src/adapters/opencode-http.ts`, commits `148306e`…`0c813f7`; both specs delivered to `main` ff-only according to their `status.json` |
 
-### Parcialmente implementado
-- **Spec 4** está marcada `implemented` (no `done`): sigue siendo autoridad solo de la ruta `headless`; la resolución en vivo de permisos vive en Spec 9 (Hecho: `SPECS.md`).
-- **Detección de permisos headless** limitada a fixtures exactas de OpenCode 1.17.18; la vía live requiere modo `supervised` (Hecho: `SPECS.md` Spec 4 §5, `test/fixtures/opencode/v1.17.18/`).
+### Partially implemented
+- **Spec 4** is marked `implemented` (not `done`): it remains the authority only for the `headless` path; live permission resolution lives in Spec 9 (Fact: `SPECS.md`).
+- **Headless permission detection** limited to exact OpenCode 1.17.18 fixtures; the live path requires `supervised` mode (Fact: `SPECS.md` Spec 4 §5, `test/fixtures/opencode/v1.17.18/`).
 
-### Pendiente
-- **Iniciativa 008 Spec 01** ("Builtin Codex para ejecución headless"): `stage: blocked`, `completed: false` (Hecho: `status.json`). Contexto de sesión previa: tres intentos de implementación fallaron validación sobre cobertura de regresión de frontera pública (hallazgos F-02..F-08); el usuario eligió revisión humana (registro en Engram, sesiones 2026-08-19/20). *(Inferencia apoyada en memoria de sesiones, no en archivos del repo.)*
-- **Spec 10**: draft completo en `SPECS.md` con criterios de aceptación, sin implementación (Hecho).
-- **v2**: `doctor`, `setup`, registro de CLIs (Hecho: `AGENTS.md`, marcado "Futuro").
+### Pending
+- **Initiative 008 Spec 01** ("Builtin Codex for headless execution"): `stage: blocked`, `completed: false` (Fact: `status.json`). Prior session context: three implementation attempts failed validation on public boundary regression coverage (findings F-02..F-08); the user chose human review (recorded in Engram, sessions 2026-08-19/20). *(Inference supported by session memory, not by repository files.)*
+- **Spec 10**: complete draft in `SPECS.md` with acceptance criteria, no implementation (Fact).
+- **v2**: `doctor`, `setup`, CLI registration (Fact: `AGENTS.md`, marked "Future").
 
-### Deprecado o aparentemente sin uso
-- **`shardeo.py`** (594 líneas, raíz del repo): POC original en Python que invocaba `claude-code` y usaba otra DB (`shardeo.db`). No es referenciado por `package.json` ni por el código TS. Está trackeado en git. *(Inferencia: legado del prototipo inicial; mantenerlo solo con valor histórico.)*
-- **`AGENTS.old.md`**: versión anterior de las instrucciones para agentes, conservada junto a la vigente `AGENTS.md` (Hecho).
-- **`.shardeo/workflows/simple-feature/`**: workflow de dogfooding interno que declara agentes `claude-code`, lo cual es **inválido** bajo el schema v1 actual (solo `opencode`, Hecho: `src/schema/workflow.ts`). No está trackeado por git. *(Inferencia: resto de la época pre-TypeScript; rompería la validación si se ejecutara.)*
-- Código muerto puntual: en `cmdStepRun` (`src/commands/steps.ts` ~líneas 232–245) existen variables `workflowMode`/`workflowModeInferred` calculadas e inmediatamente descartadas con `void` — restos del desarrollo de Spec 9a (Hecho).
+### Deprecated or apparently unused
+- **`shardeo.py`** (594 lines, repo root): original Python POC that invoked `claude-code` and used a different DB (`shardeo.db`). It is not referenced by `package.json` or the TS code. It is tracked in git. *(Inference: legacy of the initial prototype; keep only for historical value.)*
+- **`AGENTS.old.md`**: previous version of the agent instructions, kept alongside the current `AGENTS.md` (Fact).
+- **`.shardeo/workflows/simple-feature/`**: internal dogfooding workflow that declares `claude-code` agents, which is **invalid** under the current v1 schema (only `opencode`, Fact: `src/schema/workflow.ts`). It is not tracked by git. *(Inference: leftover from the pre-TypeScript era; it would break validation if executed.)*
+- Scattered dead code: in `cmdStepRun` (`src/commands/steps.ts` ~lines 232–245) there are `workflowMode`/`workflowModeInferred` variables computed and immediately discarded with `void` — remnants of Spec 9a development (Fact).
 
-## 4. Stack tecnológico
+## 4. Technology stack
 
-| Tecnología | Versión | Función |
+| Technology | Version | Role |
 |---|---|---|
-| TypeScript | ^5.3.3 (`strict: true`, target ES2022, module Node16, ESM) | Todo el producto compilado a `dist/` |
-| Node.js | >=20 (engines); verificado con v22.23.1 | Runtime |
-| CAC | ^6.7.14 | Framework CLI (definición de comandos en `src/index.ts`) |
-| better-sqlite3 | ^12.11.1 | Persistencia embebida sincrónica, WAL, `.shardeo/shared.db` |
-| zod | ^3.23.0 | Validación runtime de workflows, config y schemas internos (`src/schema/*`) |
-| yaml | ^2.3.4 | Parsing de `workflow.yaml` / `config.yaml` |
-| node-pty | ^1.1.0 | PTY real para el modo `terminal` — único import permitido en `src/runtime/pty.ts` (Hecho: docstring del módulo) |
+| TypeScript | ^5.3.3 (`strict: true`, target ES2022, module Node16, ESM) | Whole product compiled to `dist/` |
+| Node.js | >=20 (engines); verified with v22.23.1 | Runtime |
+| CAC | ^6.7.14 | CLI framework (command definitions in `src/index.ts`) |
+| better-sqlite3 | ^12.11.1 | Synchronous embedded persistence, WAL, `.shardeo/shared.db` |
+| zod | ^3.23.0 | Runtime validation of workflows, config and internal schemas (`src/schema/*`) |
+| yaml | ^2.3.4 | Parsing of `workflow.yaml` / `config.yaml` |
+| node-pty | ^1.1.0 | Real PTY for the `terminal` mode — the only allowed import in `src/runtime/pty.ts` (Fact: module docstring) |
 
-**Dev/tooling**: `typescript`, `@types/node` ^20, `@types/better-sqlite3`. Test runner: `node:test` nativo (sin Jest/Vitest). No hay ESLint, Prettier, EditorConfig ni Husky configurados (Hecho: ausencia verificada en raíz), aunque hay comentarios de código que mencionan eslint.
+**Dev/tooling**: `typescript`, `@types/node` ^20, `@types/better-sqlite3`. Test runner: native `node:test` (no Jest/Vitest). There is no ESLint, Prettier, EditorConfig or Husky configured (Fact: verified absence at root), although there are code comments mentioning eslint.
 
-**Infraestructura/servicios externos**: ninguno requerido. La integración con OpenCode es local (subproceso y/o servidor HTTP local gestionado con auth Basic efímera; secretos redactados en `src/adapters/opencode-http.ts`). Sin cloud, sin colas, sin APIs remotas propias (Hecho).
+**Infrastructure/external services**: none required. The OpenCode integration is local (subprocess and/or local managed HTTP server with ephemeral Basic auth; secrets redacted in `src/adapters/opencode-http.ts`). No cloud, no queues, no own remote APIs (Fact).
 
-**Scripts npm** (Hecho: `package.json`):
+**npm scripts** (Fact: `package.json`):
 - `build` → `tsc` · `typecheck` → `tsc --noEmit`
-- `pretest` → build · `test` → `node --test <lista explícita de 74 archivos .test.mjs>`
-- `test:terminal-fix-round` → subconjunto de terminal · `prepublishOnly` → build
+- `pretest` → build · `test` → `node --test <explicit list of 74 .test.mjs files>`
+- `test:terminal-fix-round` → terminal subset · `prepublishOnly` → build
 
-## 5. Arquitectura
+## 5. Architecture
 
-### Modelo general
+### General model
 
-Shardeo es un **runtime de workflow determinista** con un límite de integración (adapter) que aísla al núcleo de cualquier proveedor de agentes:
+Shardeo is a **deterministic workflow runtime** with an integration boundary (adapter) that isolates the core from any agent provider:
 
-1. **Capa CLI** (`src/index.ts`): frontera única de comandos, política centralizada de EPIPE/errores, validación de argumentos extra, salida JSON estructurada por defecto.
-2. **Capa de comandos** (`src/commands/*`): orquesta cada comando; no contiene lógica de negocio profunda.
-3. **Núcleo** dividido en:
-   - `src/utils/*`: carga/validación de workflows, motor headless de agentes, validación de artefactos, DAG, contención de paths.
-   - `src/runtime/*`: componentes de Spec 9 — bundle inmutable, admission, transporte, supervisor, lease con fencing, IPC UDS, eventos con cursores, broker de interacciones (CAS), políticas de permisos, timeouts independientes, almacén de output, recuperación/orphaned, PTY y attach humano.
-   - `src/adapters/*`: contrato provider-neutral (`types.ts`), registry, adapter OpenCode (probe + headless + supervised HTTP/SSE + terminal) y adapters de test.
-   - `src/schema/*`: schemas Zod (workflow, config, mode, adapter, bundle, supervised).
-4. **Persistencia**: SQLite (WAL) en `.shardeo/shared.db`; máquina de estados transaccional en `src/db/queries.ts`; migraciones idempotentes por spec en `src/db/connection.ts`.
-5. **Runtime del harness**: el binario `opencode` (subproceso headless, servidor gestionado para supervised, TUI en PTY para terminal).
+1. **CLI layer** (`src/index.ts`): single command boundary, centralized EPIPE/error policy, extra-argument validation, structured JSON output by default.
+2. **Commands layer** (`src/commands/*`): orchestrates each command; contains no deep business logic.
+3. **Core** split into:
+   - `src/utils/*`: workflow loading/validation, headless agent engine, artifact validation, DAG, path containment.
+   - `src/runtime/*`: Spec 9 components — immutable bundle, admission, transport, supervisor, lease with fencing, UDS IPC, events with cursors, interaction broker (CAS), permission policies, independent timeouts, output store, recovery/orphaned, PTY and human attach.
+   - `src/adapters/*`: provider-neutral contract (`types.ts`), registry, OpenCode adapter (probe + headless + supervised HTTP/SSE + terminal) and test adapters.
+   - `src/schema/*`: Zod schemas (workflow, config, mode, adapter, bundle, supervised).
+4. **Persistence**: SQLite (WAL) in `.shardeo/shared.db`; transactional state machine in `src/db/queries.ts`; idempotent per-spec migrations in `src/db/connection.ts`.
+5. **Harness runtime**: the `opencode` binary (headless subprocess, managed server for supervised, TUI in PTY for terminal).
 
-Principio rector: **el core nunca conoce endpoints, flags, fixtures ni nombres de eventos de un proveedor**; todo lo específico vive detrás del adapter (Hecho: `SPECS.md` Spec 9, docstrings de `src/adapters/types.ts`).
+Governing principle: **the core never knows a provider's endpoints, flags, fixtures or event names**; everything provider-specific lives behind the adapter (Fact: `SPECS.md` Spec 9, docstrings of `src/adapters/types.ts`).
 
 ```mermaid
 graph TB
-    subgraph Consumidores
-        ORQ["Agente orquestador (LLM)"]
-        HUM["Humano (otra terminal)"]
+    subgraph Consumers
+        ORQ["Orchestrator agent (LLM)"]
+        HUM["Human (another terminal)"]
     end
     subgraph "Shardeo CLI"
         IDX["src/index.ts (CAC, JSON out)"]
@@ -127,15 +127,15 @@ graph TB
         SCH["src/schema/* (zod)"]
         DB[("SQLite .shardeo/shared.db")]
     end
-    subgraph "Proyecto del usuario"
+    subgraph "User project"
         WF[".shardeo/workflows/*/workflow.yaml"]
         CFG[".shardeo/config.yaml"]
         ART[".shardeo/artifacts/"]
         RUNT[".shardeo/runtime/ (bundles, output, sockets)"]
     end
-    OC["opencode (subproceso / servidor gestionado / TUI-PTY)"]
+    OC["opencode (subprocess / managed server / TUI-PTY)"]
 
-    ORQ -->|comandos JSON| IDX --> CMD
+    ORQ -->|JSON commands| IDX --> CMD
     HUM -->|step attach| CMD
     CMD --> UT & RT & AD & SCH
     CMD --> DB
@@ -145,289 +145,289 @@ graph TB
     RT --> RUNT
 ```
 
-### Dependencias entre módulos (reglas observables)
-- `commands → utils/runtime/db/adapters`; los utils son mayormente puros o I/O acotado; `runtime` es el único que toca node-pty, sockets UDS y procesos desacoplados.
-- `adapters` depende de `schema` y `runtime/pty` (tipos), nunca al revés: el core no importa literales del proveedor (Hecho: `registry.ts`, `types.ts`).
-- La señalización en vivo va por **IPC UDS local**, nunca por SQLite; SQLite es estado/auditoría (Hecho: `SPECS.md` §Coordinación).
+### Dependencies between modules (observable rules)
+- `commands → utils/runtime/db/adapters`; the utils are mostly pure or bounded I/O; `runtime` is the only one touching node-pty, UDS sockets and decoupled processes.
+- `adapters` depends on `schema` and `runtime/pty` (types), never the other way around: the core does not import provider literals (Fact: `registry.ts`, `types.ts`).
+- Live signaling goes through **local UDS IPC**, never SQLite; SQLite is state/audit (Fact: `SPECS.md` §Coordination).
 
-## 6. Estructura del repositorio
+## 6. Repository structure
 
 ```text
 shardeo/
 ├── src/
-│   ├── index.ts              # Entrada CLI (CAC), política EPIPE/errores, registro de adapters
+│   ├── index.ts              # CLI entry (CAC), EPIPE/error policy, adapter registration
 │   ├── commands/             # init · workflows · run · steps · status · resume · supervised · attach
-│   ├── utils/                # agent.ts (motor headless, 2059 LOC) · workflow.ts (validación segura)
+│   ├── utils/                # agent.ts (headless engine, 2059 LOC) · workflow.ts (safe validation)
 │   │                         # execution.ts (requires/produces) · containment.ts · dag.ts · mode.ts
-│   │                         # errors.ts (códigos terminales) · canonical-json.ts
+│   │                         # errors.ts (terminal codes) · canonical-json.ts
 │   ├── runtime/              # bundle · admission · transport · retention · pty · terminal · attach
 │   │                         # supervisor(-process/-entry) · lease · ipc · events · interaction
 │   │                         # policy · timeouts · output · recovery · socket-path
-│   ├── adapters/             # types.ts (contrato neutral) · registry.ts · opencode.ts (943 LOC)
-│   │                         # opencode-http.ts (puente SSE/HTTP) · test-harness.ts
+│   ├── adapters/             # types.ts (neutral contract) · registry.ts · opencode.ts (943 LOC)
+│   │                         # opencode-http.ts (SSE/HTTP bridge) · test-harness.ts
 │   ├── schema/               # workflow · config · mode · adapter · bundle · supervised (zod)
-│   └── db/                   # connection.ts (schema+migraciones) · queries.ts (máquina de estados, 2365 LOC)
-├── test/                     # 87 archivos node:test (+fixtures opencode v1.17.18 y v1.18.16)
-├── tools/scripts/initiative/ # Harness del meta-workflow usado para desarrollar Shardeo con agentes
-├── dist/                     # Salida tsc (gitignored)
-├── .docs/initiatives/        # Specs técnicas e historial de ejecución de la iniciativa (gitignored)
-├── .docs/spikes/             # Spikes: análisis Traycer, migración pipeline iniciativas
-├── .atl/                     # Registro de skills generado por tooling externo (gitignored)
-├── .shardeo/                 # Instancia dogfooding propia (gitignored): config, 1 workflow legacy, artifacts
-├── AGENTS.md / AGENTS.old.md # Instrucciones operativas vigentes / legado
-├── SPECS.md                  # CONTRATO FUNCIONAL autoritativo (Specs 1–10)
-├── README.md                 # Inicio rápido y contratos clave
-├── shardeo.py                # POC Python original (legacy)
+│   └── db/                   # connection.ts (schema+migrations) · queries.ts (state machine, 2365 LOC)
+├── test/                     # 87 node:test files (+opencode v1.17.18 and v1.18.16 fixtures)
+├── tools/scripts/initiative/ # Meta-workflow harness used to develop Shardeo with agents
+├── dist/                     # tsc output (gitignored)
+├── .docs/initiatives/        # Technical specs and initiative execution history (gitignored)
+├── .docs/spikes/             # Spikes: Traycer analysis, initiative pipeline migration
+├── .atl/                     # Skill registry generated by external tooling (gitignored)
+├── .shardeo/                 # Own dogfooding instance (gitignored): config, 1 legacy workflow, artifacts
+├── AGENTS.md / AGENTS.old.md # Current operating instructions / legacy
+├── SPECS.md                  # AUTHORITATIVE FUNCTIONAL CONTRACT (Specs 1–10)
+├── README.md                 # Quick start and key contracts
+├── shardeo.py                # Original Python POC (legacy)
 ├── package.json / tsconfig.json / package-lock.json
 ```
 
-Notas: `.gitignore` usa el patrón `.*/` → **todos** los directorios con punto (`.docs/`, `.atl/`, `.shardeo/`) están ignorados; solo se versionan `src/`, `test/`, `tools/`, docs raíz y configs (Hecho: `git ls-files`). No hay CI, Docker ni configs de lint (Hecho).
+Notes: `.gitignore` uses the `.*/` pattern → **all** dot directories (`.docs/`, `.atl/`, `.shardeo/`) are ignored; only `src/`, `test/`, `tools/`, root docs and configs are versioned (Fact: `git ls-files`). There is no CI, Docker or lint configs (Fact).
 
-## 7. Componentes y módulos principales
+## 7. Main components and modules
 
-### 7.1 Entrada CLI — `src/index.ts`
-- **Responsabilidad**: registrar comandos CAC, validar aridad/flags, emitir errores JSON estructurados `{error, code?, ...}` con `exitCode 1` (`ExitCode` en `src/utils/errors.ts`; solo existen 0/1).
-- **Comandos**: `init`, `workflows list|describe [--human]`, `run <wf>`, `steps next <exec>`, `step run|complete|reopen|skip|events|status|output|approve|attach`, `status <exec>`, `resume <exec>`.
-- **Consideraciones**: manejo explícito de EPIPE en stdout (exit 0 si el consumidor cerró el pipe); rechazo de argumentos posicionales extra respetando `--`. Al cargar, llama `registerBuiltinAdapters()`.
+### 7.1 CLI entry — `src/index.ts`
+- **Responsibility**: register CAC commands, validate arity/flags, emit structured JSON errors `{error, code?, ...}` with `exitCode 1` (`ExitCode` in `src/utils/errors.ts`; only 0/1 exist).
+- **Commands**: `init`, `workflows list|describe [--human]`, `run <wf>`, `steps next <exec>`, `step run|complete|reopen|skip|events|status|output|approve|attach`, `status <exec>`, `resume <exec>`.
+- **Considerations**: explicit EPIPE handling on stdout (exit 0 if the consumer closed the pipe); rejection of extra positional arguments respecting `--`. On load, it calls `registerBuiltinAdapters()`.
 
-### 7.2 Motor headless de agentes — `src/utils/agent.ts` (~2059 LOC)
-- **Responsabilidad**: ciclo de vida Spec 4: *probe → claim(lease) → invoke(heartbeat) → finalize*. Fallback restringido sin clasificación semántica.
-- **Claves**:
-  - Presupuestos duros: snapshots 1 MiB/step; `DiagnosticRaw` 1 MiB (única autoridad de bytes crudos; encima conserva prefijo+sufijo+tamaño+SHA-256); contexto de fallback acumulado 2 MiB; proyecciones visibles/evidencia 16 KiB (Hecho: constantes líneas 31–39).
-  - Sanitización con redacción de credenciales por patrones (`scanCredentialAssignments`, `sanitizeAgentOutput`, `projectProviderError`).
-  - Parser JSONL del stream de OpenCode (acoplamiento a proveedor **deliberado pero confinado aquí hasta la iniciativa 008**, que lo debe mover al adapter).
-  - Timeout inactividad default 300 s reiniciado por output; lease owner_token + heartbeat 10 s.
-- **Errores terminales** (sin fallback): `permission_required`, `permission_detection_unsupported`, `permission_timeout`, `process_inactivity_timeout`, `interaction_timeout`, `artifact_context_too_large`, `adapter_contract_error`, `process_start_failed`, `process_cleanup_failed`, `context_error`, `persistence_error` (Hecho: `TERMINAL_COMPLETION_REASONS` en `src/utils/errors.ts`).
+### 7.2 Headless agent engine — `src/utils/agent.ts` (~2059 LOC)
+- **Responsibility**: Spec 4 lifecycle: *probe → claim(lease) → invoke(heartbeat) → finalize*. Restricted fallback without semantic classification.
+- **Key points**:
+  - Hard budgets: snapshots 1 MiB/step; `DiagnosticRaw` 1 MiB (single raw-bytes authority; above that keeps prefix+suffix+size+SHA-256); cumulative fallback context 2 MiB; visible projections/evidence 16 KiB (Fact: constants lines 31–39).
+  - Sanitization with credential redaction by patterns (`scanCredentialAssignments`, `sanitizeAgentOutput`, `projectProviderError`).
+  - JSONL parser of the OpenCode stream (provider coupling **deliberate but confined here until initiative 008**, which must move it to the adapter).
+  - Default inactivity timeout 300 s restarted by output; lease owner_token + 10 s heartbeat.
+- **Terminal errors** (no fallback): `permission_required`, `permission_detection_unsupported`, `permission_timeout`, `process_inactivity_timeout`, `interaction_timeout`, `artifact_context_too_large`, `adapter_contract_error`, `process_start_failed`, `process_cleanup_failed`, `context_error`, `persistence_error` (Fact: `TERMINAL_COMPLETION_REASONS` in `src/utils/errors.ts`).
 
-### 7.3 Carga y validación de workflows — `src/utils/workflow.ts` + `src/schema/workflow.ts`
-- **Responsabilidad**: leer `.shardeo/workflows/<nombre>/workflow.yaml`, validar con Zod y reglas de negocio (entrada única sin `depends_on`, sin ciclos, referencias válidas, whitelist `VALID_AGENT_IDENTIFIERS = {"opencode"}`).
-- **Seguridad**: nombre validado por gramática antes de I/O; contención de ruta resuelta como defensa en profundidad; rechazo de symlinks en cada nivel; sanitización ANSI/OSC en salida humana; límites YAML 512 KB / instrucciones 256 KB; solo ENOENT es "no existe", otros errores de FS son estructurados. El nombre canónico es el nombre del directorio, no el campo `name` del YAML (Hecho: docstring).
+### 7.3 Workflow loading and validation — `src/utils/workflow.ts` + `src/schema/workflow.ts`
+- **Responsibility**: read `.shardeo/workflows/<name>/workflow.yaml`, validate with Zod and business rules (single entry without `depends_on`, no cycles, valid references, `VALID_AGENT_IDENTIFIERS = {"opencode"}` whitelist).
+- **Security**: name validated by grammar before I/O; path containment resolved as defense in depth; symlink rejection at every level; ANSI/OSC sanitization in human output; YAML limits 512 KB / instructions 256 KB; only ENOENT is "does not exist", other FS errors are structured. The canonical name is the directory name, not the `name` field of the YAML (Fact: docstring).
 
-### 7.4 Artefactos y contención — `src/utils/execution.ts` + `src/utils/containment.ts`
-- `requires`/`produces` se resuelven bajo `.shardeo/artifacts/` (no cwd). `validateContainedPath` rechaza absolutos, `..` y escapes por symlink; symlinks internos permitidos si su destino real queda dentro.
+### 7.4 Artifacts and containment — `src/utils/execution.ts` + `src/utils/containment.ts`
+- `requires`/`produces` are resolved under `.shardeo/artifacts/` (not cwd). `validateContainedPath` rejects absolutes, `..` and symlink escapes; internal symlinks allowed if their real target stays inside.
 
 ### 7.5 Adapters — `src/adapters/*`
-- `types.ts`: contratos `HarnessAdapter`, `HarnessAdapterSupervised`, `HarnessAdapter9c` (terminal), detectores de permisos, handles de bundle/sesión, receipts de admisión. **Cero literales de proveedor.**
-- `registry.ts`: registro por identificador (regex estricta), factories para instancias frescas por proceso hijo; solo built-ins en producción.
-- `opencode.ts` (único builtin): probe vía `opencode --version` (spawnSync 3 s) → `HarnessCapabilityManifest` (modos headless/supervised/terminal soportados; supervised con interacción `permission`, scope `request`). Headless lanza argv directo `run --format json [--model]` con stdin de contexto, `shell:false`. Supervised usa servidor gestionado local con cliente HTTP propio (`opencode-http.ts`: SSE, límites de frame 64–256 KiB, redacción de secretos/Basic/auth headers, timeout server-ready 20 s). Terminal declara capacidades PTY (`requires_real_pty`, attach por relay UDS).
-- `test-harness.ts`: adapters neutrales para tests de capacidad/neutralidad/launch.
+- `types.ts`: contracts `HarnessAdapter`, `HarnessAdapterSupervised`, `HarnessAdapter9c` (terminal), permission detectors, bundle/session handles, admission receipts. **Zero provider literals.**
+- `registry.ts`: registration by identifier (strict regex), factories for fresh instances per child process; only built-ins in production.
+- `opencode.ts` (only builtin): probe via `opencode --version` (spawnSync 3 s) → `HarnessCapabilityManifest` (supported headless/supervised/terminal modes; supervised with `permission` interaction, `request` scope). Headless launches direct argv `run --format json [--model]` with context stdin, `shell:false`. Supervised uses a local managed server with its own HTTP client (`opencode-http.ts`: SSE, frame limits 64–256 KiB, redaction of secrets/Basic/auth headers, server-ready timeout 20 s). Terminal declares PTY capabilities (`requires_real_pty`, attach via UDS relay).
+- `test-harness.ts`: neutral adapters for capability/neutrality/launch tests.
 
-### 7.6 Runtime Spec 9 — `src/runtime/*`
-| Módulo | Responsabilidad |
+### 7.6 Spec 9 runtime — `src/runtime/*`
+| Module | Responsibility |
 |---|---|
-| `bundle.ts` | Materializa/copias por intento, congela manifiesto (orden semántico de Spec 4, roles, eager/on_demand, bytes+SHA-256), verifica integridad |
-| `admission.ts` | Valida receipt contra bundle congelado (bundle_id, manifest_sha256, digests de obligatorias); fallo cerrado ante drift |
-| `transport.ts` | Selección pura de transporte anunciado (`direct_injection`, `file_reference`, …) según modo/límites |
-| `supervisor.ts` (+ `-process/-entry`) | Ciclo del supervisor propietario: spawn desacoplado, handshake readiness, loop de eventos, sink de output, timeouts; `startSupervisedAttempt` orquesta lease+bundle+transporte+IPC |
-| `lease.ts` | Lease con fencing (generación monótona, PID guard; un PID reutilizado no autoriza matar procesos) |
-| `ipc.ts` | UDS local, framing 64 KiB, ack 5 s, dedup request_id, binding a generación |
-| `events.ts` | Store de eventos con cursor monótono persistido antes de visible; unicidad anti-duplicado en retry |
-| `interaction.ts` | Broker CAS pending→resolving→resolved/resolution_failed; idempotente; cruce de identidad rechazado; caída en resolving → orphaned salvo resume probado |
-| `policy.ts` | Evaluación provider-neutral (`prompt` default, `deny`, `rules` por capacidad exacta); deny precede; decisión automática solo si está en `available_decisions`; actor `"policy"` auditado |
-| `timeouts.ts` | Tres timers independientes con reloj inyectable: inactividad proceso (3 modos), decisión interacción (supervised), presencia humana (terminal); default 300 s |
-| `output.ts` | Buffer sanitizado incremental en disco por intento; `--tail` siempre; `--full` solo terminal; retención acotada; sin fuga de rutas internas |
-| `recovery.ts` | Detección de leases vencidos/supervisores ausentes; resume condicional a anuncio del adapter; cleanup solo de recursos cuya propiedad se puede demostrar |
-| `retention.ts` | Limpieza de bundles/output antiguos o sobre-presupuesto, protegiendo activos y orphaned recuperables |
-| `pty.ts` / `terminal.ts` / `attach.ts` | PTY real (node-pty), máquina de estados terminal, relay crudo humano↔PTY sin SQLite |
+| `bundle.ts` | Materializes/per-attempt copies, freezes manifest (Spec 4 semantic order, roles, eager/on_demand, bytes+SHA-256), verifies integrity |
+| `admission.ts` | Validates receipt against frozen bundle (bundle_id, manifest_sha256, mandatory digests); closed failure on drift |
+| `transport.ts` | Pure selection of announced transport (`direct_injection`, `file_reference`, …) by mode/limits |
+| `supervisor.ts` (+ `-process/-entry`) | Owner supervisor cycle: decoupled spawn, readiness handshake, event loop, output sink, timeouts; `startSupervisedAttempt` orchestrates lease+bundle+transport+IPC |
+| `lease.ts` | Lease with fencing (monotonic generation, PID guard; a reused PID does not authorize killing processes) |
+| `ipc.ts` | Local UDS, 64 KiB framing, 5 s ack, request_id dedup, generation binding |
+| `events.ts` | Event store with monotonic cursor persisted before visible; anti-duplicate uniqueness on retry |
+| `interaction.ts` | CAS broker pending→resolving→resolved/resolution_failed; idempotent; identity crossing rejected; crash while resolving → orphaned unless resume proven |
+| `policy.ts` | Provider-neutral evaluation (`prompt` default, `deny`, `rules` by exact capability); deny precedes; automatic decision only if in `available_decisions`; actor `"policy"` audited |
+| `timeouts.ts` | Three independent timers with injectable clock: process inactivity (3 modes), interaction decision (supervised), human presence (terminal); default 300 s |
+| `output.ts` | Incremental sanitized buffer on disk per attempt; `--tail` always; `--full` only terminal; bounded retention; no internal path leakage |
+| `recovery.ts` | Detection of expired leases/missing supervisors; resume conditional on adapter announcement; cleanup only of resources whose ownership can be proven |
+| `retention.ts` | Cleanup of old or over-budget bundles/output, protecting assets and recoverable orphans |
+| `pty.ts` / `terminal.ts` / `attach.ts` | Real PTY (node-pty), terminal state machine, raw human↔PTY relay without SQLite |
 
-### 7.7 Persistencia — `src/db/connection.ts` + `src/db/queries.ts`
-- `connection.ts`: singleton, WAL, busy_timeout 5 s, permisos POSIX 0600/0700, `ensureTables` + migraciones idempotentes transaccionales con retry SQLITE_BUSY (50/100/200 ms): `migrateSpec4/6/7/8/9a/9b/9c`.
-- `queries.ts`: máquina de estados completa — claim atómico de steps, inserción de intentos (incl. reconstrucción y feedback), heartbeat, finalización éxito/fallo/fallback, reconciliación de intentos expirados, reopen/skip atómicos con generaciones y auditoría, snapshot totals, resumen de estado (`getExecutionStatusSummary`). Todas reciben `Database` para test injection.
+### 7.7 Persistence — `src/db/connection.ts` + `src/db/queries.ts`
+- `connection.ts`: singleton, WAL, busy_timeout 5 s, POSIX permissions 0600/0700, `ensureTables` + idempotent transactional migrations with SQLITE_BUSY retry (50/100/200 ms): `migrateSpec4/6/7/8/9a/9b/9c`.
+- `queries.ts`: complete state machine — atomic step claim, attempt insertion (incl. reconstruction and feedback), heartbeat, success/failure/fallback finalization, reconciliation of expired attempts, atomic reopen/skip with generations and audit, snapshot totals, status summary (`getExecutionStatusSummary`). All receive `Database` for test injection.
 
-## 8. Flujos principales
+## 8. Main flows
 
-### 8.1 Ciclo básico de un workflow (Specs 1–3)
+### 8.1 Basic workflow cycle (Specs 1–3)
 ```
-shardeo init → shardeo run <wf> (valida grafo, crea exec + steps pending) 
-  → steps next <exec> (steps con depends_on satisfecho) 
+shardeo init → shardeo run <wf> (validates graph, creates exec + pending steps) 
+  → steps next <exec> (steps with satisfied depends_on) 
   → step run <exec> <step> 
-      · command: ejecuta, valida produces → completed automático
-      · agent: ver flujo 8.2
-  → step complete <exec> <step> (agent: valida produces bajo .shardeo/artifacts/)
-  → status / resume según necesidad
+      · command: executes, validates produces → automatic completed
+      · agent: see flow 8.2
+  → step complete <exec> <step> (agent: validates produces under .shardeo/artifacts/)
+  → status / resume as needed
 ```
 
-### 8.2 Step agent en modo `headless` (Spec 4; bloqueante)
+### 8.2 Agent step in `headless` mode (Spec 4; blocking)
 ```mermaid
 sequenceDiagram
-    participant O as Orquestador
+    participant O as Orchestrator
     participant C as shardeo step run
     participant DB as SQLite
     participant A as OpenCodeAdapter
-    participant OC as opencode (subproceso)
+    participant OC as opencode (subprocess)
     O->>C: step run <exec> <step> [--feedback]
-    C->>DB: validar execution/step
-    C->>C: re-leer y re-validar YAML completo
-    C->>A: probe disponibilidad (--version)
+    C->>DB: validate execution/step
+    C->>C: re-read and re-validate full YAML
+    C->>A: probe availability (--version)
     C->>DB: claimStep + insertAttempt (owner_token/lease)
-    C->>OC: spawn argv "run --format json" · stdin=contexto · shell:false
-    loop mientras hay output (reinicia timer inactividad 300s)
-        OC-->>C: eventos JSONL
+    C->>OC: spawn argv "run --format json" · stdin=context · shell:false
+    loop while there is output (restarts 300s inactivity timer)
+        OC-->>C: JSONL events
     end
-    alt éxito limpio
-        C->>DB: finalizeAttemptCompleted (evidencia ≤16KiB, DiagnosticRaw ≤1MiB)
-        C-->>O: respuesta sanitizada · step queda running
-    else error limpio (proceso+JSONL ok)
-        C->>DB: decisión fallback → siguiente candidato con contexto extendido ≤2MiB
-    else error terminal
+    alt clean success
+        C->>DB: finalizeAttemptCompleted (evidence ≤16KiB, DiagnosticRaw ≤1MiB)
+        C-->>O: sanitized response · step stays running
+    else clean error (process+JSONL ok)
+        C->>DB: fallback decision → next candidate with extended context ≤2MiB
+    else terminal error
         C->>DB: terminalUpdate → step failed
     end
     O->>C: step complete <exec> <step>
-    C->>C: validar produces (contención) → completed (nueva generación)
+    C->>C: validate produces (containment) → completed (new generation)
 ```
-Contexto inyectado en orden fijo: instrucciones operacionales → instrucciones de dominio → skills → artefactos requeridos → artefactos/contexto de intentos previos → feedback delimitado.
+Injected context in fixed order: operational instructions → domain instructions → skills → required artifacts → prior attempt artifacts/context → delimited feedback.
 
-### 8.3 Permiso mediado en `supervised` (Spec 9b)
+### 8.3 Mediated permission in `supervised` (Spec 9b)
 ```mermaid
 sequenceDiagram
-    participant O as Orquestador
+    participant O as Orchestrator
     participant C as shardeo CLI
     participant S as Supervisor (bg, lease+fencing)
     participant A as Adapter
-    participant H as OpenCode servidor gestionado
+    participant H as OpenCode managed server
     O->>C: step run ... --mode supervised
-    C->>A: probe capacidades (runtime real)
-    C->>S: iniciar supervisor (lease + IPC UDS)
-    S->>S: materializar y congelar bundle (manifiesto SHA-256)
-    A->>H: admitir entradas obligatorias (transporte anunciado, digests)
-    S->>H: abrir sesión → handshake readiness
-    C-->>O: attempt_started {attempt_id, cursor, bundle_id, transporte}
-    H-->>A: solicitud nativa de permiso (HTTP/SSE)
-    A->>S: normalizar → interaction_required + available_decisions
-    S->>DB: persistir evento; estado awaiting_interaction
+    C->>A: probe capabilities (real runtime)
+    C->>S: start supervisor (lease + UDS IPC)
+    S->>S: materialize and freeze bundle (SHA-256 manifest)
+    A->>H: admit mandatory inputs (announced transport, digests)
+    S->>H: open session → readiness handshake
+    C-->>O: attempt_started {attempt_id, cursor, bundle_id, transport}
+    H-->>A: native permission request (HTTP/SSE)
+    A->>S: normalize → interaction_required + available_decisions
+    S->>DB: persist event; state awaiting_interaction
     O->>C: step events --after <cursor>
-    C-->>O: evento interaction_required
+    C-->>O: interaction_required event
     O->>C: step approve --interaction-id X --decision allow_once|deny
-    C->>S: IPC (CAS pending→resolving→resolved, idempotente)
-    S->>A: translateDecision → protocolo nativo
-    A->>H: aplicar decisión
+    C->>S: IPC (CAS pending→resolving→resolved, idempotent)
+    S->>A: translateDecision → native protocol
+    A->>H: apply decision
     S-->>O: interaction_resolved → running → attempt_completed
 ```
 
-### 8.4 Handoff humano en `terminal` (Spec 9c)
-1. `step run --mode terminal` crea intento + supervisor + PTY adjuntable; congela y admite bundle antes de activar el harness.
-2. Retorna `awaiting_human` y el comando exacto `shardeo step attach <exec> <step> --attempt-id <id>`.
-3. La persona ejecuta attach en otra terminal (relay crudo UDS); detach **no** mata al hijo; reattach ilimitado mientras no expire `human_presence_seconds` sin presencia.
-4. Al cerrar el harness, supervisor persiste resultado y publica evento terminal. El orquestador nunca escribe teclas ni interpreta la pantalla.
+### 8.4 Human handoff in `terminal` (Spec 9c)
+1. `step run --mode terminal` creates attempt + supervisor + attachable PTY; freezes and admits bundle before activating the harness.
+2. Returns `awaiting_human` and the exact command `shardeo step attach <exec> <step> --attempt-id <id>`.
+3. The person runs attach from another terminal (raw UDS relay); detach does **not** kill the child; unlimited reattach while `human_presence_seconds` does not expire without presence.
+4. When the harness closes, supervisor persists the result and publishes the terminal event. The orchestrator never writes keys or interprets the screen.
 
-### 8.5 Reconciliación y resume (Spec 7 + Spec 9b recovery)
-`shardeo resume` reconcilia intentos expirados (`reconcileExpiredAttemptsForExecution`), marca reconstrucción requerida si un artefacto completado falta en disco (entregando la respuesta previa del agente como contexto), sincroniza `executions.status` y devuelve guía de continuación.
+### 8.5 Reconciliation and resume (Spec 7 + Spec 9b recovery)
+`shardeo resume` reconciles expired attempts (`reconcileExpiredAttemptsForExecution`), marks reconstruction required if a completed artifact is missing on disk (delivering the agent's previous response as context), syncs `executions.status` and returns continuation guidance.
 
-### 8.6 Iteración dirigida (Spec 8)
-`step reopen --cascade --feedback` reabre un step completado/fallido, invalida su generación válida (los archivos quedan para auditoría pero ya no satisfacen `requires`/`complete`) y reinicia descendientes conservando historial; `step skip --reason` marca pendiente-sin-intentos como `skipped` (terminal para `depends_on`, pero no genera artefactos). Todo queda en `step_transition_events`.
+### 8.6 Directed iteration (Spec 8)
+`step reopen --cascade --feedback` reopens a completed/failed step, invalidates its valid generation (files remain for audit but no longer satisfy `requires`/`complete`) and restarts descendants preserving history; `step skip --reason` marks pending-without-attempts as `skipped` (terminal for `depends_on`, but generates no artifacts). Everything lands in `step_transition_events`.
 
-## 9. Modelo de datos
+## 9. Data model
 
-SQLite en `.shardeo/shared.db` (WAL). Esquema base + migraciones acumulativas e idempotentes por spec (Hecho: `src/db/connection.ts`).
+SQLite in `.shardeo/shared.db` (WAL). Base schema + cumulative idempotent migrations per spec (Fact: `src/db/connection.ts`).
 
-**Tablas núcleo**
-- `executions(id PK, workflow, status, created_at, updated_at)` — estados agregados sincronizados con transiciones de steps.
-- `execution_steps(id PK, FK executions, step_id, status, created_at, started_at*, completed_at, reconstruction_required*, missing_artifacts_json*, current_generation*, valid_generation*; UNIQUE(execution_id, step_id))` — status ∈ pending/running/completed/failed/skipped (*columnas Spec 7/8).
+**Core tables**
+- `executions(id PK, workflow, status, created_at, updated_at)` — aggregate states synced with step transitions.
+- `execution_steps(id PK, FK executions, step_id, status, created_at, started_at*, completed_at, reconstruction_required*, missing_artifacts_json*, current_generation*, valid_generation*; UNIQUE(execution_id, step_id))` — status ∈ pending/running/completed/failed/skipped (*Spec 7/8 columns).
 - `step_attempts(id PK, FK executions, step_id, attempt_number, agent_used, model, exit_code, stdout, stderr, created_at, completed_at, owner_token*, lease_expires_at*, evidence_json*, evidence_digest*, evidence_version*, decision*, completion_reason*, snapshot_json*, duration_ms**, feedback_text**, step_generation***, reopen_event_id***, bundle_id⁹ᵃ, manifest_sha256⁹ᵃ, bundle_transport⁹ᵃ, native_identity⁹ᶜ; UNIQUE(execution_id, step_id, attempt_number))` — decision ∈ success/fallback/terminal.
 
-**Tablas auxiliares**
-- Spec 8: `step_transition_events` (auditoría reopen/skip/generaciones), `step_generations`, `step_generation_manifest_entries`, `step_generation_invalidations`, `reopen_feedback_consumptions`.
+**Auxiliary tables**
+- Spec 8: `step_transition_events` (reopen/skip/generations audit), `step_generations`, `step_generation_manifest_entries`, `step_generation_invalidations`, `reopen_feedback_consumptions`.
 - Spec 9a: `spec9a_bundles`, `attempt_context_bundles`.
-- Spec 9b: `managed_leases`, `attempt_events` (cursores), `interactions` (CAS), `output_meta`.
+- Spec 9b: `managed_leases`, `attempt_events` (cursors), `interactions` (CAS), `output_meta`.
 
 ```mermaid
 erDiagram
     executions ||--o{ execution_steps : "1:N"
     executions ||--o{ step_attempts : "1:N"
-    execution_steps ||--o{ step_attempts : "intentos"
-    execution_steps ||--o{ step_generations : "generaciones"
-    step_generations ||--o{ step_generation_manifest_entries : "manifiesto"
-    execution_steps ||--o{ step_transition_events : "auditoria"
-    step_attempts ||--o{ attempt_events : "eventos cursor"
-    step_attempts ||--o{ interactions : "interacciones CAS"
+    execution_steps ||--o{ step_attempts : "attempts"
+    execution_steps ||--o{ step_generations : "generations"
+    step_generations ||--o{ step_generation_manifest_entries : "manifest"
+    execution_steps ||--o{ step_transition_events : "audit"
+    step_attempts ||--o{ attempt_events : "cursor events"
+    step_attempts ||--o{ interactions : "CAS interactions"
     step_attempts ||--o| managed_leases : "lease fencing"
     step_attempts ||--o| attempt_context_bundles : "bundle 9a"
 ```
-*(FK duras verificadas solo hacia `executions`; las demás relaciones son lógicas por execution_id/step_id/attempt_id — Inferencia a partir de columnas y queries.)*
+*(Hard FKs verified only towards `executions`; the other relationships are logical by execution_id/step_id/attempt_id — Inference from columns and queries.)*
 
-Reglas importantes: la validez de un artefacto pertenece a la **generación** del step (Spec 8), no a los bytes; los intentos son append-only; `evidence_version`/digest protegen integridad de evidencia; JSON canónico compartido (`canonical-json.ts`, claves ordenadas por bytes UTF-8).
+Important rules: an artifact's validity belongs to the step's **generation** (Spec 8), not to the bytes; attempts are append-only; `evidence_version`/digest protect evidence integrity; shared canonical JSON (`canonical-json.ts`, keys ordered by UTF-8 bytes).
 
-## 10. API e interfaces
+## 10. API and interfaces
 
-No hay API HTTP propia del producto: la interfaz es el **CLI con salida JSON de una línea por stdout** (opción `--human` solo en `workflows`). El puente HTTP/SSE de `opencode-http.ts` es interno hacia el servidor gestionado de OpenCode (localhost, auth Basic efímera redactada en logs).
+There is no product-owned HTTP API: the interface is the **CLI with one-line JSON output per stdout** (`--human` option only in `workflows`). The HTTP/SSE bridge of `opencode-http.ts` is internal towards the managed OpenCode server (localhost, ephemeral Basic auth redacted in logs).
 
-Comandos y contratos esenciales (Hecho: `src/index.ts`, `SPECS.md`):
+Essential commands and contracts (Fact: `src/index.ts`, `SPECS.md`):
 
-| Comando | Flags clave | Salida / comportamiento |
+| Command | Key flags | Output / behavior |
 |---|---|---|
-| `init` | — | Crea `.shardeo/` idempotente |
-| `workflows list` | `--human` | JSON `{name, description}` o marcado inválido con error Zod |
-| `workflows describe <wf>` | `--human` | Detalle: instrucciones + steps (id, type, agents, depends_on, requires, produces) |
-| `run <wf>` | — | Valida grafo; retorna execution-id |
-| `steps next <exec>` | — | Steps disponibles con id/type/agents (paralelizables a criterio del orquestador) |
-| `step run <exec> <step>` | `--feedback`, `--mode headless\|supervised\|terminal` | headless: bloquea y retorna resultado sanitizado; supervised/terminal: retorna `attempt_started` con attempt_id/cursor/bundle/attach_command |
-| `step complete` | — | Valida `produces`; falla si faltan; step permanece en progreso |
-| `step reopen` | `--cascade`, `--feedback` | Falla si afectaría descendientes sin `--cascade` |
-| `step skip` | `--reason` | Solo steps pendientes sin intentos iniciados |
-| `step events` | `--attempt-id`, `--after` (exclusivo), `--limit` | Paginación estable por cursor; fuente de transiciones semánticas |
-| `step status` | `--attempt-id` | Vista actual (puede omitir transiciones intermedias) |
-| `step output` | `--tail N`, `--full` (solo terminal) | Única vía para output de alto volumen; no avanza cursor |
-| `step approve` | `--interaction-id`, `--decision` | Solo decisiones anunciadas en `available_decisions`; rechaza cruces de identidad |
-| `step attach` | `--attempt-id` | Relay humano↔PTY; falla si hay ambigüedad de candidatos |
-| `status <exec>` / `resume <exec>` | — | Resumen durable / reconciliación + guía |
+| `init` | — | Creates `.shardeo/` idempotently |
+| `workflows list` | `--human` | JSON `{name, description}` or marked invalid with Zod error |
+| `workflows describe <wf>` | `--human` | Detail: instructions + steps (id, type, agents, depends_on, requires, produces) |
+| `run <wf>` | — | Validates graph; returns execution-id |
+| `steps next <exec>` | — | Available steps with id/type/agents (parallelizable at orchestrator's discretion) |
+| `step run <exec> <step>` | `--feedback`, `--mode headless\|supervised\|terminal` | headless: blocks and returns sanitized result; supervised/terminal: returns `attempt_started` with attempt_id/cursor/bundle/attach_command |
+| `step complete` | — | Validates `produces`; fails if missing; step remains in progress |
+| `step reopen` | `--cascade`, `--feedback` | Fails if it would affect descendants without `--cascade` |
+| `step skip` | `--reason` | Only pending steps without started attempts |
+| `step events` | `--attempt-id`, `--after` (exclusive), `--limit` | Stable pagination by cursor; source of semantic transitions |
+| `step status` | `--attempt-id` | Current view (may omit intermediate transitions) |
+| `step output` | `--tail N`, `--full` (terminal only) | Only path for high-volume output; does not advance cursor |
+| `step approve` | `--interaction-id`, `--decision` | Only decisions announced in `available_decisions`; rejects identity crossings |
+| `step attach` | `--attempt-id` | Human↔PTY relay; fails if candidate ambiguity |
+| `status <exec>` / `resume <exec>` | — | Durable summary / reconciliation + guidance |
 
-Errores: JSON `{error, code?}` + exit 1. Códigos relevantes: `invalid_mode`, `invalid_feedback`, `invalid_option`, `unsupported_capability`, `unsupported_policy_decision`, `interaction_already_resolved`, `adapter_probe_failed`, `adapter_contract_error`, códigos terminales listados en §7.2.
+Errors: JSON `{error, code?}` + exit 1. Relevant codes: `invalid_mode`, `invalid_feedback`, `invalid_option`, `unsupported_capability`, `unsupported_policy_decision`, `interaction_already_resolved`, `adapter_probe_failed`, `adapter_contract_error`, terminal codes listed in §7.2.
 
-## 11. Autenticación, autorización y seguridad
+## 11. Authentication, authorization and security
 
-No hay autenticación de usuarios ni multi-tenancy: Shardeo opera localmente sobre el proyecto actual. El modelo de seguridad es de **contención y minimización** (Hecho):
+There is no user authentication or multi-tenancy: Shardeo operates locally on the current project. The security model is one of **containment and minimization** (Fact):
 
-- **Permisos de agente**: política jerárquica `step.permission_policy > workflow > config defaults` con modos `prompt` (default) / `deny` / `rules` por capacidad normalizada exacta (`filesystem.read/write`, `process.execute`, `network.request`, `unknown`). Una autorización automática solo puede elegir decisiones presentes en `available_decisions` del adapter; `deny` precede; capacidades desconocidas caen al default seguro; toda resolución automática se audita con `actor: "policy"`.
-- **No-bypass**: nunca se inyecta `--auto`/`--dangerously-skip-permissions`; invocación con `shell:false`, argv directo, sin interpolación.
-- **Contención de paths**: rechazo de absolutos, `..` y escapes por symlink en workflows, instrucciones, skills, artefactos y bundles (`validateContainedPath`, contención reforzada por realpath en Spec 9a).
-- **Evidencia acotada**: proyecciones 16 KiB; `DiagnosticRaw` ≤1 MiB como única autoridad cruda (con SHA-256 si excede); snapshots ≤1 MiB; fallback context ≤2 MiB — todo sanitizado y redactado (credenciales por patrones clave/valor, Basic auth, bearer, tokens).
-- **Puente HTTP supervised**: secretos efímeros generados por intento; `redactCredentials` garantiza que el secreto y su derivado Basic no aparezcan fragmentados en errores proyectados (`projectHttpFailure`).
-- **FS**: `.shardeo/shared.db` y runtime con permisos 0600/0700 en POSIX.
-- **Detección de permisos headless**: solo fixtures exactas versionadas de OpenCode 1.17.18 → `permission_required`; evidencia ambigua o desconocida falla cerrada (`unsupported-ambiguous`) — nunca se adivina.
+- **Agent permissions**: hierarchical policy `step.permission_policy > workflow > config defaults` with modes `prompt` (default) / `deny` / `rules` by exact normalized capability (`filesystem.read/write`, `process.execute`, `network.request`, `unknown`). An automatic authorization can only choose decisions present in the adapter's `available_decisions`; `deny` precedes; unknown capabilities fall to the safe default; every automatic resolution is audited with `actor: "policy"`.
+- **No-bypass**: `--auto`/`--dangerously-skip-permissions` are never injected; invocation with `shell:false`, direct argv, no interpolation.
+- **Path containment**: rejection of absolutes, `..` and symlink escapes in workflows, instructions, skills, artifacts and bundles (`validateContainedPath`, containment reinforced by realpath in Spec 9a).
+- **Bounded evidence**: projections 16 KiB; `DiagnosticRaw` ≤1 MiB as the only raw authority (with SHA-256 if exceeded); snapshots ≤1 MiB; fallback context ≤2 MiB — all sanitized and redacted (credentials by key/value patterns, Basic auth, bearer, tokens).
+- **Supervised HTTP bridge**: ephemeral secrets generated per attempt; `redactCredentials` guarantees the secret and its Basic derivative never appear fragmented in projected errors (`projectHttpFailure`).
+- **FS**: `.shardeo/shared.db` and runtime with POSIX permissions 0600/0700.
+- **Headless permission detection**: only exact versioned OpenCode 1.17.18 fixtures → `permission_required`; ambiguous or unknown evidence fails closed (`unsupported-ambiguous`) — never guessed.
 
-## 12. Configuración y variables de entorno
+## 12. Configuration and environment variables
 
-**Variables de entorno**: ninguna requerida por Shardeo. El único uso observable es el `PATH` del proceso para sondear ejecutables (`probeCapabilities` acepta opcionalmente un `path_env` para el hijo). No existen archivos `.env` ni lectura de env vars de configuración en `src/` (Hecho). *(Inferencia: entornos con CLIs instalados vía nvm/pyenv pueden fallar la resolución por PATH — es precisamente la motivación del registro de CLIs planeado para v2.)*
+**Environment variables**: none required by Shardeo. The only observable use is the process `PATH` to probe executables (`probeCapabilities` optionally accepts a `path_env` for the child). There are no `.env` files or reading of configuration env vars in `src/` (Fact). *(Inference: environments with CLIs installed via nvm/pyenv can fail PATH resolution — precisely the motivation for the CLI registration planned for v2.)*
 
-**`.shardeo/config.yaml`** (schema Zod permisivo `.passthrough()`, Hecho: `src/schema/config.ts`):
-| Campo | Propósito | Default |
+**`.shardeo/config.yaml`** (permissive Zod schema `.passthrough()`, Fact: `src/schema/config.ts`):
+| Field | Purpose | Default |
 |---|---|---|
-| `agent.inactivity_timeout_ms` | Timeout de inactividad del proceso agent | 300000 (5 min) |
-| `defaults.agent_mode` | Superficie por defecto para steps agent | `headless` |
-| `defaults.permission_policy` | Política de permisos global | `prompt` |
+| `agent.inactivity_timeout_ms` | Agent process inactivity timeout | 300000 (5 min) |
+| `defaults.agent_mode` | Default surface for agent steps | `headless` |
+| `defaults.permission_policy` | Global permission policy | `prompt` |
 
-Resolución de modo: `step.mode > workflow.mode > config defaults.agent_mode` (+ override `--mode` solo para ese intento). Los steps `command` no usan modo.
+Mode resolution: `step.mode > workflow.mode > config defaults.agent_mode` (+ `--mode` override only for that attempt). `command` steps do not use mode.
 
-## 13. Integraciones externas
+## 13. External integrations
 
-| Servicio | Uso | Dónde | Cómo funciona |
+| Service | Use | Where | How it works |
 |---|---|---|---|
-| **OpenCode CLI** (v1.17.18 fixtures; live probado contra 1.18.x) | Runtime de ejecución de steps agent (único soportado v1) | `src/adapters/opencode.ts`, `opencode-http.ts`, `test/fixtures/opencode/*` | Headless: subproceso `run --format json` con JSONL parseado. Supervised: servidor gestionado local + HTTP/SSE con bindings nativos de interacción. Terminal: TUI dentro de PTY real. Probe: `opencode --version` (acepta semver plano). |
-| **Claude Code** | Solo en el POC Python legacy | `shardeo.py` | Invocación `claude -p {prompt}`. Sin relación con el producto TypeScript. |
-| **Traycer** | Inspiración conceptual únicamente | `.docs/spikes/01_traycer-analysis.md`, `SPECS.md` §Relación con Traycer | No hay dependencia de código. |
+| **OpenCode CLI** (v1.17.18 fixtures; live tested against 1.18.x) | Execution runtime of agent steps (only v1 supported) | `src/adapters/opencode.ts`, `opencode-http.ts`, `test/fixtures/opencode/*` | Headless: `run --format json` subprocess with parsed JSONL. Supervised: local managed server + HTTP/SSE with native interaction bindings. Terminal: TUI inside a real PTY. Probe: `opencode --version` (accepts plain semver). |
+| **Claude Code** | Only in the legacy Python POC | `shardeo.py` | `claude -p {prompt}` invocation. No relation to the TypeScript product. |
+| **Traycer** | Conceptual inspiration only | `.docs/spikes/01_traycer-analysis.md`, `SPECS.md` §Relation to Traycer | No code dependency. |
 
-Configuración requerida: tener `opencode` resoluble en PATH. Nada más (sin APIs remotas, sin cloud).
+Required configuration: have `opencode` resolvable in PATH. Nothing else (no remote APIs, no cloud).
 
-## 14. Ejecución del proyecto
+## 14. Running the project
 
-Comandos respaldados por el repositorio (Hecho: `package.json`, `README.md`):
+Commands backed by the repository (Fact: `package.json`, `README.md`):
 
 ```bash
-# Instalar dependencias
-npm install            # o pnpm install
+# Install dependencies
+npm install            # or pnpm install
 
-# Verificar tipos / compilar
+# Verify types / compile
 npm run typecheck      # tsc --noEmit
 npm run build          # tsc → dist/
 
-# Tests (pretest compila primero)
-npm test               # node --test <74 suites>; ~46 s observados
-npm run test:terminal-fix-round   # subconjunto terminal
+# Tests (pretest compiles first)
+npm test               # node --test <74 suites>; ~46 s observed
+npm run test:terminal-fix-round   # terminal subset
 
-# Instalación global prevista para usuarios finales
+# Planned global installation for end users
 pnpm add -g shardeo    # bin: shardeo → dist/index.js
 
-# Uso en un proyecto
+# Usage in a project
 shardeo init
 shardeo workflows list
 shardeo run <workflow>
@@ -435,129 +435,124 @@ shardeo steps next <execution-id>
 shardeo step run <execution-id> <step-id>
 ```
 
-Producción: distribución como paquete npm (`files: ["dist"]`, `prepublishOnly: build`, engines >=20). No hay procedimiento de despliegue servidor: es una herramienta local (Hecho).
+Production: distribution as an npm package (`files: ["dist"]`, `prepublishOnly: build`, engines >=20). There is no server deployment procedure: it is a local tool (Fact).
 
-## 15. Testing y calidad
+## 15. Testing and quality
 
-- **Runner**: `node:test` nativo; lista explícita de 74 suites en `npm test`; 87 archivos en `test/` (los extra son helpers/fixtures). Evidencia de ejecución propia: **550 tests, 130 suites, todos pasando (~47 s)**; una primera ejecución arrojó 1 fallo intermitente no identificado → existe al menos un test sensibile al timing *(Inferencia: probablemente en suites de timers/supervised/terminal)*.
-- **Tipos**: unitarios (schemas, DAG, contención, sanitizador), máquina de estados DB, ciclo de vida agent con fixtures deterministas JSONL, integración supervisor/IPC/lease/eventos, e2e reales (`spec3-e2e`, `spec8-e2e`, `supervised-e2e`, `permission-detection-e2e`, PTY real en `terminal-real-*`).
-- **Fixtures**: `test/fixtures/opencode/v1.17.18/*.jsonl` (éxito, tool-use, permission-ask/refusal/tool-reject/auto-reject stderr, provider error, malformed) y `v1.18.16/http-api-server.mjs` (servidor HTTP simulado), `fixtures/permission-auto-resolve.mjs`.
-- **Cobertura**: sin herramienta configurada → *No determinado*.
-- **Lint/format**: no configurados; la calidad se apoya en `tsc --strict` + revisión humana + flujo de iniciativa con validadores (Hecho/Ausencia).
+- **Runner**: native `node:test`; explicit list of 74 suites in `npm test`; 87 files in `test/` (the extras are helpers/fixtures). Own execution evidence: **550 tests, 130 suites, all passing (~47 s)**; a first run produced 1 unidentified intermittent failure → there is at least one timing-sensitive test *(Inference: probably in timers/supervised/terminal suites)*.
+- **Types**: unit tests (schemas, DAG, containment, sanitizer), DB state machine, agent lifecycle with deterministic JSONL fixtures, supervisor/IPC/lease/events integration, real e2e (`spec3-e2e`, `spec8-e2e`, `supervised-e2e`, `permission-detection-e2e`, real PTY in `terminal-real-*`).
+- **Fixtures**: `test/fixtures/opencode/v1.17.18/*.jsonl` (success, tool-use, permission-ask/refusal/tool-reject/auto-reject stderr, provider error, malformed) and `v1.18.16/http-api-server.mjs` (simulated HTTP server), `fixtures/permission-auto-resolve.mjs`.
+- **Coverage**: no tool configured → *Not determined*.
+- **Lint/format**: not configured; quality relies on `tsc --strict` + human review + initiative flow with validators (Fact/Absence).
 
-## 16. Deployment e infraestructura
+## 16. Deployment and infrastructure
 
-- **Entornos**: solo local (CLI). Sin Docker, sin CI/CD, sin manifiestos de infraestructura (Hecho: ausencia verificada).
-- **Distribución**: npm registry (metadatos listos en `package.json`: bin, files, prepublishOnly, license MIT, keywords).
-- *(Inferencia: el pipeline de desarrollo usa el meta-workflow de iniciativas en `.docs/initiatives/` con worktrees por intento bajo `~/.worktrees/shardeo/`; los entregables se integran a `main` con ff-only según los `status.json` de specs 007.)*
+- **Environments**: local only (CLI). No Docker, no CI/CD, no infrastructure manifests (Fact: verified absence).
+- **Distribution**: npm registry (metadata ready in `package.json`: bin, files, prepublishOnly, MIT license, keywords).
+- *(Inference: the development pipeline uses the initiative meta-workflow in `.docs/initiatives/` with per-attempt worktrees under `~/.worktrees/shardeo/`; deliverables are integrated to `main` ff-only according to the status.json files of specs 007.)*
 
-## 17. Decisiones técnicas importantes
+## 17. Key technical decisions
 
-1. **Orquestación externa**: Shardeo ejecuta y persiste transiciones solicitadas; jamás interpreta respuestas ni decide rutas. Toda decisión del orquestador pasa por un comando explícito validado y auditable (`SPECS.md` §Principio de orquestación).
-2. **Una propiedad por campo del workflow**: `depends_on` = orden (única entrada del DAG); `requires`/`produces` = validación, nunca precedencia.
-3. **Fallback sin clasificación semántica**: tras una invocación limpia (proceso iniciado/limpiado + JSONL válido), *cualquier* error limpio avanza al siguiente candidato. Prohibido inferir cuota/contexto/modelo. Errores terminales enumerados en `src/utils/errors.ts`.
-4. **Frontera adapter provider-neutral** (Spec 9): el core no contiene endpoints, flags, fixtures ni nombres de eventos de proveedores. Hoy hay una excepción consciente: el parser JSONL de OpenCode vive en `src/utils/agent.ts` (ruta headless de Spec 4); la iniciativa 008 existe precisamente para mover esa interpretación al adapter (Hecho: `spec.md` de 008).
-5. **Contexto reproducible**: bundle inmutable por intento gestionado con manifiesto neutral (orden semántico Spec 4, roles estables, `eager`/`on_demand`, bytes+SHA-256); la prueba de admisión es obligatoria antes de trabajo del proveedor; drift → fallo cerrado.
-6. **Propiedad única y fail-closed**: lease con fencing generacional; resolución CAS idempotente; ante caída no reconciliable → `orphaned` con evidencia preservada y recuperación humana; nunca re-autorizar a ciegas.
-7. **Separación canales**: señalización viva por IPC UDS; SQLite para estado/auditoría; output completo solo vía `step output` sanitizado.
-8. **Evidencia como contrato**: proyecciones 16 KiB / DiagnosticRaw ≤1 MiB / snapshots 1 MiB / fallback 2 MiB; JSON canónico compartido; `evidence_version`+digest.
-9. **Migraciones acumulativas idempotentes**: cada spec añade su migración transaccional con retry SQLITE_BUSY; compatibilidad hacia atrás exigida por tests (`test/db/*.test.mjs`, incluida reconstrucción de tabla `step_attempts` en 9c).
-10. **TDD y desarrollo por specs verticales**: el propio repo se desarrolla con un pipeline de iniciativas (`.docs/initiatives/`) con diseño → implementación → validación → integración ff-only a `main`.
+1. **External orchestration**: Shardeo executes and persists requested transitions; it never interprets responses or decides paths. Every orchestrator decision goes through an explicit, validated and auditable command (`SPECS.md` §Orchestration principle).
+2. **One property per workflow field**: `depends_on` = order (single DAG input); `requires`/`produces` = validation, never precedence.
+3. **Fallback without semantic classification**: after a clean invocation (process started/cleaned + valid JSONL), *any* clean error advances to the next candidate. Inferring quota/context/model is forbidden. Terminal errors enumerated in `src/utils/errors.ts`.
+4. **Provider-neutral adapter boundary** (Spec 9): the core contains no provider endpoints, flags, fixtures or event names. Today there is one conscious exception: the OpenCode JSONL parser lives in `src/utils/agent.ts` (Spec 4 headless path); initiative 008 exists precisely to move that interpretation to the adapter (Fact: 008 `spec.md`).
+5. **Reproducible context**: immutable bundle per managed attempt with neutral manifest (Spec 4 semantic order, stable roles, `eager`/`on_demand`, bytes+SHA-256); admission proof mandatory before provider work; drift → closed failure.
+6. **Single ownership and fail-closed**: lease with generational fencing; idempotent CAS resolution; on unreconcilable crash → `orphaned` with preserved evidence and human recovery; never re-authorize blindly.
+7. **Channel separation**: live signaling via UDS IPC; SQLite for state/audit; full output only via sanitized `step output`.
+8. **Evidence as contract**: projections 16 KiB / DiagnosticRaw ≤1 MiB / snapshots 1 MiB / fallback 2 MiB; shared canonical JSON; `evidence_version`+digest.
+9. **Cumulative idempotent migrations**: each spec adds its transactional migration with SQLITE_BUSY retry; backward compatibility required by tests (`test/db/*.test.mjs`, including `step_attempts` table reconstruction in 9c).
+10. **TDD and vertical spec development**: the repo itself is developed with an initiative pipeline (`.docs/initiatives/`) with design → implementation → validation → ff-only integration to `main`.
 
-## 18. Deuda técnica, riesgos y problemas detectados
+## 18. Technical debt, risks and detected issues
 
-**Hechos observados**
-- **Estados desactualizados en `SPECS.md`**: Specs 5, 6 y 8 están marcadas `status: pending` pero están implementadas (código + tests + commits `3f8918a`, `ed6000d`; AGENTS.md las declara entregadas). Contradicción doc/código: **el código representa el comportamiento real**; los marcadores de estado quedaron atrás *(Inferencia sobre causa)*.
-- **Código muerto** en `cmdStepRun` (`src/commands/steps.ts` ~232–245): cálculos `workflowMode`/`workflowModeInferred` descartados con `void`; además el modo de workflow se re-lee re-parsing el YAML aparte de la carga validada (doble lectura).
-- **`shardeo.py`** POC legacy trackeado, invoca `claude-code`, esquema DB distinto (`shardeo.db` vs `shared.db`).
-- **Workflow dogfooding inválido**: `.shardeo/workflows/simple-feature/workflow.yaml` declara `claude-code` (rechazado por el schema v1).
-- **Sin ESLint/Prettier/CI**: comentarios de código mencionan eslint pero no hay configuración ni pipelines.
-- **Test potencialmente flaky**: 1 fallo intermitente observado en una de dos ejecuciones completas.
-- **`.gitignore` con `.*/`**: `.docs/` (specs autoritativas e historial de decisiones), `.atl/` y `.shardeo/` no están versionados → riesgo de pérdida de contexto del proceso si no hay backup *(el riesgo es inferencia; el hecho es que no se versionan)*.
-- **Worktrees residuales**: 4 worktrees de intentos bloqueados de la spec 008 apuntan todos al commit base `0c813f7` (limpieza pendiente según flujo de iniciativa).
-- `AGENTS.old.md` duplica instrucciones desactualizadas junto a las vigentes.
+**Observed facts**
+- **Stale states in `SPECS.md`**: Specs 5, 6 and 8 are marked `status: pending` but are implemented (code + tests + commits `3f8918a`, `ed6000d`; AGENTS.md declares them delivered). Doc/code contradiction: **the code represents the real behavior**; the status markers fell behind *(Inference on cause)*.
+- **Dead code** in `cmdStepRun` (`src/commands/steps.ts` ~232–245): `workflowMode`/`workflowModeInferred` computations discarded with `void`; additionally, workflow mode is re-read by re-parsing the YAML apart from the validated load (double read).
+- **`shardeo.py`** tracked legacy POC, invokes `claude-code`, different DB schema (`shardeo.db` vs `shared.db`).
+- **Invalid dogfooding workflow**: `.shardeo/workflows/simple-feature/workflow.yaml` declares `claude-code` (rejected by the v1 schema).
+- **No ESLint/Prettier/CI**: code comments mention eslint but there is no configuration or pipelines.
+- **Potentially flaky test**: 1 intermittent failure observed in one of two complete runs.
+- **`.gitignore` with `.*/`**: `.docs/` (authoritative specs and decision history), `.atl/` and `.shardeo/` are not versioned → risk of losing process context if there is no backup *(the risk is an inference; the fact is that they are not versioned)*.
+- **Residual worktrees**: 4 worktrees of blocked spec 008 attempts all point to the base commit `0c813f7` (cleanup pending per the initiative flow).
+- `AGENTS.old.md` duplicates outdated instructions alongside the current ones.
 
-**Riesgos técnicos** *(Inferencias)*
-- Acoplamiento JSONL OpenCode en `src/utils/agent.ts`: cualquier cambio del stream afecta la ruta headless hasta ejecutarse la 008.
-- Detección headless de permisos atada a fixtures exactas de 1.17.18: fragilidad ante updates de OpenCode sin pasar al modo supervised.
-- Ausencia de lint/CI: regresiones de estilo/patrones dependen de revisión humana.
+**Technical risks** *(Inferences)*
+- OpenCode JSONL coupling in `src/utils/agent.ts`: any stream change affects the headless path until 008 is executed.
+- Headless permission detection tied to exact 1.17.18 fixtures: fragility against OpenCode updates without moving to supervised mode.
+- Absence of lint/CI: style/pattern regressions depend on human review.
 
-**Recomendaciones** (no respaldadas por un pendiente explícito)
-- Actualizar marcadores `status:` de Specs 5/6/8 en `SPECS.md`.
-- Eliminar dead code de `cmdStepRun` y unificar lectura del modo workflow.
-- Decidir destino de `shardeo.py`, `AGENTS.old.md` y el workflow dogfooding inválido.
-- Introducir ESLint (con reglas typescript) + CI mínimo (typecheck+tests) antes de crecer el equipo.
-- Versionar `.docs/` o establecer respaldo explícito.
+**Recommendations** (not backed by an explicit pending item)
+- Update `status:` markers of Specs 5/6/8 in `SPECS.md`.
+- Remove dead code from `cmdStepRun` and unify workflow mode reading.
+- Decide the fate of `shardeo.py`, `AGENTS.old.md` and the invalid dogfooding workflow.
+- Introduce ESLint (with typescript rules) + minimal CI (typecheck+tests) before the team grows.
+- Version `.docs/` or establish an explicit backup.
 
-## 19. Pendientes y próximos pasos
+## 19. Pending items and next steps
 
-**Explícitos encontrados en el repo**
-1. **Desbloquear Spec 008/01 — Builtin Codex headless** (`.docs/initiatives/008-codex-multi-harness-foundation/01-codex-headless-builtin/spec.md`, status `blocked`). Requiere cerrar la revisión humana de hallazgos F-02..F-08 (frontera pública de resultados) y, según decisiones registradas en sesiones previas (Engram), un retry acotado de tests centrado en F-02/F-06 bajo el mismo diseño activo. *(La parte de adjudicación proviene de memoria de sesión, no de archivos del repo.)*
-2. **Spec 008/02 — Codex supervised app-server** (directorio creado, sin ejecución).
-3. **Implementar Spec 10** (draft completo con criterios de aceptación en `SPECS.md`): override `--harness/--provider/--model/--variant` en `step run` + `variant` declarativo en `steps[].agents` + migración `migrateSpec10` (`step_attempts.variant TEXT` nullable).
-4. **Roadmap v2** (`AGENTS.md`): registro de CLIs en config.yaml, `shardeo doctor`, `shardeo setup` (con detección en primera ejecución).
+**Explicit ones found in the repo**
+1. **Unblock Spec 008/01 — Builtin Codex headless** (`.docs/initiatives/008-codex-multi-harness-foundation/01-codex-headless-builtin/spec.md`, status `blocked`). Requires closing the human review of findings F-02..F-08 (public results boundary) and, per decisions recorded in previous sessions (Engram), a bounded test retry focused on F-02/F-06 under the same active design. *(The adjudication part comes from session memory, not from repository files.)*
+2. **Spec 008/02 — Codex supervised app-server** (directory created, no execution).
+3. **Implement Spec 10** (complete draft with acceptance criteria in `SPECS.md`): `--harness/--provider/--model/--variant` override in `step run` + declarative `variant` in `steps[].agents` + `migrateSpec10` migration (`step_attempts.variant TEXT` nullable).
+4. **Roadmap v2** (`AGENTS.md`): CLI registration in config.yaml, `shardeo doctor`, `shardeo setup` (with first-run detection).
 
-**Recomendaciones inferidas** *(ver §18 Recomendaciones)*: sanear documentación de estados, dead code y legados; añadir lint/CI; limpieza de worktrees.
+**Inferred recommendations** *(see §18 Recommendations)*: clean up state documentation, dead code and legacy items; add lint/CI; clean up worktrees.
 
-## 20. Mapa de archivos clave
+## 20. Key files map
 
-| Archivo/Directorio | Responsabilidad | Importancia |
+| File/Directory | Responsibility | Importance |
 |---|---|---|
-| `SPECS.md` | Contrato funcional autoritativo (Specs 1–10, ACs, ejemplos) | ⭐⭐⭐ leer primero |
-| `AGENTS.md` | Modelo operativo, contratos v1, roadmap v2 | ⭐⭐⭐ |
-| `src/index.ts` | Frontera CLI completa (todos los comandos/flags) | ⭐⭐⭐ |
-| `src/utils/agent.ts` | Motor headless: probe→claim→invoke→finalize, fallback, evidencia | ⭐⭐⭐ |
-| `src/db/queries.ts` | Máquina de estados persistida (toda mutación de ejecución) | ⭐⭐⭐ |
-| `src/adapters/types.ts` | Contrato provider-neutral (cualquier nuevo harness) | ⭐⭐⭐ |
-| `src/adapters/opencode.ts` + `opencode-http.ts` | Único builtin: probe/headless/supervised/terminal + puente SSE | ⭐⭐⭐ |
-| `src/runtime/supervisor.ts` | Ciclo supervisor 9b (lease, readiness, timeouts, eventos) | ⭐⭐ |
-| `src/runtime/bundle.ts` (+`admission.ts`) | Contexto inmutable y admisión verificada | ⭐⭐ |
-| `src/runtime/terminal.ts` / `attach.ts` / `pty.ts` | Superficie terminal y handoff humano | ⭐⭐ |
-| `src/utils/workflow.ts` + `src/schema/workflow.ts` | Carga/validación segura de workflows (whitelist opencode) | ⭐⭐⭐ |
-| `src/utils/execution.ts` + `containment.ts` | requires/produces y contención de paths | ⭐⭐ |
-| `src/utils/errors.ts` | Códigos terminales y exit codes | ⭐⭐ |
-| `src/db/connection.ts` | Schema + migraciones por spec | ⭐⭐ |
-| `test/fixtures/opencode/**` | Streams JSONL/servidor simulado que definen detección de permisos | ⭐⭐ |
+| `SPECS.md` | Authoritative functional contract (Specs 1–10, ACs, examples) | ⭐⭐⭐ read first |
+| `AGENTS.md` | Operating model, v1 contracts, v2 roadmap | ⭐⭐⭐ |
+| `src/index.ts` | Full CLI boundary (all commands/flags) | ⭐⭐⭐ |
+| `src/utils/agent.ts` | Headless engine: probe→claim→invoke→finalize, fallback, evidence | ⭐⭐⭐ |
+| `src/db/queries.ts` | Persisted state machine (every execution mutation) | ⭐⭐⭐ |
+| `src/adapters/types.ts` | Provider-neutral contract (any new harness) | ⭐⭐⭐ |
+| `src/adapters/opencode.ts` + `opencode-http.ts` | Only builtin: probe/headless/supervised/terminal + SSE bridge | ⭐⭐⭐ |
+| `src/runtime/supervisor.ts` | 9b supervisor cycle (lease, readiness, timeouts, events) | ⭐⭐ |
+| `src/runtime/bundle.ts` (+`admission.ts`) | Immutable context and verified admission | ⭐⭐ |
+| `src/runtime/terminal.ts` / `attach.ts` / `pty.ts` | Terminal surface and human handoff | ⭐⭐ |
+| `src/utils/workflow.ts` + `src/schema/workflow.ts` | Safe workflow loading/validation (opencode whitelist) | ⭐⭐⭐ |
+| `src/utils/execution.ts` + `containment.ts` | requires/produces and path containment | ⭐⭐ |
+| `src/utils/errors.ts` | Terminal codes and exit codes | ⭐⭐ |
+| `src/db/connection.ts` | Schema + per-spec migrations | ⭐⭐ |
+| `test/fixtures/opencode/**` | JSONL streams/simulated server that define permission detection | ⭐⭐ |
 | `package.json` | Scripts, deps, bin | ⭐⭐ |
-| `.docs/initiatives/008-*/01-*/spec.md` + `status.json` | Estado real del siguiente paso (Codex) | ⭐⭐ |
+| `.docs/initiatives/008-*/01-*/spec.md` + `status.json` | Real state of the next step (Codex) | ⭐⭐ |
 
-## 21. Guía para continuar el desarrollo
+## 21. Guide for continuing development
 
-**Qué leer primero (en orden)**: `AGENTS.md` → `SPECS.md` (especialmente Spec 4 y 9 si tocas ejecución) → `src/index.ts` (mapa de comandos) → módulo específico del área. Para continuar la spec bloqueada: `spec.md` + `status.json` de 008/01 y el historial en `.docs/initiatives/`.
+**What to read first (in order)**: `AGENTS.md` → `SPECS.md` (especially Spec 4 and 9 if you touch execution) → `src/index.ts` (command map) → the area-specific module. To continue the blocked spec: `spec.md` + `status.json` of 008/01 and the history in `.docs/initiatives/`.
 
-**Convenciones que debes mantener**:
-- Salida JSON estructurada por comando; errores `{error, code}` con `exitCode=1`; EPIPE-safe.
-- Toda ruta de artefactos/contexto pasa por contención (`validateContainedPath`); nada resuelve contra cwd.
-- Presupuestos de evidencia intocables (16 KiB / 1 MiB / 2 MiB) y JSON canónico para digests.
-- Ninguna literal de proveedor fuera de `src/adapters/opencode.*` (y de la zona confinada de `agent.ts` hasta que 008 la mueva).
-- Migraciones nuevas: función idempotente `migrateSpecN(db)` llamada desde `ensureTables`, transaccional con retry SQLITE_BUSY + test en `test/db/`.
-- Tests en `node:test` añadidos a la lista explícita de `npm test`.
+**Conventions you must maintain**:
+- Structured JSON output per command; `{error, code}` errors with `exitCode=1`; EPIPE-safe.
+- Every artifact/context path goes through containment (`validateContainedPath`); nothing resolves against cwd.
+- Untouchable evidence budgets (16 KiB / 1 MiB / 2 MiB) and canonical JSON for digests.
+- No provider literal outside `src/adapters/opencode.*` (and the confined zone of `agent.ts` until 008 moves it).
+- New migrations: idempotent `migrateSpecN(db)` function called from `ensureTables`, transactional with SQLITE_BUSY retry + test in `test/db/`.
+- Tests in `node:test` added to the explicit `npm test` list.
 
-**No modificar sin revisar dependencias**: `TERMINAL_COMPLETION_REASONS` (la usan fallback, UI y validators); `VALID_AGENT_IDENTIFIERS`; orden/fronteras del contexto inyectado (contrato entre Specs 4 y 9); cursores/eventos (`attempt_events`); semántica de generaciones (Spec 8).
+**Do not modify without reviewing dependencies**: `TERMINAL_COMPLETION_REASONS` (used by fallback, UI and validators); `VALID_AGENT_IDENTIFIERS`; injected context order/boundaries (contract between Specs 4 and 9); cursors/events (`attempt_events`); generation semantics (Spec 8).
 
-**Cómo agregar funcionalidad respetando la arquitectura**:
-1. Nueva spec vertical en `SPECS.md` (objetivo, ACs, ejemplos) — así opera este repo.
-2. Schema Zod → queries/migración → lógica (utils o runtime) → comando → tests (unit + integración + e2e cuando aplique).
-3. Nuevo harness: implementar `HarnessAdapter*` (`src/adapters/types.ts`), registrar builtin en `registry.ts`, extender whitelist solo si el producto lo decide (hoy `codex` requiere la spec 008).
+**How to add functionality respecting the architecture**:
+1. New vertical spec in `SPECS.md` (objective, ACs, examples) — that is how this repo operates.
+2. Zod schema → queries/migration → logic (utils or runtime) → command → tests (unit + integration + e2e when applicable).
+3. New harness: implement `HarnessAdapter*` (`src/adapters/types.ts`), register builtin in `registry.ts`, extend the whitelist only if the product decides so (today `codex` requires spec 008).
 
-**Errores/supuestos a evitar**: asumir que `status:` de SPECS.md refleja realidad (verificar código/tests); clasificar errores de proveedor para decidir fallback; inyectar flags de bypass; escribir en SQLite como canal de señalización; interpretar pantallas de TUI; usar `.shardeo/` del repo como ejemplo válido (su workflow está obsoleto).
+**Errors/assumptions to avoid**: assuming that `status:` in SPECS.md reflects reality (verify code/tests); classifying provider errors to decide fallback; injecting bypass flags; writing to SQLite as a signaling channel; interpreting TUI screens; using the repo's `.shardeo/` as a valid example (its workflow is obsolete).
 
-## 22. Resumen de contexto para LLM
+## 22. Context summary for LLMs
 
-- **Propósito**: CLI TypeScript que estructura workflows de dev asistidos por IA; un orquestador LLM consume sus comandos; Shardeo valida, inyecta contexto, ejecuta runtimes y persiste evidencia. No decide nada semántico.
-- **Arquitectura**: capas CLI → commands → {utils (motor headless, validación segura), runtime (supervisor/bundle/lease/IPC/eventos/CAS/policy/timeouts/output/recovery/PTY), adapters (contrato neutral + OpenCode)} → SQLite WAL (`.shardeo/shared.db`) + filesystem contenido (`.shardeo/artifacts`, `.shardeo/runtime`).
-- **Stack**: TS5 strict/ESM/Node≥20 · CAC · better-sqlite3 · zod · yaml · node-pty (solo pty.ts) · tests `node:test` (~550 casos, ~47 s).
-- **Componentes críticos**: `src/utils/agent.ts` (fallback/evidencia), `src/db/queries.ts` (máquina de estados), `src/adapters/opencode.ts`+`opencode-http.ts`, `src/runtime/*` (Spec 9), `src/schema/workflow.ts` (whitelist `opencode`).
-- **Flujos principales**: `run/steps next/step run/step complete` (headless bloqueante con fallback); supervised (bundle congelado→sesión→interaction_required→`step approve` CAS); terminal (PTY+attach humano, presencia); reopen--cascade/skip con generaciones; resume/reconciliación.
-- **Estado actual**: Specs 1–9 implementadas y en `main` (HEAD `0c813f7`); SPECS.md con estados stale en 5/6/8 (`pending` pero implementadas). Iniciativa 008 (Codex headless) **bloqueada** en revisión humana; 008/02 sin iniciar; Spec 10 draft; v2 (doctor/setup/cli registry) futuro. Typecheck limpio; suite 550/550 (un flaky ocasional observado).
-- **Convenciones**: JSON out + códigos `error/code`; contención de paths en todo; presupuestos 16 KiB/1 MiB/2 MiB; migraciones idempotentes por spec; TDD; core sin literales de proveedor.
-- **Dependencias externas**: binario `opencode` en PATH (fixtures 1.17.18; live 1.18.x vía servidor HTTP local con secretos redactados). Nada más.
-- **Limitaciones**: solo OpenCode v1; permisos headless solo por fixtures exactas; sin paralelismo propio; sin CI/lint/cobertura; sin soporte Windows en permisos POSIX (chmod condicionado a no-win32).
-- **Pendientes**: resolver bloqueo 008/01 (F-02..F-08); implementar 008/02 y Spec 10; roadmap v2.
-- **Riesgos**: acoplamiento JSONL en agent.ts; fixtures de permisos frágiles ante updates; docs de estados desactualizados; artefactos de proceso (`.docs/`) no versionados; worktrees residuales.
-- **Consulta antes de cambiar nada**: `AGENTS.md`, `SPECS.md`, `src/index.ts`, `src/utils/agent.ts`, `src/db/queries.ts`, `src/adapters/types.ts`, `src/utils/errors.ts`, y para la spec activa `.docs/initiatives/008-codex-multi-harness-foundation/01-codex-headless-builtin/{spec.md,status.json}`.
-
-
-
-
-
+- **Purpose**: TypeScript CLI that structures AI-assisted dev workflows; an LLM orchestrator consumes its commands; Shardeo validates, injects context, executes runtimes and persists evidence. It decides nothing semantic.
+- **Architecture**: layers CLI → commands → {utils (headless engine, safe validation), runtime (supervisor/bundle/lease/IPC/events/CAS/policy/timeouts/output/recovery/PTY), adapters (neutral contract + OpenCode)} → SQLite WAL (`.shardeo/shared.db`) + contained filesystem (`.shardeo/artifacts`, `.shardeo/runtime`).
+- **Stack**: TS5 strict/ESM/Node≥20 · CAC · better-sqlite3 · zod · yaml · node-pty (only pty.ts) · `node:test` tests (~550 cases, ~47 s).
+- **Critical components**: `src/utils/agent.ts` (fallback/evidence), `src/db/queries.ts` (state machine), `src/adapters/opencode.ts`+`opencode-http.ts`, `src/runtime/*` (Spec 9), `src/schema/workflow.ts` (`opencode` whitelist).
+- **Main flows**: `run/steps next/step run/step complete` (blocking headless with fallback); supervised (frozen bundle→session→interaction_required→`step approve` CAS); terminal (PTY+human attach, presence); reopen--cascade/skip with generations; resume/reconciliation.
+- **Current state**: Specs 1–9 implemented and on `main` (HEAD `0c813f7`); SPECS.md with stale states in 5/6/8 (`pending` but implemented). Initiative 008 (Codex headless) **blocked** in human review; 008/02 not started; Spec 10 draft; v2 (doctor/setup/cli registry) future. Typecheck clean; suite 550/550 (one occasional flaky observed).
+- **Conventions**: JSON out + `error/code` codes; path containment everywhere; 16 KiB/1 MiB/2 MiB budgets; idempotent per-spec migrations; TDD; core without provider literals.
+- **External dependencies**: `opencode` binary in PATH (1.17.18 fixtures; live 1.18.x via local HTTP server with redacted secrets). Nothing else.
+- **Limitations**: only OpenCode v1; headless permissions only by exact fixtures; no own parallelism; no CI/lint/coverage; no Windows support in POSIX permissions (chmod conditioned on non-win32).
+- **Pending**: resolve 008/01 block (F-02..F-08); implement 008/02 and Spec 10; roadmap v2.
+- **Risks**: JSONL coupling in agent.ts; permission fixtures fragile against updates; outdated state docs; unversioned process artifacts (`.docs/`); residual worktrees.
+- **Before changing anything, consult**: `AGENTS.md`, `SPECS.md`, `src/index.ts`, `src/utils/agent.ts`, `src/db/queries.ts`, `src/adapters/types.ts`, `src/utils/errors.ts`, and for the active spec `.docs/initiatives/008-codex-multi-harness-foundation/01-codex-headless-builtin/{spec.md,status.json}`.

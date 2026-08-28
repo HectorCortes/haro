@@ -1,598 +1,592 @@
-# Contexto de negocio del proyecto
+# Project business context
 
-Proyecto analizado: **Shardeo** (CLI, TypeScript). Este documento describe exclusivamente el contexto funcional y las reglas de negocio del sistema, deducidas del comportamiento real implementado (código fuente en `src/`, contratos en `SPECS.md` y `AGENTS.md`). Las referencias de evidencia apuntan a los archivos que demuestran cada regla; el documento es autosuficiente y no requiere leerlos.
+Analyzed project: **Shardeo** (CLI, TypeScript). This document describes exclusively the functional context and business rules of the system, inferred from the actually implemented behavior (source code in `src/`, contracts in `SPECS.md` and `AGENTS.md`). Evidence references point to the files that demonstrate each rule; the document is self-contained and does not require reading them.
 
 ---
 
-## 1. Resumen ejecutivo
+## 1. Executive summary
 
-Shardeo es una herramienta de línea de comandos que **estructura la ejecución de flujos de trabajo de desarrollo de software asistidos por IA**. No es un agente ni un IDE: no decide ni razona sobre el trabajo. Su función es separar tres responsabilidades que normalmente están mezcladas en una sesión con un agente de IA:
+Shardeo is a command-line tool that **structures the execution of AI-assisted software development workflows**. It is not an agent or an IDE: it does not decide or reason about the work. Its function is to separate three responsibilities that are normally mixed together in a session with an AI agent:
 
-- **La metodología** (qué hacer y en qué orden): definida por humanos como *workflows* declarativos.
-- **El conocimiento** (con qué contexto): instrucciones, convenciones y artefactos del proyecto.
-- **La ejecución** (quién lo hace): runtimes de agentes de IA intercambiables.
+- **The methodology** (what to do and in what order): defined by humans as declarative *workflows*.
+- **The knowledge** (with what context): instructions, conventions and project artifacts.
+- **The execution** (who does it): interchangeable AI agent runtimes.
 
-Un **agente orquestador** (otro CLI de IA) conduce el proceso paso a paso consultando a Shardeo qué se puede ejecutar, pidiéndole que ejecute cada unidad de trabajo y decidiendo cuándo un paso está terminado. Shardeo valida todo antes de ejecutar, invoca al runtime adecuado con el contexto correcto y persiste evidencia trazable de todo lo ocurrido.
+An **orchestrator agent** (another AI CLI) drives the process step by step by asking Shardeo what can be executed, asking it to execute each work unit and deciding when a step is finished. Shardeo validates everything before executing, invokes the appropriate runtime with the correct context and persists traceable evidence of everything that happened.
 
-El problema que resuelve: las sesiones con agentes de IA parten de cero, el contexto se pasa de forma inconsistente, no hay registro de qué se ejecutó ni con qué resultado, y cambiar de herramienta implica rehacer la configuración. Shardeo convierte las convenciones de un equipo en procesos reproducibles, auditables y reanudables.
+The problem it solves: sessions with AI agents start from scratch, context is passed inconsistently, there is no record of what was executed or with what result, and switching tools means redoing the configuration. Shardeo turns a team's conventions into reproducible, auditable and resumable processes.
 
-## 2. Objetivos del sistema
+## 2. System objectives
 
-**Objetivo principal:** permitir que un equipo ejecute metodologías de desarrollo (diseño, contratos de API, base de datos, lint, implementación, verificación, etc.) como workflows estructurados, con cualquier runtime de agente, sin perder trazabilidad ni continuidad.
+**Main objective:** enable a team to execute development methodologies (design, API contracts, database, lint, implementation, verification, etc.) as structured workflows, with any agent runtime, without losing traceability or continuity.
 
-**Objetivos secundarios:**
+**Secondary objectives:**
 
-1. **Reproducibilidad:** cualquier miembro del equipo puede ejecutar el mismo workflow con el mismo contexto y las mismas validaciones.
-2. **Trazabilidad total:** cada invocación a un agente queda registrada (respuesta, feedback, artefactos, herramienta usada, motivo de finalización, métricas).
-3. **Resiliencia:** un workflow interrumpido puede retomarse desde el último estado conocido, incluso reconstruyendo artefactos perdidos.
-4. **Independencia del proveedor:** los modelos y CLIs son runtimes intercambiables; Shardeo no compite con ellos.
-5. **Seguridad deliberada:** sin atajos de permisos, sin interactividad oculta, con límites explícitos sobre qué evidencia se muestra y qué se retiene.
-6. **Neutralidad metodológica:** Shardeo no interpreta respuestas de agentes ni incorpora decisiones de negocio del dominio del usuario; esas decisiones pertenecen al orquestador y a las instrucciones del workflow.
+1. **Reproducibility:** any team member can execute the same workflow with the same context and the same validations.
+2. **Full traceability:** every agent invocation is recorded (response, feedback, artifacts, tool used, completion reason, metrics).
+3. **Resilience:** an interrupted workflow can be resumed from the last known state, even reconstructing lost artifacts.
+4. **Provider independence:** models and CLIs are interchangeable runtimes; Shardeo does not compete with them.
+5. **Deliberate security:** no permission shortcuts, no hidden interactivity, with explicit limits on what evidence is shown and what is retained.
+6. **Methodological neutrality:** Shardeo does not interpret agent responses or incorporate business decisions from the user's domain; those decisions belong to the orchestrator and to the workflow instructions.
 
-## 3. Actores
+## 3. Actors
 
-| Actor | Función |
+| Actor | Role |
 |---|---|
-| **Usuario humano (ingeniero)** | Define workflows, skills y convenciones; aprueba permisos cuando la superficie lo exige; atiende handoffs de terminal; decide iteraciones a través del orquestador. |
-| **Agente orquestador** | CLI de IA que consulta los workflows disponibles, inicia ejecuciones, pregunta qué steps están listos, ordena su ejecución, interpreta resultados según las instrucciones del workflow y materializa sus decisiones mediante comandos explícitos (`step complete`, `step reopen`, `step skip`, `step approve`). |
-| **Agente ejecutor (runtime / harness)** | Proceso de IA que realiza el trabajo de un step `agent`. En v1 el único soportado es OpenCode; el modelo concreto es opcional y opaco para Shardeo. |
-| **Shardeo (ejecutor determinista)** | Valida workflows, resuelve el orden, inyecta contexto, ejecuta steps `command`, gestiona la invocación de agentes, aplica políticas de permisos y persiste estado y evidencia. Nunca decide metodología. |
-| **Supervisor local (modo gestionado)** | Proceso de fondo propietario de un intento `supervised`/`terminal`: congela y admite el contexto, normaliza eventos, media interacciones y aplica temporizadores. |
+| **Human user (engineer)** | Defines workflows, skills and conventions; approves permissions when the surface requires it; handles terminal handoffs; decides iterations through the orchestrator. |
+| **Orchestrator agent** | AI CLI that queries the available workflows, starts executions, asks which steps are ready, orders their execution, interprets results according to the workflow instructions and materializes its decisions through explicit commands (`step complete`, `step reopen`, `step skip`, `step approve`). |
+| **Executor agent (runtime / harness)** | AI process that performs the work of an `agent` step. In v1 the only supported one is OpenCode; the concrete model is optional and opaque to Shardeo. |
+| **Shardeo (deterministic executor)** | Validates workflows, resolves the order, injects context, executes `command` steps, manages agent invocation, applies permission policies and persists state and evidence. Never decides methodology. |
+| **Local supervisor (managed mode)** | Background process that owns a `supervised`/`terminal` attempt: freezes and admits the context, normalizes events, mediates interactions and applies timers. |
 
-## 4. Conceptos del dominio
+## 4. Domain concepts
 
-- **Workflow.** Metodología declarada en `.shardeo/workflows/<nombre>/workflow.yaml` más un archivo de instrucciones generales dirigido al orquestador. Restricciones: nombre obligatorio, al menos un step, grafo acíclico con punto de entrada, solo runtimes permitidos.
+- **Workflow.** Methodology declared in `.shardeo/workflows/<name>/workflow.yaml` plus a general instructions file addressed to the orchestrator. Constraints: mandatory name, at least one step, acyclic graph with an entry point, only allowed runtimes.
 
-- **Step.** Unidad de trabajo. Dos tipos: `command` (proceso determinista que se autocompleta si tiene éxito) y `agent` (trabajo de IA que nunca se autocompleta). Propiedades con responsabilidad única: `depends_on` define orden; `requires` valida entradas al ejecutar; `produces` valida salidas tras ejecutar; `agents` lista candidatos de runtime en orden de preferencia; `skills` e `instructions` aportan contexto; `mode` elige la superficie de ejecución.
+- **Step.** Work unit. Two types: `command` (deterministic process that self-completes on success) and `agent` (AI work that never self-completes). Properties with single responsibility: `depends_on` defines order; `requires` validates inputs at execution time; `produces` validates outputs after execution; `agents` lists runtime candidates in preference order; `skills` and `instructions` provide context; `mode` selects the execution surface.
 
-- **Ejecución (execution).** Instancia concreta de un workflow con identificador único. Todos sus steps nacen pendientes y posee un estado agregado derivado del estado de sus steps.
+- **Execution.** Concrete instance of a workflow with a unique identifier. All its steps are born pending and it has an aggregate state derived from the state of its steps.
 
-- **Intento (attempt).** Cada invocación de un runtime dentro de un step, incluidas las automáticas por fallback y cada re-ejecución manual. Es la unidad mínima de evidencia y auditoría.
+- **Attempt.** Each runtime invocation within a step, including automatic fallback invocations and each manual re-execution. It is the minimum unit of evidence and audit.
 
-- **Artefacto.** Documento de conocimiento del proceso (plan, decisión de arquitectura, contrato, reporte). Vive exclusivamente bajo `.shardeo/artifacts/` y se gestiona mediante `requires`/`produces`. Se distingue del código fuente, que el agente modifica directamente en el repositorio y Shardeo no trackea ni valida.
+- **Artifact.** Process knowledge document (plan, architecture decision, contract, report). It lives exclusively under `.shardeo/artifacts/` and is managed through `requires`/`produces`. It is distinguished from source code, which the agent modifies directly in the repository and Shardeo neither tracks nor validates.
 
-- **Generación.** Versión vigente del resultado de un step. Reabrir un step invalida su generación: los archivos permanecen en disco e historial para auditoría, pero dejan de ser válidos como entradas hasta que un nuevo intento exitoso produzca una generación revalidada.
+- **Generation.** Current valid version of a step's result. Reopening a step invalidates its generation: the files remain on disk and in history for audit, but stop being valid as inputs until a new successful attempt produces a revalidated generation.
 
-- **Modo de ejecución.** Superficie sobre la que corre un step `agent`: `headless` (automatizado y bloqueante), `supervised` (un supervisor local media permisos estructurados) o `terminal` (una persona controla una terminal real). No son variantes intercambiables: cambian quién manda y cómo se resuelven las interacciones.
+- **Execution mode.** Surface on which an `agent` step runs: `headless` (automated and blocking), `supervised` (a local supervisor mediates structured permissions) or `terminal` (a person controls a real terminal). They are not interchangeable variants: they change who is in command and how interactions are resolved.
 
-- **Interacción.** Solicitud estructurada del harness que exige una decisión externa (el mínimo soportado es el permiso). Cada interacción anuncia sus decisiones válidas; Shardeo nunca inventa opciones ni amplía autoridad.
+- **Interaction.** Structured request from the harness that demands an external decision (the minimum supported is the permission). Each interaction announces its valid decisions; Shardeo never invents options or expands authority.
 
-- **Bundle de contexto.** Copia inmutable por intento de todos los materiales autorizados, con digests criptográficos. Garantiza reproducibilidad aunque los archivos vivos cambien durante el intento.
+- **Context bundle.** Immutable per-attempt copy of all authorized materials, with cryptographic digests. Guarantees reproducibility even if the live files change during the attempt.
 
-- **Evidencia sanitizada.** Todo lo visible está limpio y acotado; los bytes diagnósticos crudos tienen un único depósito autorizado con digest SHA-256.
+- **Sanitized evidence.** Everything visible is clean and bounded; raw diagnostic bytes have a single authorized depository with SHA-256 digest.
 
-## 5. Reglas de negocio
+## 5. Business rules
 
-Convenciones: **Confianza Alta** = verificado directamente en código y/o pruebas automatizadas; **Media** = deducida de código más especificación con algún matiz; **Baja** = inferencia plausible con evidencia parcial. Los códigos citados entre comillas (por ejemplo `permission_required`) son razones de finalización (`completion_reason`) estables del sistema.
+Conventions: **High Confidence** = verified directly in code and/or automated tests; **Medium** = inferred from code plus specification with some nuance; **Low** = plausible inference with partial evidence. The codes cited in quotes (for example `permission_required`) are stable system completion reasons (`completion_reason`).
 
-### Área A — Definición y validación de workflows
+### Area A — Workflow definition and validation
 
-#### RN-001 — Runtime exclusivo en v1
-**Regla:** el único identificador de agente válido es `opencode`; declarar cualquier otro invalida todo el workflow.
-**Condiciones:** validación de schema en cada carga del workflow.
-**Resultado:** workflow inválido; ninguna operación puede usarlo hasta corregirlo.
-**Confianza:** Alta. **Evidencia:** `src/schema/workflow.ts` (whitelist `VALID_AGENT_IDENTIFIERS`), `src/utils/workflow.ts` (`validateStepAgents`).
+#### RN-001 — Exclusive runtime in v1
+**Rule:** the only valid agent identifier is `opencode`; declaring any other invalidates the whole workflow.
+**Conditions:** schema validation on every workflow load.
+**Result:** invalid workflow; no operation can use it until corrected.
+**Confidence:** High. **Evidence:** `src/schema/workflow.ts` (`VALID_AGENT_IDENTIFIERS` whitelist), `src/utils/workflow.ts` (`validateStepAgents`).
 
-#### RN-002 — Modelo opcional y opaco
-**Regla:** el modelo asociado a un candidato es opcional y se transfiere sin interpretar; la validez semántica del modelo es responsabilidad del runtime, no de Shardeo.
-**Condiciones:** resolución de candidatos de un step `agent`.
-**Resultado:** el valor pasa íntegro al CLI invocado.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts` (resolución de candidatos), SPECS.md Spec 4.
+#### RN-002 — Optional and opaque model
+**Rule:** the model associated with a candidate is optional and is transferred without interpretation; the semantic validity of the model is the runtime's responsibility, not Shardeo's.
+**Conditions:** resolution of the candidates of an `agent` step.
+**Result:** the value passes intact to the invoked CLI.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts` (candidate resolution), SPECS.md Spec 4.
 
-#### RN-003 — Revalidación íntegra en cada operación
-**Regla:** el YAML completo se vuelve a leer y validar antes de ejecutar un step y en cada transición relevante (listado, descripción, inicio de ejecución, consulta de pasos, completar, reabrir, omitir, reanudar), porque el archivo puede cambiar entre operaciones.
-**Condiciones:** cualquier comando que cargue el workflow.
-**Resultado:** si la validación falla, se retorna el error sin invocar CLIs ni modificar estado de steps o ejecuciones.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts` (`cmdStepRun`, `cmdStepComplete`, `cmdStepReopen`, `cmdStepSkip`), `src/commands/resume.ts`.
+#### RN-003 — Full revalidation on every operation
+**Rule:** the complete YAML is re-read and revalidated before executing a step and on every relevant transition (listing, description, execution start, step query, complete, reopen, skip, resume), because the file can change between operations.
+**Conditions:** any command that loads the workflow.
+**Result:** if validation fails, the error is returned without invoking CLIs or modifying step or execution state.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts` (`cmdStepRun`, `cmdStepComplete`, `cmdStepReopen`, `cmdStepSkip`), `src/commands/resume.ts`.
 
-#### RN-004 — Compatibilidad hacia adelante controlada
-**Regla:** los campos desconocidos de nivel superior del workflow se toleran para permitir evolución sin romper el descubrimiento; en cambio, el campo de dependencias obsoleto `after` se rechaza explícitamente con un mensaje que dirige a usar `depends_on`.
-**Condiciones:** parseo del workflow.
-**Resultado:** los campos nuevos no rompen; `after` produce error de validación específico.
-**Confianza:** Alta. **Evidencia:** `src/schema/workflow.ts` (`.passthrough()` y preprocesador de `after`).
+#### RN-004 — Controlled forward compatibility
+**Rule:** unknown top-level workflow fields are tolerated to allow evolution without breaking discovery; instead, the obsolete dependency field `after` is explicitly rejected with a message that directs the use of `depends_on`.
+**Conditions:** workflow parsing.
+**Result:** new fields do not break; `after` produces a specific validation error.
+**Confidence:** High. **Evidence:** `src/schema/workflow.ts` (`.passthrough()` and `after` preprocessor).
 
-#### RN-005 — Contenido mínimo obligatorio
-**Regla:** todo workflow exige nombre no vacío y al menos un step; sin ellos es inválido.
-**Confianza:** Alta. **Evidencia:** `src/schema/workflow.ts` (`WorkflowFile`).
+#### RN-005 — Mandatory minimum content
+**Rule:** every workflow requires a non-empty name and at least one step; without them it is invalid.
+**Confidence:** High. **Evidence:** `src/schema/workflow.ts` (`WorkflowFile`).
 
-### Área B — Grafo y orden de ejecución
+### Area B — Graph and execution order
 
-#### RN-006 — Identificadores únicos
-**Regla:** los IDs de steps deben ser únicos dentro del workflow; un duplicado hace ambiguas las referencias e invalida el workflow con error explícito.
-**Confianza:** Alta. **Evidencia:** `src/utils/workflow.ts` (`analyzeWorkflowGraph`, código `duplicate_step_id`).
+#### RN-006 — Unique identifiers
+**Rule:** step IDs must be unique within the workflow; a duplicate makes references ambiguous and invalidates the workflow with an explicit error.
+**Confidence:** High. **Evidence:** `src/utils/workflow.ts` (`analyzeWorkflowGraph`, code `duplicate_step_id`).
 
-#### RN-007 — Referencias de dependencia existentes
-**Regla:** todo `depends_on` debe referenciar un step existente del mismo workflow.
-**Resultado:** en caso contrario la ejecución se rechaza con el código `invalid_depends_on_reference` indicando la referencia rota.
-**Confianza:** Alta. **Evidencia:** `src/utils/workflow.ts` (`analyzeWorkflowGraph`).
+#### RN-007 — Existing dependency references
+**Rule:** every `depends_on` must reference an existing step of the same workflow.
+**Result:** otherwise the execution is rejected with the code `invalid_depends_on_reference` indicating the broken reference.
+**Confidence:** High. **Evidence:** `src/utils/workflow.ts` (`analyzeWorkflowGraph`).
 
-#### RN-008 — Punto de entrada obligatorio
-**Regla:** debe existir al menos un step sin `depends_on`; es la puerta de entrada del workflow.
-**Resultado:** sin punto de entrada, `shardeo run` rechaza iniciar la ejecución (`no_entry_point`).
-**Confianza:** Alta. **Evidencia:** `src/utils/workflow.ts` (`analyzeWorkflowGraph`), `src/commands/run.ts`.
+#### RN-008 — Mandatory entry point
+**Rule:** at least one step without `depends_on` must exist; it is the workflow's entry gate.
+**Result:** without an entry point, `shardeo run` refuses to start the execution (`no_entry_point`).
+**Confidence:** High. **Evidence:** `src/utils/workflow.ts` (`analyzeWorkflowGraph`), `src/commands/run.ts`.
 
-#### RN-009 — Grafo acíclico
-**Regla:** no pueden existir ciclos de dependencia; el error identifica la ruta cerrada completa de steps involucrados.
-**Confianza:** Alta. **Evidencia:** `src/utils/workflow.ts` (DFS iterativa con detección de ciclo y ruta).
+#### RN-009 — Acyclic graph
+**Rule:** dependency cycles cannot exist; the error identifies the complete closed path of the steps involved.
+**Confidence:** High. **Evidence:** `src/utils/workflow.ts` (iterative DFS with cycle detection and path).
 
-#### RN-010 — depends_on como único criterio de orden
-**Regla:** solo `depends_on` define precedencia. `requires` y `produces` validan datos, pero nunca crean orden ni paralelismo implícito.
-**Confianza:** Alta. **Evidencia:** `src/utils/dag.ts`, README, SPECS.md Specs 3/5.
+#### RN-010 — depends_on as the only ordering criterion
+**Rule:** only `depends_on` defines precedence. `requires` and `produces` validate data, but never create order or implicit parallelism.
+**Confidence:** High. **Evidence:** `src/utils/dag.ts`, README, SPECS.md Specs 3/5.
 
-#### RN-011 — Disponibilidad de un step
-**Regla:** un step está disponible cuando todos sus predecessores declarados alcanzaron un estado terminal positivo: `completed` o `skipped`. Un step omitido satisface el orden aunque no produzca nada.
-**Condiciones:** cómputo de `steps next`.
-**Confianza:** Alta. **Evidencia:** `src/utils/dag.ts` (`getReadySteps`), `src/db/queries.ts` (conjunto completed+skipped), `src/commands/steps.ts::cmdStepsNext`.
+#### RN-011 — Step availability
+**Rule:** a step is available when all its declared predecessors reached a positive terminal state: `completed` or `skipped`. A skipped step satisfies the order even though it produces nothing.
+**Conditions:** computation of `steps next`.
+**Confidence:** High. **Evidence:** `src/utils/dag.ts` (`getReadySteps`), `src/db/queries.ts` (completed+skipped set), `src/commands/steps.ts::cmdStepsNext`.
 
-#### RN-012 — Bloqueo por predecessores incompletos
-**Regla:** intentar ejecutar un step cuyos predecessores no están terminalizados falla con error explícito enumerando los predecessores incompletos; no hay ejecución forzada.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepRun` (verificación previa).
+#### RN-012 — Blocking by incomplete predecessors
+**Rule:** attempting to execute a step whose predecessors are not terminal fails with an explicit error enumerating the incomplete predecessors; there is no forced execution.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepRun` (prior check).
 
-#### RN-013 — Paralelismo delegado al orquestador
-**Regla:** si varios steps están disponibles simultáneamente, se retornan todos juntos; la decisión de ejecutarlos en paralelo o en serie pertenece al orquestador. Shardeo nunca ejecuta nada en paralelo por sí mismo.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepsNext`, SPECS.md Spec 5.
+#### RN-013 — Parallelism delegated to the orchestrator
+**Rule:** if several steps are available simultaneously, they are all returned together; the decision to execute them in parallel or in series belongs to the orchestrator. Shardeo never executes anything in parallel by itself.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepsNext`, SPECS.md Spec 5.
 
-### Área C — Ejecución básica de steps
+### Area C — Basic step execution
 
-#### RN-014 — Creación atómica de ejecuciones
-**Regla:** `shardeo run` valida el workflow y crea la ejecución junto con todos sus steps en estado pendiente en una sola operación atómica, retornando un identificador único. Un workflow inválido no genera ningún registro.
-**Confianza:** Alta. **Evidencia:** `src/commands/run.ts`, `src/db/queries.ts` (`createExecutionWithSteps`).
+#### RN-014 — Atomic execution creation
+**Rule:** `shardeo run` validates the workflow and creates the execution together with all its steps in pending state in a single atomic operation, returning a unique identifier. An invalid workflow generates no record.
+**Confidence:** High. **Evidence:** `src/commands/run.ts`, `src/db/queries.ts` (`createExecutionWithSteps`).
 
-#### RN-015 — Estados que impiden ejecutar
-**Regla:** no se puede ejecutar un step en estado `skipped`; tampoco un step `agent` ya `completed`. Los steps `failed` o `pending` sí pueden re-ejecutarse.
-**Resultado:** error con el estado actual; sin cambios.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepRun`.
+#### RN-015 — States that prevent execution
+**Rule:** a step in `skipped` state cannot be executed; neither can an `agent` step already `completed`. `failed` or `pending` steps can be re-executed.
+**Result:** error with the current state; no changes.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepRun`.
 
-#### RN-016 — Autocompletado exclusivo de steps command
-**Regla:** un step `command` se marca completado automáticamente cuando el proceso termina con código 0 y todos sus `produces` existen y son válidos bajo `.shardeo/artifacts/`. Si el comando falla, o tiene éxito pero los artefactos no aparecen (o el snapshot excede límites), el step queda fallido con el motivo correspondiente.
-**Excepciones:** un comando vacío se considera exitoso trivialmente (código 0).
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::runCommandStep`.
+#### RN-016 — Self-completion exclusive to command steps
+**Rule:** a `command` step is marked completed automatically when the process exits with code 0 and all its `produces` exist and are valid under `.shardeo/artifacts/`. If the command fails, or succeeds but the artifacts do not appear (or the snapshot exceeds limits), the step ends failed with the corresponding reason.
+**Exceptions:** an empty command is considered trivially successful (code 0).
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::runCommandStep`.
 
-#### RN-017 — Los steps agent nunca se autocompletan
-**Regla:** una invocación exitosa de un agente deja el step en estado `running`, no `completed`. Solo el orquestador puede cerrarlo invocando `step complete`, momento en que Shardeo revalida los artefactos declarados en `produces`.
-**Condiciones:** steps tipo `agent`.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepComplete`, SPECS.md Spec 4.
+#### RN-017 — Agent steps never self-complete
+**Rule:** a successful agent invocation leaves the step in `running` state, not `completed`. Only the orchestrator can close it by invoking `step complete`, at which point Shardeo revalidates the artifacts declared in `produces`.
+**Conditions:** `agent` type steps.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepComplete`, SPECS.md Spec 4.
 
-#### RN-018 — Condiciones para completar un agent
-**Regla:** `step complete` exige que el step esté `running`, que exista al menos un intento finalizado con snapshot válido y que todo el conjunto actual de `produces` esté presente y sea seguro. Si falta algo, el comando falla y el step permanece en progreso.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepComplete` (`no_completed_attempts`, `no_snapshot_data`, `incomplete_generation_outputs`).
+#### RN-018 — Conditions to complete an agent step
+**Rule:** `step complete` requires the step to be `running`, at least one attempt finished with a valid snapshot to exist, and the whole current set of `produces` to be present and safe. If anything is missing, the command fails and the step remains in progress.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepComplete` (`no_completed_attempts`, `no_snapshot_data`, `incomplete_generation_outputs`).
 
-#### RN-019 — Validación de entradas al ejecutar
-**Regla:** los artefactos declarados en `requires` se validan al momento de ejecutar el step (nunca al resolver el orden). Si faltan, el step no se ejecuta y se retorna la lista de ausentes. Si existen pero provienen de generaciones invalidadas, se reportan como obsoletos (`stale_required_artifacts`) aunque el archivo físico exista.
-**Confianza:** Alta. **Evidencia:** `src/utils/execution.ts` (`validateRequires`, `validateRequiresForExecution`).
+#### RN-019 — Input validation at execution time
+**Rule:** the artifacts declared in `requires` are validated when executing the step (never when resolving the order). If they are missing, the step is not executed and the list of absent ones is returned. If they exist but come from invalidated generations, they are reported as stale (`stale_required_artifacts`) even though the physical file exists.
+**Confidence:** High. **Evidence:** `src/utils/execution.ts` (`validateRequires`, `validateRequiresForExecution`).
 
-### Área D — Candidatos, fallback y terminales
+### Area D — Candidates, fallback and terminal reasons
 
-#### RN-020 — Candidatos solo desde agents[], en orden
-**Regla:** los candidatos de runtime salen exclusivamente de la lista `agents` del step y se recorren en el orden declarado. Cada candidato se sondea perezosamente; uno no disponible se descarta sin crear intento.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts` (`probeNextAgentCandidate`, registros `EvaluatedProbe`).
+#### RN-020 — Candidates only from agents[], in order
+**Rule:** runtime candidates come exclusively from the step's `agents` list and are traversed in the declared order. Each candidate is probed lazily; an unavailable one is discarded without creating an attempt.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts` (`probeNextAgentCandidate`, `EvaluatedProbe` records).
 
-#### RN-021 — Sin candidatos disponibles
-**Regla:** si ninguna sonda supera la validación antes de invocar, el step falla mostrando evidencia sanitizada de todos los candidatos evaluados y no se crea ningún intento.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::runAgentStep` (respuesta con `evaluated_probes` y `attempts: []`).
+#### RN-021 — No available candidates
+**Rule:** if no probe passes validation before invoking, the step fails showing sanitized evidence of all evaluated candidates and no attempt is created.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::runAgentStep` (response with `evaluated_probes` and `attempts: []`).
 
-#### RN-022 — Éxito estricto
-**Regla:** una invocación es exitosa solo si el proceso terminó limpio, el stream JSONL fue válido y no hubo evento de error con salida 0. En ese caso el intento se persiste como éxito y el step queda `running`.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`invokeAgent`, `finishClosedProcess`).
+#### RN-022 — Strict success
+**Rule:** an invocation is successful only if the process ended cleanly, the JSONL stream was valid and there was no error event with exit 0. In that case the attempt is persisted as a success and the step stays `running`.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`invokeAgent`, `finishClosedProcess`).
 
-#### RN-023 — Fallback sin clasificación semántica
-**Regla:** tras una invocación iniciada y limpiada correctamente con JSONL válido, cualquier error limpio hace avanzar al siguiente candidato sin clasificar su causa: cuota, contexto, disponibilidad o modelo se tratan igual (razón genérica `unknown_error` con el error concreto del proveedor preservado en evidencia sanitizada). El nuevo intento recibe un contexto extendido con lo original más la proyección de lo ocurrido.
-**Motivo de negocio:** OpenCode no expone una taxonomía estable de errores; clasificarlos mal sería peor que no clasificarlos.
-**Confianza:** Alta. **Evidencia:** `src/utils/errors.ts`, `src/utils/agent.ts::buildFallbackEvidence`, SPECS.md Spec 4.
+#### RN-023 — Fallback without semantic classification
+**Rule:** after an invocation started and cleaned up correctly with valid JSONL, any clean error advances to the next candidate without classifying its cause: quota, context, availability or model are treated the same (generic reason `unknown_error` with the concrete provider error preserved in sanitized evidence). The new attempt receives extended context with the original plus the projection of what happened.
+**Business rationale:** OpenCode does not expose a stable error taxonomy; misclassifying them would be worse than not classifying them.
+**Confidence:** High. **Evidence:** `src/utils/errors.ts`, `src/utils/agent.ts::buildFallbackEvidence`, SPECS.md Spec 4.
 
-#### RN-024 — Razones terminales enumeradas
-**Regla:** existe una lista cerrada de motivos que impiden el fallback y hacen fallar el step de inmediato: `permission_required`, `permission_detection_unsupported`, `permission_timeout`, `process_inactivity_timeout`, `interaction_timeout`, `artifact_context_too_large`, `adapter_contract_error`, `process_start_failed`, `process_cleanup_failed`, `context_error` y `persistence_error`.
-**Confianza:** Alta. **Evidencia:** `src/utils/errors.ts` (`TERMINAL_COMPLETION_REASONS`), usada en `src/commands/steps.ts`.
+#### RN-024 — Enumerated terminal reasons
+**Rule:** there is a closed list of reasons that prevent fallback and fail the step immediately: `permission_required`, `permission_detection_unsupported`, `permission_timeout`, `process_inactivity_timeout`, `interaction_timeout`, `artifact_context_too_large`, `adapter_contract_error`, `process_start_failed`, `process_cleanup_failed`, `context_error` and `persistence_error`.
+**Confidence:** High. **Evidence:** `src/utils/errors.ts` (`TERMINAL_COMPLETION_REASONS`), used in `src/commands/steps.ts`.
 
-#### RN-025 — Agotamiento de candidatos
-**Regla:** si el último candidato disponible falla con motivo no terminal, el step termina fallido por agotamiento (`exhaustion`) con el detalle de todos los intentos realizados.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::runAgentStep`.
+#### RN-025 — Candidate exhaustion
+**Rule:** if the last available candidate fails with a non-terminal reason, the step ends failed by exhaustion (`exhaustion`) with the detail of all the attempts made.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::runAgentStep`.
 
-#### RN-026 — Cada invocación es un intento independiente
-**Regla:** toda invocación de CLI (manual, por fallback o por re-ejecución) se registra como intento separado con número, respuesta completa o parcial, feedback, artefactos generados, runtime y modelo usados, motivo de finalización y métricas de tiempo.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts` (`finalizeAttemptCompleted`, `finalizeAttemptAndInsertNext`, `finalizeAttemptAndFailStep`), SPECS.md Spec 6.
+#### RN-026 — Every invocation is an independent attempt
+**Rule:** every CLI invocation (manual, by fallback or by re-execution) is recorded as a separate attempt with number, full or partial response, feedback, generated artifacts, runtime and model used, completion reason and time metrics.
+**Confidence:** High. **Evidence:** `src/db/queries.ts` (`finalizeAttemptCompleted`, `finalizeAttemptAndInsertNext`, `finalizeAttemptAndFailStep`), SPECS.md Spec 6.
 
-### Área E — Contexto entregado al agente
+### Area E — Context delivered to the agent
 
-#### RN-027 — Orden contractual del contexto
-**Regla:** el contexto inyectado al agente respeta siempre este orden: instrucciones operacionales (generadas por Shardeo), instrucciones de dominio del step, skills, artefactos requeridos, artefactos generados en intentos previos, feedback de reapertura, feedback del usuario y, por último, evidencia de fallback si la hay.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`assembleAgentContext`, `buildContextWithContainment`).
+#### RN-027 — Contractual context order
+**Rule:** the context injected into the agent always respects this order: operational instructions (generated by Shardeo), step domain instructions, skills, required artifacts, artifacts generated in previous attempts, reopen feedback, user feedback and, lastly, fallback evidence if any.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`assembleAgentContext`, `buildContextWithContainment`).
 
-#### RN-028 — Presupuestos de tamaño por componente
-**Regla:** cada componente del contexto tiene límites máximos: instrucciones 256 KiB (por archivo y acumulado); skills 256 KiB por archivo y 1 MiB acumulado; artefactos requeridos 1 MiB por archivo y acumulado; artefactos de intentos previos 2 MiB acumulado. Exceder cualquier presupuesto invalida el contexto y el step falla cerrado con `context_error` antes de invocar al agente. El contenido binario no-UTF-8 se sustituye por un marcador con su tamaño y digest.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`CONTEXT_LIMITS`, `readContainedText`, `decodePriorArtifactText`).
+#### RN-028 — Size budgets per component
+**Rule:** each context component has maximum limits: instructions 256 KiB (per file and cumulative); skills 256 KiB per file and 1 MiB cumulative; required artifacts 1 MiB per file and cumulative; artifacts from previous attempts 2 MiB cumulative. Exceeding any budget invalidates the context and the step fails closed with `context_error` before invoking the agent. Non-UTF-8 binary content is replaced by a marker with its size and digest.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`CONTEXT_LIMITS`, `readContainedText`, `decodePriorArtifactText`).
 
-#### RN-029 — Iteración con memoria
-**Regla:** un step no completado puede re-ejecutarse sin límite de veces. Cada re-ejecución recibe los artefactos generados en intentos anteriores y, si se provee, el feedback del usuario claramente delimitado dentro del contexto. El feedback es obligatoriamente texto no vacío.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepRun` (`--feedback`), `getPriorAttemptArtifacts`, SPECS.md Spec 6.
+#### RN-029 — Iteration with memory
+**Rule:** a non-completed step can be re-executed without limit. Each re-execution receives the artifacts generated in previous attempts and, if provided, the user feedback clearly delimited within the context. Feedback must be non-empty text.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepRun` (`--feedback`), `getPriorAttemptArtifacts`, SPECS.md Spec 6.
 
-### Área F — Tiempos y actividad
+### Area F — Timeouts and activity
 
-#### RN-030 — Timeout de inactividad reiniciable
-**Regla:** una invocación de agente termina con `process_inactivity_timeout` cuando no produce actividad observable durante el periodo configurado (5 minutos por defecto, configurable por proyecto). Cualquier evento de salida del proceso reinicia el contador; un latido interno no cuenta como actividad.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (temporizador de inactividad, `DEFAULT_INACTIVITY_TIMEOUT_MS`), `src/schema/config.yaml` vía `src/schema/config.ts`.
+#### RN-030 — Resettable inactivity timeout
+**Rule:** an agent invocation ends with `process_inactivity_timeout` when it produces no observable activity during the configured period (5 minutes by default, project-configurable). Any process output event restarts the counter; an internal heartbeat does not count as activity.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (inactivity timer, `DEFAULT_INACTIVITY_TIMEOUT_MS`), `src/schema/config.yaml` via `src/schema/config.ts`.
 
-#### RN-031 — Techo fijo para comandos
-**Regla:** los steps `command` tienen un tiempo máximo absoluto de ejecución de 300 segundos, no configurable a nivel de step.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::runCommandStep` (timeout fijo), `src/utils/execution.ts` (`runCommand`).
+#### RN-031 — Fixed ceiling for commands
+**Rule:** `command` steps have an absolute maximum execution time of 300 seconds, not configurable at step level.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::runCommandStep` (fixed timeout), `src/utils/execution.ts` (`runCommand`).
 
-#### RN-032 — Temporizadores independientes por superficie
-**Regla:** existen tres temporizadores con contadores y errores distintos: inactividad del proceso (aplica a las tres superficies), decisión de interacción (solo `supervised`) y presencia humana (solo `terminal`). Al expirar cualquiera se solicita el cierre seguro conservando evidencia; si el cierre no puede confirmarse, el intento se marca `orphaned` en lugar de declararse terminado.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (tabla de timeouts), `src/runtime/terminal.ts`, `src/runtime/supervisor.js`.
+#### RN-032 — Independent timers per surface
+**Rule:** there are three timers with distinct counters and errors: process inactivity (applies to all three surfaces), interaction decision (only `supervised`) and human presence (only `terminal`). When any expires, safe shutdown preserving evidence is requested; if shutdown cannot be confirmed, the attempt is marked `orphaned` instead of being declared finished.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (timeout table), `src/runtime/terminal.ts`, `src/runtime/supervisor.js`.
 
-### Área G — Permisos e interacciones
+### Area G — Permissions and interactions
 
-#### RN-033 — Detección de permisos solo por señales exactas
-**Regla:** en modo headless, una solicitud de aprobación del agente se reconoce únicamente mediante señales exactas y versionadas del harness. Una coincidencia terminaliza el intento con `permission_required`. Una salida ambigua o no reconocida no se adivina: falla cerrada con `permission_detection_unsupported` o `adapter_contract_error`.
-**Motivo de negocio:** preferir fallar antes que autorizar algo sin certeza.
-**Confianza:** Alta. **Evidencia:** `src/adapters/opencode.ts` (detector con identidad de versión y señal de auto-rechazo), `src/utils/agent.ts` (consumo del detector).
+#### RN-033 — Permission detection only by exact signals
+**Rule:** in headless mode, an agent approval request is recognized only through exact, versioned harness signals. A match terminates the attempt with `permission_required`. An ambiguous or unrecognized output is not guessed: it fails closed with `permission_detection_unsupported` or `adapter_contract_error`.
+**Business rationale:** prefer failing over authorizing something without certainty.
+**Confidence:** High. **Evidence:** `src/adapters/opencode.ts` (detector with version identity and self-rejection signal), `src/utils/agent.ts` (detector consumption).
 
-#### RN-034 — Nunca bypass de permisos
-**Regla:** los agentes se invocan en modo no interactivo sin shell y sin banderas de omisión de permisos; esas banderas nunca se inyectan por el sistema. Si un step falla porque el agente necesitó preguntar, el problema se resuelve mejorando las instrucciones o usando `supervised`/`terminal`.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`spawn` con `shell: false`), README, AGENTS.md.
+#### RN-034 — Never a permission bypass
+**Rule:** agents are invoked in non-interactive mode without shell and without permission-skipping flags; those flags are never injected by the system. If a step fails because the agent needed to ask, the problem is solved by improving the instructions or using `supervised`/`terminal`.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`spawn` with `shell: false`), README, AGENTS.md.
 
-#### RN-035 — Política de permisos por capas y decisiones anunciadas
-**Regla:** la política de permisos se hereda por capas (`step > workflow > config`, valor por defecto `prompt`; no se mezclan listas entre capas). En modos gestionados, toda autorización automática exige coincidencia exacta de capacidad normalizada y que esa decisión esté anunciada para la interacción concreta; `deny` siempre precede a cualquier autorización automática; una capacidad desconocida jamás coincide con reglas de autorización y usa el default seguro; una regla que pide una decisión no anunciada falla sin degradarse. `allow_once` autoriza exclusivamente la solicitud actual.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (política de permisos), `src/runtime/supervisor.js` (aplicación de política con actor `policy`).
+#### RN-035 — Layered permission policy and announced decisions
+**Rule:** the permission policy is inherited by layers (`step > workflow > config`, default value `prompt`; lists are not mixed between layers). In managed modes, any automatic authorization requires exact normalized capability matching and that the decision is announced for the concrete interaction; `deny` always precedes any automatic authorization; an unknown capability never matches authorization rules and uses the safe default; a rule requesting a non-announced decision fails without degrading. `allow_once` authorizes exclusively the current request.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (permission policy), `src/runtime/supervisor.js` (policy application with actor `policy`).
 
-#### RN-036 — Resolución única e idempotente
-**Regla:** cada interacción transiciona una sola vez de pendiente a resuelta mediante comparación-y-asignación. Repetir la misma decisión retorna el resultado almacenado sin reenviarla; intentar una decisión distinta tras resolver falla con `interaction_already_resolved`. Toda resolución automática queda registrada con actor `policy` y referencia a la regla aplicada.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (resolución idempotente), broker de interacciones.
+#### RN-036 — Unique and idempotent resolution
+**Rule:** each interaction transitions once from pending to resolved through compare-and-swap. Repeating the same decision returns the stored result without re-forwarding it; attempting a different decision after resolution fails with `interaction_already_resolved`. Every automatic resolution is recorded with actor `policy` and a reference to the applied rule.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (idempotent resolution), interaction broker.
 
-### Área H — Evidencia, sanitización y datos
+### Area H — Evidence, sanitization and data
 
-#### RN-037 — Salida visible acotada y única autoridad cruda
-**Regla:** todo lo que se muestra en consola y se persiste en proyecciones estándar está sanitizado (sin rutas absolutas del host ni caracteres de control) y limitado a 16 KiB por intento. Los bytes diagnósticos sin redactar tienen un único depósito autorizado (`DiagnosticRaw`): hasta 1 MiB se conserva el frame exacto; por encima se guardan prefijo, sufijo, tamaño original y digest SHA-256.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`MAX_CONSOLE_BYTES`, `MAX_DIAGNOSTIC_RAW_BYTES`, `encodeDiagnosticRaw`), README.
+#### RN-037 — Bounded visible output and single raw authority
+**Rule:** everything shown on the console and persisted in standard projections is sanitized (no host absolute paths or control characters) and limited to 16 KiB per attempt. Unredacted diagnostic bytes have a single authorized depository (`DiagnosticRaw`): up to 1 MiB the exact frame is kept; above that, prefix, suffix, original size and SHA-256 digest are stored.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`MAX_CONSOLE_BYTES`, `MAX_DIAGNOSTIC_RAW_BYTES`, `encodeDiagnosticRaw`), README.
 
-#### RN-038 — Contexto de fallback acotado
-**Regla:** la proyección entregada al siguiente candidato tras un fallo con fallback tiene un presupuesto acumulado de 2 MiB por ejecución del step; incluye errores concretos del proveedor y referencias a intentos previos, nunca evidencia cruda. Exceder el presupuesto terminaliza con `artifact_context_too_large`.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`MAX_FALLBACK_BYTES`, `buildFallbackEvidence`), `src/commands/steps.ts::runAgentStep`.
+#### RN-038 — Bounded fallback context
+**Rule:** the projection delivered to the next candidate after a failure with fallback has a cumulative budget of 2 MiB per step execution; it includes concrete provider errors and references to previous attempts, never raw evidence. Exceeding the budget terminates with `artifact_context_too_large`.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`MAX_FALLBACK_BYTES`, `buildFallbackEvidence`), `src/commands/steps.ts::runAgentStep`.
 
-#### RN-039 — Snapshots con presupuesto acumulado
-**Regla:** antes de cada intento se captura un baseline de los artefactos declarados en `produces`; después solo se snapshottean archivos nuevos o modificados, cada uno con su SHA-256. El contenido acumulado por step tiene techo de 1 MiB: superarlo produce `artifact_context_too_large` y falla el intento.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`MAX_STEP_SNAPSHOT_BYTES`), `src/commands/steps.ts::runAgentStep`.
+#### RN-039 — Snapshots with cumulative budget
+**Rule:** before each attempt a baseline of the artifacts declared in `produces` is captured; afterwards only new or modified files are snapshotted, each with its SHA-256. The cumulative content per step has a ceiling of 1 MiB: exceeding it produces `artifact_context_too_large` and fails the attempt.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`MAX_STEP_SNAPSHOT_BYTES`), `src/commands/steps.ts::runAgentStep`.
 
-### Área I — Artefactos
+### Area I — Artifacts
 
-#### RN-040 — Raíz única y contención estricta
-**Regla:** todos los artefactos viven exclusivamente bajo `.shardeo/artifacts/`. Las rutas declaradas en `requires` y `produces` rechazan rutas absolutas, segmentos `..` y escapes mediante symlinks, tanto para steps `agent` como `command`. Un symlink cuyo destino permanece dentro de la raíz no escapa.
-**Motivo de negocio:** los artefactos son la moneda de intercambio entre steps; su integridad y ubicación predecible sostienen la trazabilidad y la seguridad.
-**Confianza:** Alta. **Evidencia:** `src/utils/agent.ts` (`validateContainedPath`, `isParentEscape`), `src/utils/execution.ts`.
+#### RN-040 — Single root and strict containment
+**Rule:** all artifacts live exclusively under `.shardeo/artifacts/`. Paths declared in `requires` and `produces` reject absolute paths, `..` segments and escapes through symlinks, for both `agent` and `command` steps. A symlink whose target stays within the root does not escape.
+**Business rationale:** artifacts are the currency of exchange between steps; their integrity and predictable location sustain traceability and security.
+**Confidence:** High. **Evidence:** `src/utils/agent.ts` (`validateContainedPath`, `isParentEscape`), `src/utils/execution.ts`.
 
-#### RN-041 — Vigencia generacional de los artefactos
-**Regla:** un artefacto requerido solo es válido si proviene del productor cuya generación vigente coincide con el estado actual (step completado, sin invalidación) y cuyo manifiesto de generación (rutas, tamaños, digests) coincide con lo físico. Un artefacto huérfano o proveniente de una generación invalidada se reporta como obsoleto aunque exista en disco.
-**Confianza:** Alta. **Evidencia:** `src/utils/execution.ts::validateRequiresForExecution`, `src/db/queries.ts` (`step_generation_invalidations`).
+#### RN-041 — Generational validity of artifacts
+**Rule:** a required artifact is only valid if it comes from the producer whose current generation matches the current state (step completed, no invalidation) and whose generation manifest (paths, sizes, digests) matches the physical files. An orphan artifact or one from an invalidated generation is reported as stale even though it exists on disk.
+**Confidence:** High. **Evidence:** `src/utils/execution.ts::validateRequiresForExecution`, `src/db/queries.ts` (`step_generation_invalidations`).
 
-#### RN-042 — Sobrescritura e historial
-**Regla:** los artefactos generados en una re-ejecución sobrescriben los de intentos anteriores en el filesystem, pero las versiones anteriores permanecen registradas en la base de datos como evidencia. La validación de `produces` al completar recae siempre sobre el conjunto actual.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 6, `getPriorAttemptArtifacts` en `src/db/queries.ts`.
+#### RN-042 — Overwriting and history
+**Rule:** artifacts generated in a re-execution overwrite those from previous attempts on the filesystem, but the previous versions remain recorded in the database as evidence. The `produces` validation at completion always applies to the current set.
+**Confidence:** High. **Evidence:** SPECS.md Spec 6, `getPriorAttemptArtifacts` in `src/db/queries.ts`.
 
-#### RN-043 — Naturaleza de los artefactos producidos
-**Regla:** para validar una generación se exige que cada artefacto producido sea un archivo regular dentro de la raíz; los symlinks y otros tipos de archivo son rechazados en esa validación.
-**Nota:** el contrato escrito contemplaba permitir symlinks internos; el código implementó el criterio más estricto. Ver sección 12.
-**Confianza:** Media. **Evidencia:** `src/utils/execution.ts::inspectProducedArtifacts` frente a SPECS.md Spec 4.
+#### RN-043 — Nature of produced artifacts
+**Rule:** to validate a generation, every produced artifact must be a regular file within the root; symlinks and other file types are rejected in that validation.
+**Note:** the written contract contemplated allowing internal symlinks; the code implemented the stricter criterion. See section 12.
+**Confidence:** Medium. **Evidence:** `src/utils/execution.ts::inspectProducedArtifacts` versus SPECS.md Spec 4.
 
-### Área J — Iteración dirigida por el orquestador
+### Area J — Orchestrator-driven iteration
 
-#### RN-044 — Omisión solo de trabajo virgen
-**Regla:** `step skip` solo admite steps pendientes que no tengan ningún intento iniciado y sin generación válida; requiere motivo obligatorio. El resultado es terminal.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts::skipStepAtomic`, `src/commands/steps.ts::cmdStepSkip`.
+#### RN-044 — Skip only virgin work
+**Rule:** `step skip` only admits pending steps with no attempt started and no valid generation; it requires a mandatory reason. The result is terminal.
+**Confidence:** High. **Evidence:** `src/db/queries.ts::skipStepAtomic`, `src/commands/steps.ts::cmdStepSkip`.
 
-#### RN-045 — Efecto funcional de omitir
-**Regla:** un step omitido satisface el orden (libera a sus dependientes) pero no genera artefactos ni satisface validaciones `requires`: cualquier dependiente que necesite sus salidas fallará normalmente al validar entradas.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 8, RN-011 y RN-019.
-
-#### RN-046 — Reapertura solo de trabajo terminado
-**Regla:** `step reopen` admite únicamente steps `completed` o `failed`, con feedback obligatorio (texto no vacío hasta 16 KiB). No se pueden reabrir steps pendientes, en ejecución u omitidos.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts::reopenStepAtomic`, `src/commands/steps.ts::cmdStepReopen`.
-
-#### RN-047 — Cascada obligatoria ante descendientes afectados
-**Regla:** si reabrir un step invalidaría descendientes en estado `running`, `completed` o `failed` y no se provee `--cascade`, el comando falla enumerando qué steps serían reiniciados. Con cascada, los descendientes afectados vuelven a pendiente, se incrementa su número de generación y se registra la invalidación; su historial de intentos se conserva.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts::reopenStepAtomic` (`cascade_required`, `cascade_reset`).
-
-#### RN-048 — Invalidación generacional al reabrir
-**Regla:** reabrir invalida la generación vigente del step: sus artefactos permanecen en disco e historial para auditoría, pero no satisfacen `requires` ni permiten completar de nuevo hasta que finalice con éxito al menos un nuevo intento y el conjunto actual de `produces` sea revalidado como nueva generación. Los archivos que no necesitaban cambios pueden conservar los mismos bytes: la validez pertenece a la generación, no a la reescritura.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts` (`insertGenerationInvalidation`), SPECS.md Spec 8.
-
-#### RN-049 — Ocupación y conciliación
-**Regla:** una transición de reapertura u omisión falla si existe un intento vivo con lease vigente (step ocupado). Los intentos con lease expirado se concilian automáticamente como interrumpidos antes de proceder. Toda transición registra motivo, actor, marca temporal y estados origen/destino en un registro de auditoría.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts` (`reopenStepAtomic`, `reconcileInterruptedAttempt`, `step_transition_events`).
-
-### Área K — Estado agregado y reanudación
-
-#### RN-050 — Estado agregado derivado transaccionalmente
-**Regla:** el estado de la ejecución se recalcula con cada transición de step, dentro de la misma transacción: si algún step falló, la ejecución está `failed`; si todos los steps están `completed` o `skipped`, está `completed`; en cualquier otro caso, `running`. La consulta de estado nunca muestra un agregado que diverja del almacenado.
-**Confianza:** Alta. **Evidencia:** `src/db/queries.ts::syncExecutionStatusInTransaction`, SPECS.md Spec 7.
-
-#### RN-051 — Reanudación segura
-**Regla:** `resume` exige que el workflow asociado no haya cambiado desde el inicio de la ejecución (mismo conjunto de steps); si cambió, falla con `workflow_changed`. Concilia intentos interrumpidos (leases expirados), no re-ejecuta steps completados y retorna guía explícita de continuación.
-**Confianza:** Alta. **Evidencia:** `src/commands/resume.ts`.
-
-#### RN-052 — Reconstrucción de artefactos perdidos
-**Regla:** si un step completado perdió sus archivos en disco, `resume` lo marca como "requiere reconstrucción" con la lista de faltantes y entrega la última respuesta del agente como contexto para reconstruirlos sin partir de cero.
-**Confianza:** Alta. **Evidencia:** `src/commands/resume.ts` (`markStepReconstructionRequired`, `previous_agent_response`), SPECS.md Spec 7.
-
-### Área L — Superficies de ejecución
-
-#### RN-053 — Resolución de modo por capas
-**Regla:** el modo efectivo de un step `agent` se resuelve como: override explícito del comando (solo para ese intento) sobre `step.mode`, luego `workflow.mode`, luego el default de config del proyecto; si nadie declara, `headless`. Un valor inválido en cualquier capa es error. Los steps `command` ignoran por completo los modos.
-**Confianza:** Alta. **Evidencia:** `src/utils/mode.ts::resolveEffectiveMode`, `src/schema/mode.ts`, SPECS.md Spec 9.
-
-#### RN-054 — Capacidades sondeadas y fallo cerrado
-**Regla:** los modos gestionados exigen exactamente un candidato adapter y que este anuncie soporte real del modo tras sondear la instalación concreta. Un modo o capacidad no soportados producen `unsupported_capability` antes de lanzar trabajo del proveedor; nunca hay cambio silencioso de superficie ni ampliación de permisos.
-**Confianza:** Alta. **Evidencia:** `src/commands/steps.ts::cmdStepRun` (sondeo previo), `src/runtime/terminal.ts` (`terminalCapabilityError`).
-
-#### RN-055 — Supervised: arranque no bloqueante y seguimiento por eventos
-**Regla:** en `supervised`, iniciar el intento congela y admite el contexto y abre la sesión; entonces el comando retorna de inmediato con identidades y cursor inicial. El seguimiento se hace consultando eventos estructurados con cursores monotónicos (sin pérdidas ni duplicados semánticos) y leyendo salida bajo demanda; los eventos de control contienen identidades y resúmenes, jamás la salida completa.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (contrato de comandos y eventos), `src/runtime/supervisor.js`.
-
-#### RN-056 — Terminal: control exclusivamente humano
-**Regla:** el modo `terminal` entrega una terminal real a una persona. El orquestador solo comunica el handoff: nunca escribe teclas, no lee pantalla ni hace scraping de la interfaz. Conectarse exige el identificador exacto del único intento vivo (nunca se adjunta por inferencia ambigua); desconectarse no mata el proceso y se puede reconectar mientras el intento siga activo dentro de su plazo de presencia humana.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (handoff humano), `src/runtime/terminal.ts`.
-
-#### RN-057 — Intentos huérfanos bajo tutela humana
-**Regla:** un intento cuyo cierre no pudo confirmarse queda `orphaned`: nunca se auto-marca como fallido, no se reinicia automáticamente ni se repite una autorización a ciegas; conserva toda su evidencia y exige recuperación humana. Reiniciar Shardeo tampoco convierte huérfanos en fallidos ni crea segundos supervisores.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (persistencia, concurrencia y recuperación), máquina de estados de `src/runtime/terminal.ts`.
-
-### Área M — Integridad del contexto gestionado
-
-#### RN-058 — Bundle inmutable con admisión probada
-**Regla:** en modos gestionados, el contexto se materializa como copias inmutables por intento con digests SHA-256 y orden contractual preservado. Antes de que el proveedor trabaje, el adapter debe probar que todas las entradas obligatorias quedaron disponibles con esos bytes exactos; cualquier diferencia se trata como drift o manipulación y falla cerrado. No se trunca contexto obligatorio: un exceso de límite falla antes de empezar.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (bundle y manifiesto), `src/runtime/bundle.ts`.
-
-#### RN-059 — Lectura preautorizada mínima
-**Regla:** si el proveedor permite preautorizar lecturas, el alcance es únicamente la raíz exacta del bundle; nunca acceso amplio al proyecto o al sistema de archivos. Si no puede expresarse ese alcance seguro, se usa otro mecanismo nativo o se falla con `unsupported_capability`.
-**Confianza:** Alta. **Evidencia:** SPECS.md Spec 9 (integridad y permisos del bundle).
-
-#### RN-060 — Códigos de salida uniformes
-**Regla:** todo comando termina con código 0 en éxito y 1 en error, de forma consistente para consumo programático del orquestador.
-**Confianza:** Alta. **Evidencia:** `src/utils/errors.ts` (`ExitCode`).
-
-## 6. Flujos de negocio principales
-
-### Flujo F1 — Preparación del proyecto
-1. **Condición inicial:** repositorio cualquiera sin `.shardeo/`.
-2. **Actores:** usuario humano + Shardeo.
-3. **Pasos:** el usuario instala el CLI globalmente y ejecuta la inicialización; Shardeo crea la estructura de configuración (workflows, skills, artifacts, docs) con valores por defecto válidos.
-4. **Reglas:** idempotencia total: si la estructura existe, informa sin sobrescribir nada; sin permisos de escritura falla con mensaje claro.
-5. **Resultado:** proyecto listo para definir workflows.
-6. **Excepciones:** estructura preexistente (no destructivo); falta de permisos.
-7. **Referencias:** RN-060. **Evidencia:** SPECS.md Spec 1.
-
-### Flujo F2 — Descubrimiento
-1. **Condición inicial:** workflows definidos en el proyecto.
-2. **Actores:** orquestador o humano + Shardeo.
-3. **Pasos:** listar workflows con nombre y descripción; describir uno para ver instrucciones generales y steps con tipo, dependencias, entradas y salidas.
-4. **Reglas:** ambos comandos validan el YAML antes de responder; un workflow inválido aparece marcado como tal con su error concreto; no haber workflows es información, no error.
-5. **Resultado:** el orquestador puede presentar opciones informadas al usuario.
-6. **Excepciones:** workflow inexistente (error con lista de disponibles); YAML malformado (marcado, no oculto).
-7. **Referencias:** RN-003. **Evidencia:** SPECS.md Spec 2.
-
-### Flujo F3 — Ejecución de un workflow
-1. **Condición inicial:** workflow válido.
-2. **Actores:** orquestador (conductor), agente ejecutor o procesos deterministas, Shardeo.
-3. **Pasos:** iniciar ejecución (identificador único, steps pendientes) → consultar pasos disponibles → ejecutar cada paso → completar los `agent` → repetir hasta terminar.
-4. **Reglas:** RN-006 a RN-019 (grafo, orden, autocompletado de command, cierre manual de agent).
-5. **Resultado:** ejecución `completed` cuando todos los steps alcanzan estado terminal positivo.
-6. **Excepciones:** fallo de un step (`failed` contagia el agregado, RN-050); workflow modificado en medio de la ejecución (RN-051).
-
-### Flujo F4 — Step agent headless con fallback
-1. **Condición inicial:** step `agent` disponible en modo headless.
-2. **Actores:** orquestador, Shardeo, runtime OpenCode (candidatos).
-3. **Pasos:** revalidar workflow → validar entradas → sondear candidatos en orden → construir contexto acotado → invocar sin bypass de permisos → clasificar el resultado (éxito / fallback / terminal) → persistir intento con evidencia sanitizada → si hay fallback, repetir con contexto extendido.
-4. **Reglas:** RN-020 a RN-026, RN-027 a RN-039.
-5. **Resultado esperado:** éxito deja el step `running` a la espera del cierre explícito.
-6. **Excepciones:** permiso solicitado (`permission_required`), inactividad (`process_inactivity_timeout`), presupuesto excedido (`artifact_context_too_large`), contexto inválido (`context_error`), contrato del harness violado (`adapter_contract_error`), agotamiento (`exhaustion`).
-7. **Evidencia:** `src/commands/steps.ts::runAgentStep`, `src/utils/agent.ts`.
-
-### Flujo F5 — Iteración dirigida (reabrir / omitir)
-1. **Condición inicial:** resultado de un step posterior revela trabajo previo incorrecto, o un step pendiente resulta innecesario según las instrucciones del workflow.
-2. **Actores:** orquestador decide; Shardeo valida y persiste; el usuario aprueba según las instrucciones del workflow.
-3. **Pasos:** reabrir con feedback (con cascada si hay descendientes afectados) u omitir con motivo → reejecutar → recompletar.
-4. **Reglas:** RN-044 a RN-049.
-5. **Resultado:** nueva generación vigente del trabajo corregido; descendientes coherentemente reiniciados; historial íntegro para auditoría.
-6. **Excepciones:** cascada requerida no provista; step ocupado; estados no admitidos.
-7. **Nota de negocio:** Shardeo nunca decide cuándo iterar; solo materializa la decisión del orquestador (SPECS.md Spec 8).
-
-### Flujo F6 — Reanudación tras interrupción
-1. **Condición inicial:** ejecución detenida por error, cierre de terminal o cancelación.
-2. **Actores:** orquestador/humano + Shardeo.
-3. **Pasos:** reanudar → conciliar intentos interrumpidos → verificar artefactos de completados → marcar reconstrucciones → continuar con los pasos pendientes entregando respuestas previas como contexto.
-4. **Reglas:** RN-050 a RN-052, RN-029.
-5. **Resultado:** continuidad sin repetir trabajo completado ni perder conocimiento acumulado.
-6. **Excepciones:** workflow cambiado (bloqueo); artefactos perdidos (ruta de reconstrucción).
-
-### Flujo F7 — Permiso supervisado
-1. **Condición inicial:** step agent configurado (o forzado por intento) en modo `supervised`.
-2. **Actores:** orquestador, supervisor local, harness, política de permisos.
-3. **Pasos:** inicio con contexto congelado y admitido → retorno inmediato → el harness pide permiso → la solicitud se publica como interacción con decisiones válidas → el orquestador consulta eventos y emite una decisión anunciada → resolución idempotente aplicada por protocolo nativo.
-4. **Reglas:** RN-032, RN-035, RN-036, RN-054, RN-055, RN-058.
-5. **Resultado:** permiso mediado sin exponer contratos internos del proveedor ni ampliar autoridad.
-6. **Excepciones:** timeout de decisión (`interaction_timeout`); caída durante la resolución (huérfano, RN-057); capacidad ausente (`unsupported_capability`).
-
-### Flujo F8 — Handoff humano en terminal
-1. **Condición inicial:** step agent en modo `terminal`.
-2. **Actores:** orquestador (solo comunica), persona (controla), supervisor.
-3. **Pasos:** inicio con PTY adjuntable → retorno con el comando exacto de conexión → la persona conecta en otra terminal y trabaja de forma nativa → al terminar el harness, el supervisor persiste el resultado.
-4. **Reglas:** RN-032, RN-054, RN-056, RN-058.
-5. **Resultado:** trabajo interactivo real sin automatización frágil de interfaces.
-6. **Excepciones:** expiración sin presencia humana; reconexiones múltiples permitidas; identidad ambigua de intento (fallo explícito).
-
-## 7. Estados y transiciones
-
-### Step (dentro de una ejecución)
-
-| Estado | Significado funcional |
+#### RN-045 — Functional effect of skipping
+**Rule:** a skipped step satisfies the order (releases its dependents) but generates no artifacts and does not satisfy `requires` validations: any dependent that needs its outputs will fail normally when validating inputs.
+**Confidence:** High. **Evidence:** SPECS.md Spec 8, RN-011 and RN-019.
+
+#### RN-046 — Reopen only finished work
+**Rule:** `step reopen` admits only `completed` or `failed` steps, with mandatory feedback (non-empty text up to 16 KiB). Pending, running or skipped steps cannot be reopened.
+**Confidence:** High. **Evidence:** `src/db/queries.ts::reopenStepAtomic`, `src/commands/steps.ts::cmdStepReopen`.
+
+#### RN-047 — Mandatory cascade when affected descendants exist
+**Rule:** if reopening a step would invalidate descendants in `running`, `completed` or `failed` state and `--cascade` is not provided, the command fails enumerating which steps would be restarted. With cascade, the affected descendants return to pending, their generation number is incremented and the invalidation is recorded; their attempt history is preserved.
+**Confidence:** High. **Evidence:** `src/db/queries.ts::reopenStepAtomic` (`cascade_required`, `cascade_reset`).
+
+#### RN-048 — Generational invalidation on reopen
+**Rule:** reopening invalidates the step's current generation: its artifacts remain on disk and in history for audit, but they do not satisfy `requires` nor allow completing again until at least one new attempt finishes successfully and the current `produces` set is revalidated as a new generation. Files that did not need changes can keep the same bytes: validity belongs to the generation, not to the rewrite.
+**Confidence:** High. **Evidence:** `src/db/queries.ts` (`insertGenerationInvalidation`), SPECS.md Spec 8.
+
+#### RN-049 — Occupancy and reconciliation
+**Rule:** a reopen or skip transition fails if a live attempt with a valid lease exists (step occupied). Attempts with expired leases are automatically reconciled as interrupted before proceeding. Every transition records reason, actor, timestamp and origin/destination states in an audit log.
+**Confidence:** High. **Evidence:** `src/db/queries.ts` (`reopenStepAtomic`, `reconcileInterruptedAttempt`, `step_transition_events`).
+
+### Area K — Aggregate state and resumption
+
+#### RN-050 — Transactionally derived aggregate state
+**Rule:** the execution state is recalculated with every step transition, within the same transaction: if any step failed, the execution is `failed`; if all steps are `completed` or `skipped`, it is `completed`; in any other case, `running`. The status query never shows an aggregate that diverges from the stored one.
+**Confidence:** High. **Evidence:** `src/db/queries.ts::syncExecutionStatusInTransaction`, SPECS.md Spec 7.
+
+#### RN-051 — Safe resumption
+**Rule:** `resume` requires the associated workflow not to have changed since the execution started (same step set); if it changed, it fails with `workflow_changed`. It reconciles interrupted attempts (expired leases), does not re-execute completed steps and returns explicit continuation guidance.
+**Confidence:** High. **Evidence:** `src/commands/resume.ts`.
+
+#### RN-052 — Reconstruction of lost artifacts
+**Rule:** if a completed step lost its files on disk, `resume` marks it as "requires reconstruction" with the list of missing files and delivers the agent's last response as context to reconstruct them without starting from scratch.
+**Confidence:** High. **Evidence:** `src/commands/resume.ts` (`markStepReconstructionRequired`, `previous_agent_response`), SPECS.md Spec 7.
+
+### Area L — Execution surfaces
+
+#### RN-053 — Layered mode resolution
+**Rule:** the effective mode of an `agent` step is resolved as: explicit command override (only for that attempt) over `step.mode`, then `workflow.mode`, then the project config default; if nobody declares it, `headless`. An invalid value in any layer is an error. `command` steps ignore modes entirely.
+**Confidence:** High. **Evidence:** `src/utils/mode.ts::resolveEffectiveMode`, `src/schema/mode.ts`, SPECS.md Spec 9.
+
+#### RN-054 — Probed capabilities and closed failure
+**Rule:** managed modes require exactly one adapter candidate and that it announces real mode support after probing the concrete installation. An unsupported mode or capability produces `unsupported_capability` before launching provider work; there is never a silent surface change or permission expansion.
+**Confidence:** High. **Evidence:** `src/commands/steps.ts::cmdStepRun` (prior probe), `src/runtime/terminal.ts` (`terminalCapabilityError`).
+
+#### RN-055 — Supervised: non-blocking start and event-based tracking
+**Rule:** in `supervised`, starting the attempt freezes and admits the context and opens the session; then the command returns immediately with identities and initial cursor. Tracking is done by querying structured events with monotonic cursors (no semantic losses or duplicates) and reading output on demand; control events contain identities and summaries, never the full output.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (command and event contract), `src/runtime/supervisor.js`.
+
+#### RN-056 — Terminal: exclusively human control
+**Rule:** the `terminal` mode delivers a real terminal to a person. The orchestrator only communicates the handoff: it never writes keys, does not read the screen or scrape the interface. Connecting requires the exact identifier of the single live attempt (never attached by ambiguous inference); disconnecting does not kill the process and reconnection is possible while the attempt remains active within its human presence window.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (human handoff), `src/runtime/terminal.ts`.
+
+#### RN-057 — Orphaned attempts under human custody
+**Rule:** an attempt whose shutdown could not be confirmed stays `orphaned`: it never auto-marks itself as failed, is not automatically restarted and never repeats an authorization blindly; it keeps all its evidence and requires human recovery. Restarting Shardeo does not turn orphans into failures nor create second supervisors.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (persistence, concurrency and recovery), state machine of `src/runtime/terminal.ts`.
+
+### Area M — Managed context integrity
+
+#### RN-058 — Immutable bundle with proven admission
+**Rule:** in managed modes, the context is materialized as immutable per-attempt copies with SHA-256 digests and preserved contractual order. Before the provider works, the adapter must prove that all mandatory inputs became available with those exact bytes; any difference is treated as drift or tampering and fails closed. Mandatory context is never truncated: an over-limit failure happens before starting.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (bundle and manifest), `src/runtime/bundle.ts`.
+
+#### RN-059 — Minimal pre-authorized reading
+**Rule:** if the provider allows pre-authorizing reads, the scope is only the exact bundle root; never broad access to the project or the filesystem. If that safe scope cannot be expressed, another native mechanism is used or it fails with `unsupported_capability`.
+**Confidence:** High. **Evidence:** SPECS.md Spec 9 (bundle integrity and permissions).
+
+#### RN-060 — Uniform exit codes
+**Rule:** every command ends with code 0 on success and 1 on error, consistently for programmatic consumption by the orchestrator.
+**Confidence:** High. **Evidence:** `src/utils/errors.ts` (`ExitCode`).
+
+## 6. Main business flows
+
+### Flow F1 — Project preparation
+1. **Initial condition:** any repository without `.shardeo/`.
+2. **Actors:** human user + Shardeo.
+3. **Steps:** the user installs the CLI globally and runs the initialization; Shardeo creates the configuration structure (workflows, skills, artifacts, docs) with valid defaults.
+4. **Rules:** total idempotency: if the structure exists, it reports without overwriting anything; without write permissions it fails with a clear message.
+5. **Result:** project ready to define workflows.
+6. **Exceptions:** pre-existing structure (non-destructive); lack of permissions.
+7. **References:** RN-060. **Evidence:** SPECS.md Spec 1.
+
+### Flow F2 — Discovery
+1. **Initial condition:** workflows defined in the project.
+2. **Actors:** orchestrator or human + Shardeo.
+3. **Steps:** list workflows with name and description; describe one to see general instructions and steps with type, dependencies, inputs and outputs.
+4. **Rules:** both commands validate the YAML before responding; an invalid workflow appears marked as such with its concrete error; having no workflows is information, not an error.
+5. **Result:** the orchestrator can present informed options to the user.
+6. **Exceptions:** non-existent workflow (error with list of available ones); malformed YAML (marked, not hidden).
+7. **References:** RN-003. **Evidence:** SPECS.md Spec 2.
+
+### Flow F3 — Workflow execution
+1. **Initial condition:** valid workflow.
+2. **Actors:** orchestrator (conductor), executor agent or deterministic processes, Shardeo.
+3. **Steps:** start execution (unique identifier, pending steps) → query available steps → execute each step → complete the `agent` ones → repeat until finished.
+4. **Rules:** RN-006 to RN-019 (graph, order, command self-completion, manual agent closure).
+5. **Result:** execution `completed` when all steps reach a positive terminal state.
+6. **Exceptions:** step failure (`failed` infects the aggregate, RN-050); workflow modified mid-execution (RN-051).
+
+### Flow F4 — Headless agent step with fallback
+1. **Initial condition:** `agent` step available in headless mode.
+2. **Actors:** orchestrator, Shardeo, OpenCode runtime (candidates).
+3. **Steps:** revalidate workflow → validate inputs → probe candidates in order → build bounded context → invoke without permission bypass → classify the result (success / fallback / terminal) → persist attempt with sanitized evidence → if fallback, repeat with extended context.
+4. **Rules:** RN-020 to RN-026, RN-027 to RN-039.
+5. **Expected result:** success leaves the step `running` awaiting explicit closure.
+6. **Exceptions:** permission requested (`permission_required`), inactivity (`process_inactivity_timeout`), budget exceeded (`artifact_context_too_large`), invalid context (`context_error`), harness contract violated (`adapter_contract_error`), exhaustion (`exhaustion`).
+7. **Evidence:** `src/commands/steps.ts::runAgentStep`, `src/utils/agent.ts`.
+
+### Flow F5 — Directed iteration (reopen / skip)
+1. **Initial condition:** the result of a later step reveals incorrect previous work, or a pending step turns out unnecessary according to the workflow instructions.
+2. **Actors:** orchestrator decides; Shardeo validates and persists; the user approves according to the workflow instructions.
+3. **Steps:** reopen with feedback (with cascade if affected descendants exist) or skip with reason → re-execute → re-complete.
+4. **Rules:** RN-044 to RN-049.
+5. **Result:** new current generation of the corrected work; descendants coherently restarted; complete history for audit.
+6. **Exceptions:** required cascade not provided; occupied step; unsupported states.
+7. **Business note:** Shardeo never decides when to iterate; it only materializes the orchestrator's decision (SPECS.md Spec 8).
+
+### Flow F6 — Resumption after interruption
+1. **Initial condition:** execution stopped by error, terminal closure or cancellation.
+2. **Actors:** orchestrator/human + Shardeo.
+3. **Steps:** resume → reconcile interrupted attempts → verify artifacts of completed ones → mark reconstructions → continue with pending steps delivering previous responses as context.
+4. **Rules:** RN-050 to RN-052, RN-029.
+5. **Result:** continuity without repeating completed work or losing accumulated knowledge.
+6. **Exceptions:** changed workflow (blocking); lost artifacts (reconstruction path).
+
+### Flow F7 — Supervised permission
+1. **Initial condition:** agent step configured (or forced per attempt) in `supervised` mode.
+2. **Actors:** orchestrator, local supervisor, harness, permission policy.
+3. **Steps:** start with frozen and admitted context → immediate return → the harness asks for permission → the request is published as an interaction with valid decisions → the orchestrator queries events and issues an announced decision → idempotent resolution applied by native protocol.
+4. **Rules:** RN-032, RN-035, RN-036, RN-054, RN-055, RN-058.
+5. **Result:** mediated permission without exposing the provider's internal contracts or expanding authority.
+6. **Exceptions:** decision timeout (`interaction_timeout`); crash during resolution (orphan, RN-057); missing capability (`unsupported_capability`).
+
+### Flow F8 — Human handoff in terminal
+1. **Initial condition:** agent step in `terminal` mode.
+2. **Actors:** orchestrator (only communicates), person (controls), supervisor.
+3. **Steps:** start with attachable PTY → return with the exact connection command → the person connects from another terminal and works natively → when the harness finishes, the supervisor persists the result.
+4. **Rules:** RN-032, RN-054, RN-056, RN-058.
+5. **Result:** real interactive work without fragile interface automation.
+6. **Exceptions:** expiry without human presence; multiple reconnections allowed; ambiguous attempt identity (explicit failure).
+
+## 7. States and transitions
+
+### Step (within an execution)
+
+| State | Functional meaning |
 |---|---|
-| `pending` | Esperando que sus predecessores alcancen estado terminal positivo. |
-| `running` | Tiene al menos un intento vivo o finalizado pendiente de cierre; un agente exitoso deja aquí al step. |
-| `completed` | Trabajo aceptado con generación vigente validada. |
-| `failed` | Último intento terminó en motivo terminal o el comando falló. |
-| `skipped` | Omitido por decisión del orquestador; terminal y sin producción. |
+| `pending` | Waiting for its predecessors to reach a positive terminal state. |
+| `running` | Has at least one live attempt or one finished attempt pending closure; a successful agent leaves the step here. |
+| `completed` | Accepted work with validated current generation. |
+| `failed` | The last attempt ended in a terminal reason or the command failed. |
+| `skipped` | Skipped by orchestrator decision; terminal and with no production. |
 
-Transiciones permitidas:
+Allowed transitions:
 
-- `pending → running` (ejecución reclamada con lease).
-- `running → completed` (solo `step complete` para agents, validando produces; automático para command exitoso).
-- `running → failed` (motivo terminal, fallo de comando o agotamiento).
-- `failed → running` (re-ejecución directa permitida).
-- `completed → pending` y `failed → pending` (reapertura con feedback; invalida generación).
-- `pending → skipped` (omisión solo de trabajo virgen).
+- `pending → running` (execution claimed with lease).
+- `running → completed` (only `step complete` for agents, validating produces; automatic for successful command).
+- `running → failed` (terminal reason, command failure or exhaustion).
+- `failed → running` (direct re-execution allowed).
+- `completed → pending` and `failed → pending` (reopen with feedback; invalidates generation).
+- `pending → skipped` (skip only virgin work).
 
-Transiciones prohibidas: ejecutar steps `skipped` o agents `completed`; completar steps no running; omitir steps con intentos o en cualquier estado distinto de pendiente; reabrir `pending`, `running` o `skipped`. Los estados terminales del step solo se abandonan mediante las transiciones explícitas de reapertura/omisión descritas.
+Forbidden transitions: executing `skipped` steps or `completed` agents; completing non-running steps; skipping steps with attempts or in any state other than pending; reopening `pending`, `running` or `skipped`. The terminal states of a step are only abandoned through the explicit reopen/skip transitions described.
 
-### Ejecución (agregado)
+### Execution (aggregate)
 
-`running → completed` cuando todos sus steps están `completed`/`skipped`; `running → failed` si alguno falló. La reapertura puede devolver una ejecución cerrada a `running` (el agregado se recalcula transaccionalmente). Prohibido: divergencia entre lo mostrado y lo almacenado.
+`running → completed` when all its steps are `completed`/`skipped`; `running → failed` if any failed. Reopening can return a closed execution to `running` (the aggregate is recalculated transactionally). Forbidden: divergence between what is shown and what is stored.
 
-### Intento gestionado (`supervised` / `terminal`)
+### Managed attempt (`supervised` / `terminal`)
 
-Estados: `starting`, `awaiting_human`, `running`, y terminales `completed`, `failed`, `orphaned`.
+States: `starting`, `awaiting_human`, `running`, and terminal `completed`, `failed`, `orphaned`.
 
-Transiciones válidas: `starting → awaiting_human|failed|orphaned`; `awaiting_human → running|completed|failed|orphaned`; `running → awaiting_human|completed|failed|orphaned`. Los tres estados terminales no tienen salida (un huérfano jamás vuelve a la vida por sí solo). **Evidencia:** máquina de estados en `src/runtime/terminal.ts`.
+Valid transitions: `starting → awaiting_human|failed|orphaned`; `awaiting_human → running|completed|failed|orphaned`; `running → awaiting_human|completed|failed|orphaned`. The three terminal states have no exit (an orphan never comes back to life by itself). **Evidence:** state machine in `src/runtime/terminal.ts`.
 
-### Interacción
+### Interaction
 
-`pending → resolving → resolved | resolution_failed`, mediante comparación-y-asignación idempotente; una decisión contraria tras resolver falla. **Evidencia:** SPECS.md Spec 9.
+`pending → resolving → resolved | resolution_failed`, through idempotent compare-and-swap; a contrary decision after resolution fails. **Evidence:** SPECS.md Spec 9.
 
-## 8. Permisos y restricciones
+## 8. Permissions and restrictions
 
-| Actor | Acción | Condición |
+| Actor | Action | Condition |
 |---|---|---|
-| Orquestador | Iniciar, consultar y ejecutar steps | Workflow válido; predecessores terminalizados; step no omitido ni (si es agent) completado |
-| Orquestador | Completar un agent | Step `running`; produce completo y seguro |
-| Orquestador | Reabrir / omitir | Estados admitidos (RN-044, RN-046); feedback/motivo obligatorios; cascada si corresponde |
-| Orquestador | Aprobar interacciones supervisadas | Solo decisiones anunciadas por esa interacción |
-| Política automática | Autorizar/rechazar permisos | Coincidencia exacta de capacidad + decisión anunciada; `deny` precede; actor registrado como `policy` |
-| Persona | Controlar terminal en modo `terminal` | Adjuntarse con identidad exacta del intento vivo |
-| Agente ejecutor | Escribir código en el repositorio | Libre, guiado por instrucciones; Shardeo no trackea el código |
-| Agente ejecutor | Dejar artefactos | Solo bajo `.shardeo/artifacts/` con contención estricta |
-| Shardeo | Decidir metodología (ramas, condicionales, calidad) | Nunca: esa autoridad pertenece al orquestador y a las instrucciones del workflow |
-| Cualquier proceso | Bypass de permisos | Prohibido por diseño: sin banderas de omisión ni shell interactivo |
+| Orchestrator | Start, query and execute steps | Valid workflow; terminalized predecessors; step not skipped nor (if agent) completed |
+| Orchestrator | Complete an agent step | Step `running`; complete and safe produces |
+| Orchestrator | Reopen / skip | Admitted states (RN-044, RN-046); mandatory feedback/reason; cascade when applicable |
+| Orchestrator | Approve supervised interactions | Only decisions announced by that interaction |
+| Automatic policy | Authorize/reject permissions | Exact capability match + announced decision; `deny` precedes; actor recorded as `policy` |
+| Person | Control terminal in `terminal` mode | Attach with the exact identity of the live attempt |
+| Executor agent | Write code in the repository | Free, guided by instructions; Shardeo does not track code |
+| Executor agent | Leave artifacts | Only under `.shardeo/artifacts/` with strict containment |
+| Shardeo | Decide methodology (branches, conditionals, quality) | Never: that authority belongs to the orchestrator and to the workflow instructions |
+| Any process | Permission bypass | Forbidden by design: no skipping flags or interactive shell |
 
-## 9. Cálculos y decisiones de negocio
+## 9. Calculations and business decisions
 
-**Límites numéricos operativos** (constantes verificadas en `src/utils/agent.ts`):
+**Operational numeric limits** (constants verified in `src/utils/agent.ts`):
 
-| Límite | Valor | Efecto al exceder |
+| Limit | Value | Effect when exceeded |
 |---|---|---|
-| Salida visible/proyecciones | 16 KiB por intento | Truncado sanitizado, nunca error |
-| Diagnóstico crudo (`DiagnosticRaw`) | 1 MiB exacto; encima prefijo+sufijo+tamaño+SHA-256 | Conservación acotada con digest |
-| Snapshot acumulado por step | 1 MiB de contenido nuevo/modificado | Falla el intento (`artifact_context_too_large`) |
-| Contexto de fallback | 2 MiB acumulado por ejecución de step | Falla cerrada |
-| Instrucciones (por archivo y total) | 256 KiB | Contexto inválido (`context_error`) antes de invocar |
-| Skills | 256 KiB/archivo, 1 MiB acumulado | Igual |
-| Artefactos requeridos | 1 MiB/archivo y acumulado | Igual |
-| Artefactos previos acumulados | 2 MiB | Igual |
-| Inactividad de agente | 300 000 ms por defecto (configurable) | `process_inactivity_timeout` |
-| Ejecución de comando | 300 s fijos | Fallo del step |
-| Sondeo de candidato | 5 s | Candidato descartado |
-| Lease de intento / latido | 30 s / cada 10 s | Conciliación de interrumpidos |
+| Visible output/projections | 16 KiB per attempt | Sanitized truncation, never an error |
+| Raw diagnostics (`DiagnosticRaw`) | Exactly 1 MiB; above that prefix+suffix+size+SHA-256 | Bounded retention with digest |
+| Cumulative snapshot per step | 1 MiB of new/modified content | Attempt fails (`artifact_context_too_large`) |
+| Fallback context | 2 MiB cumulative per step execution | Closed failure |
+| Instructions (per file and total) | 256 KiB | Invalid context (`context_error`) before invoking |
+| Skills | 256 KiB/file, 1 MiB cumulative | Same |
+| Required artifacts | 1 MiB per file and cumulative | Same |
+| Cumulative prior artifacts | 2 MiB | Same |
+| Agent inactivity | 300 000 ms by default (configurable) | `process_inactivity_timeout` |
+| Command execution | Fixed 300 s | Step failure |
+| Candidate probe | 5 s | Candidate discarded |
+| Attempt lease / heartbeat | 30 s / every 10 s | Reconciliation of interrupted ones |
 
-**Decisiones derivadas:**
+**Derived decisions:**
 
-- *Clasificación de resultado de un intento:* éxito estricto → `success`; motivo en lista terminal → `terminal`; cualquier otro error limpio → `fallback` (RN-022 a RN-025).
-- *Disponibilidad:* `depends_on ⊆ {completed ∪ skipped}` y propio estado `pending` (RN-011).
-- *Agregado de ejecución:* `failed > completed = todos terminalizados positivos > running` en ese orden de precedencia (RN-050).
-- *Resolución de modo:* primera capa que declare gana; default `headless` (RN-053).
-- *Orden determinista:* los descendientes afectados por una cascada se procesan en orden binario UTF-8 estable, garantizando auditoría reproducible.
-- *Prioridad de seguridad ante incertidumbre:* ante ambigüedad (permiso no reconocible, capacidad desconocida, decisión no anunciada, drift de bundle), el sistema falla cerrado en lugar de adivinar.
+- *Attempt result classification:* strict success → `success`; reason in terminal list → `terminal`; any other clean error → `fallback` (RN-022 to RN-025).
+- *Availability:* `depends_on ⊆ {completed ∪ skipped}` and own state `pending` (RN-011).
+- *Execution aggregate:* `failed > completed = all terminalized positive > running` in that order of precedence (RN-050).
+- *Mode resolution:* the first layer that declares wins; default `headless` (RN-053).
+- *Deterministic order:* the descendants affected by a cascade are processed in stable UTF-8 binary order, guaranteeing reproducible audit.
+- *Security priority over uncertainty:* in the face of ambiguity (unrecognizable permission, unknown capability, non-announced decision, bundle drift), the system fails closed instead of guessing.
 
-## 10. Casos especiales y excepciones
+## 10. Special cases and exceptions
 
-- **Comando vacío:** un step `command` sin texto de comando completa trivialmente con código 0 (útil como marcadores o puntos de sincronización en el grafo). Evidencia: `runCommandStep`.
-- **Candidatos inexistentes vs. fallidos:** los candidatos no instalados no generan intento ni cuentan como fallo del proveedor; solo se registra evidencia sanitizada de la sonda. Evidencia: RN-020/RN-021.
-- **Auto-rechazo del harness:** cuando OpenCode rechaza por sí mismo un permiso en modo no interactivo, la señal versionada se reconoce y se trata como evidencia de permiso denegado, no como error genérico. Evidencia: commit H-LIVE-03, `src/adapters/opencode.ts`.
-- **Contenido binario en artefactos previos:** si un artefacto de un intento anterior no es texto UTF-8 válido, se entrega al siguiente intento como marcador con tamaño y digest en lugar del contenido. Evidencia: `decodePriorArtifactText`.
-- **Workflows inválidos visibles:** en el listado no se ocultan: aparecen marcados como inválidos con su error, para que el autor pueda corregirlos. Evidencia: SPECS.md Spec 2.
-- **Error sin punto de entrada con ciclo latente:** el mensaje de falta de punto de entrada añade, cuando aplica, la ruta del ciclo detectada, ayudando a diagnosticar grafos roto. Evidencia: `analyzeWorkflowGraph`.
-- **Desconexión en terminal no destructiva:** separarse de la PTY mantiene vivo el proceso hijo; la persona puede re-conectarse mientras el intento siga dentro de su plazo de presencia humana. Evidencia: RN-056.
-- **Reinicio del sistema no altera huérfanos:** arrancar de nuevo la herramienta no convierte huérfanos en fallidos ni duplica supervisores; la recuperación es siempre deliberada. Evidencia: RN-057.
+- **Empty command:** a `command` step without command text completes trivially with code 0 (useful as markers or synchronization points in the graph). Evidence: `runCommandStep`.
+- **Non-existent vs. failed candidates:** non-installed candidates generate no attempt and do not count as a provider failure; only sanitized probe evidence is recorded. Evidence: RN-020/RN-021.
+- **Harness self-rejection:** when OpenCode itself rejects a permission in non-interactive mode, the versioned signal is recognized and treated as denied-permission evidence, not as a generic error. Evidence: commit H-LIVE-03, `src/adapters/opencode.ts`.
+- **Binary content in prior artifacts:** if an artifact from a previous attempt is not valid UTF-8 text, it is delivered to the next attempt as a marker with size and digest instead of the content. Evidence: `decodePriorArtifactText`.
+- **Visible invalid workflows:** they are not hidden in the listing: they appear marked as invalid with their error, so the author can correct them. Evidence: SPECS.md Spec 2.
+- **Error without entry point with latent cycle:** the missing-entry-point message adds, when applicable, the path of the detected cycle, helping diagnose broken graphs. Evidence: `analyzeWorkflowGraph`.
+- **Non-destructive terminal disconnect:** detaching from the PTY keeps the child process alive; the person can reconnect while the attempt stays within its human presence window. Evidence: RN-056.
+- **System restart does not alter orphans:** starting the tool again does not turn orphans into failures or duplicate supervisors; recovery is always deliberate. Evidence: RN-057.
 
-## 11. Integraciones relevantes para el negocio
+## 11. Business-relevant integrations
 
-- **OpenCode (runtime de ejecución v1).** Rol de negocio: brazo executor de los steps `agent`. Su contrato de salida estructurada (JSONL) define qué significa "invocación limpia"; sus señales exactas y versionadas habilitan la detección de solicitudes de permiso en headless; en modos gestionados aporta servidor de sesión, eventos y resolución nativa de aprobaciones, y terminal real adjuntable. El modelo concreto que use por debajo es irrelevante para Shardeo (intercambiabilidad).
-- **Proveedores de modelos (detrás de OpenCode).** Rol de negocio: capacidad variable (cuota, disponibilidad) que motiva la lista ordenada de candidatos y el fallback sin clasificación semántica: el sistema asume que cualquier proveedor puede fallar en cualquier momento.
-- **Almacén embebido local (SQLite).** Rol de negocio: memoria institucional del proyecto — trazabilidad, resiliencia (reanudación, conciliación) y observabilidad. No es un bus de señalización en tiempo real; ese papel lo cumple la comunicación local explícita entre procesos.
+- **OpenCode (v1 execution runtime).** Business role: executing arm of the `agent` steps. Its structured output contract (JSONL) defines what "clean invocation" means; its exact, versioned signals enable permission request detection in headless; in managed modes it provides session server, events and native approval resolution, and a real attachable terminal. The concrete model it uses underneath is irrelevant to Shardeo (interchangeability).
+- **Model providers (behind OpenCode).** Business role: variable capacity (quota, availability) that motivates the ordered candidate list and the fallback without semantic classification: the system assumes any provider can fail at any time.
+- **Local embedded store (SQLite).** Business role: the project's institutional memory — traceability, resilience (resumption, reconciliation) and observability. It is not a real-time signaling bus; that role is played by explicit local inter-process communication.
 
-## 12. Ambigüedades y reglas no confirmadas
+## 12. Ambiguities and unconfirmed rules
 
-1. **Estado documental rezagado respecto del código.** SPECS.md marca las Specs 5, 6 y 8 como `pending`, pero el comportamiento está implementado y probado (validación de grafo en cada carga; re-ejecución con contexto acumulado; reopen/skip con generaciones). Posible interpretación: la documentación de estados no se actualizó. Evidencia: comandos y pruebas existentes (`test/spec8-iteration-control.test.mjs`, `test/utils/dag-execution.test.mjs`). Incertidumbre: cuál es la fuente de verdad pretendida para futuras decisiones.
-2. **Spec 10 (override de modelo por flags) es borrador.** Documentada pero no implementada: los flags propuestos no existen en el comando de ejecución actual. No debe asumirse disponible. Evidencia: firma de opciones de `cmdStepRun` frente a SPECS.md Spec 10 (`status: draft`).
-3. **Symlinks en artefactos producidos.** El contrato escrito permite symlinks cuyo destino permanece dentro de la raíz; la captura de generación implementada rechaza symlinks como artefacto producido (exige archivo regular). Posible endurecimiento posterior deliberado. Evidencia: `inspectProducedArtifacts` frente a SPECS.md Spec 4. Incertidumbre: cuál criterio prevalecerá.
-4. **Prototipo heredado divergente.** Existe un prototipo Python antiguo en la raíz (`shardeo.py`) con semánticas distintas (mapa fijo de CLIs, disponibilidad basada en productores completados en lugar del grafo, timeout fijo). No representa el comportamiento actual; el sistema vigente es el TypeScript. Evidencia: comparación directa de ambos códigos.
-5. **Persistencia del código `permission_timeout`.** Sigue en la lista de motivos terminales aunque la inactividad migró a `process_inactivity_timeout`; probablemente se conserva por compatibilidad con rutas gestionadas antiguas. Incertidumbre: si alguna ruta activa aún lo emite.
-6. **Lectura del modo a nivel de workflow.** En el comando de ejecución, el modo declarado a nivel workflow se recupera releyendo el YAML crudo con comentarios de "mejor esfuerzo" en el código; el cableado parece parcial. Evidencia: bloque correspondiente de `cmdStepRun`. Incertidumbre: si la herencia `workflow.mode` está plenamente garantizada en todos los caminos.
-7. **Flag `--human` aceptado pero sin efecto** en varios comandos (parámetro ignorado). Posible vestigio de una superficie de formato humano planificada. Evidencia: firmas `_opts: { human?: boolean }`.
+1. **Documentation state lagging behind code.** SPECS.md marks Specs 5, 6 and 8 as `pending`, but the behavior is implemented and tested (graph validation on every load; re-execution with accumulated context; reopen/skip with generations). Possible interpretation: the status documentation was not updated. Evidence: existing commands and tests (`test/spec8-iteration-control.test.mjs`, `test/utils/dag-execution.test.mjs`). Uncertainty: which is the intended source of truth for future decisions.
+2. **Spec 10 (model override by flags) is a draft.** Documented but not implemented: the proposed flags do not exist in the current execution command. It must not be assumed available. Evidence: `cmdStepRun` options signature versus SPECS.md Spec 10 (`status: draft`).
+3. **Symlinks in produced artifacts.** The written contract allows symlinks whose target stays within the root; the implemented generation capture rejects symlinks as a produced artifact (requires a regular file). Possibly a later deliberate hardening. Evidence: `inspectProducedArtifacts` versus SPECS.md Spec 4. Uncertainty: which criterion will prevail.
+4. **Divergent legacy prototype.** There is an old Python prototype at the root (`shardeo.py`) with different semantics (fixed CLI map, availability based on completed producers instead of the graph, fixed timeout). It does not represent current behavior; the current system is the TypeScript one. Evidence: direct comparison of both codes.
+5. **Persistence of the `permission_timeout` code.** It remains in the terminal reasons list although inactivity migrated to `process_inactivity_timeout`; it is probably kept for compatibility with old managed paths. Uncertainty: whether any active path still emits it.
+6. **Workflow-level mode reading.** In the execution command, the workflow-level declared mode is retrieved by re-reading the raw YAML with "best effort" comments in the code; the wiring seems partial. Evidence: corresponding block of `cmdStepRun`. Uncertainty: whether `workflow.mode` inheritance is fully guaranteed on all paths.
+7. **`--human` flag accepted but without effect** in several commands (ignored parameter). Possible vestige of a planned human formatting surface. Evidence: `_opts: { human?: boolean }` signatures.
 
-## 13. Resumen de reglas
+## 13. Rules summary
 
-| ID | Regla | Área | Confianza |
+| ID | Rule | Area | Confidence |
 |---|---|---|---|
-| RN-001 | Solo `opencode` como runtime en v1; otro identificador invalida el workflow | Workflows | Alta |
-| RN-002 | Modelo opcional y opaco, transferido sin interpretar | Workflows | Alta |
-| RN-003 | Revalidación íntegra del YAML en cada operación | Workflows | Alta |
-| RN-004 | Campos desconocidos tolerados; campo `after` prohibido | Workflows | Alta |
-| RN-005 | Nombre y al menos un step obligatorios | Workflows | Alta |
-| RN-006 | IDs de steps únicos | Grafo | Alta |
-| RN-007 | depends_on solo referencia steps existentes | Grafo | Alta |
-| RN-008 | Punto de entrada obligatorio (step sin dependencias) | Grafo | Alta |
-| RN-009 | Grafo acíclico con diagnóstico de ruta | Grafo | Alta |
-| RN-010 | depends_on único criterio de orden | Grafo | Alta |
-| RN-011 | Disponible = predecessores completed/skipped | Grafo | Alta |
-| RN-012 | Bloqueo explícito por predecessores incompletos | Ejecución | Alta |
-| RN-013 | Paralelismo decidido por el orquestador | Grafo | Alta |
-| RN-014 | Creación atómica de ejecución; inválido no crea nada | Ejecución | Alta |
-| RN-015 | skipped/completed(agent) impiden re-ejecutar | Ejecución | Alta |
-| RN-016 | Command autocompleta con exit 0 + produces válidos | Ejecución | Alta |
-| RN-017 | Agent nunca autocompleta; cierre explícito del orquestador | Ejecución | Alta |
-| RN-018 | Complete exige running, intento con snapshot y produces íntegro | Ejecución | Alta |
-| RN-019 | requires valida al ejecutar; obsoletos detectados por generación | Artefactos | Alta |
-| RN-020 | Candidatos desde agents[] en orden; sondeo perezoso sin intento | Fallback | Alta |
-| RN-021 | Sin candidatos: fallo con sondas evaluadas y cero intentos | Fallback | Alta |
-| RN-022 | Éxito estricto (JSONL válido, sin error, exit 0) deja running | Fallback | Alta |
-| RN-023 | Error limpio hace fallback sin clasificación semántica | Fallback | Alta |
-| RN-024 | Lista cerrada de motivos terminales sin fallback | Fallback | Alta |
-| RN-025 | Agotamiento de candidatos cierra con exhaustion | Fallback | Alta |
-| RN-026 | Cada invocación persiste como intento independiente | Persistencia | Alta |
-| RN-027 | Orden contractual del contexto inyectado | Contexto | Alta |
-| RN-028 | Presupuestos de tamaño por componente; exceso falla cerrado | Contexto | Alta |
-| RN-029 | Re-ejecuciones ilimitadas con artefactos previos y feedback delimitado | Contexto | Alta |
-| RN-030 | Inactividad 5 min reiniciable termina con process_inactivity_timeout | Tiempos | Alta |
-| RN-031 | Techo fijo de 300 s para comandos | Tiempos | Alta |
-| RN-032 | Tres temporizadores independientes; cierre dudoso = orphaned | Tiempos | Alta |
-| RN-033 | Detección de permisos solo por señales exactas; ambigüedad falla cerrada | Permisos | Alta |
-| RN-034 | Sin bypass de permisos ni shell interactivo | Permisos | Alta |
-| RN-035 | Política por capas; solo decisiones anunciadas; deny precede | Permisos | Alta |
-| RN-036 | Resolución única idempotente; conflicto explícito | Permisos | Alta |
-| RN-037 | Visible ≤16 KiB sanitizado; crudo solo en depósito autorizado ≤1 MiB | Evidencia | Alta |
-| RN-038 | Fallback context ≤2 MiB sanitizado, sin evidencia cruda | Evidencia | Alta |
-| RN-039 | Snapshots SHA-256 con presupuesto de 1 MiB por step | Evidencia | Alta |
-| RN-040 | Artefactos bajo raíz única con contención estricta | Artefactos | Alta |
-| RN-041 | Vigencia generacional; invalidado = obsoleto aunque exista | Artefactos | Alta |
-| RN-042 | Re-ejecución sobrescribe archivos; historial permanece | Artefactos | Alta |
-| RN-043 | Producido debe ser archivo regular contenido | Artefactos | Media |
-| RN-044 | Skip solo trabajo virgen pendiente; terminal | Iteración | Alta |
-| RN-045 | skipped libera orden pero no satisface requires | Iteración | Alta |
-| RN-046 | Reopen solo completed/failed con feedback obligatorio | Iteración | Alta |
-| RN-047 | Cascada obligatoria ante descendientes afectados | Iteración | Alta |
-| RN-048 | Reapertura invalida generación; validez nueva tras nuevo éxito | Iteración | Alta |
-| RN-049 | Lease vivo bloquea; expirado se concilia; auditoría de transiciones | Iteración | Alta |
-| RN-050 | Agregado derivado transaccionalmente (failed domina) | Estado | Alta |
-| RN-051 | Resume exige workflow sin cambios; no repite completados | Reanudación | Alta |
-| RN-052 | Artefacto perdido marca reconstrucción con respuesta previa | Reanudación | Alta |
-| RN-053 | Modo por capas con default headless; override solo al intento | Modos | Alta |
-| RN-054 | Capacidades sondeadas; unsupported_capability sin fallback silencioso | Modos | Alta |
-| RN-055 | Supervised no bloqueante; eventos con cursores monotónicos | Modos | Alta |
-| RN-056 | Terminal controlada solo por humanos; attach exacto; detach no mata | Modos | Alta |
-| RN-057 | Huérfanos: nunca auto-fallidos ni re-autorización a ciegas | Modos | Alta |
-| RN-058 | Bundle inmutable con admisión probada; drift falla cerrado | Integridad | Alta |
-| RN-059 | Lectura preautorizada limitada al bundle exacto | Integridad | Alta |
-| RN-060 | Códigos de salida uniformes 0/1 | Convención | Alta |
-
-
-
-
-
-
+| RN-001 | Only `opencode` as runtime in v1; another identifier invalidates the workflow | Workflows | High |
+| RN-002 | Optional and opaque model, transferred without interpretation | Workflows | High |
+| RN-003 | Full YAML revalidation on every operation | Workflows | High |
+| RN-004 | Unknown fields tolerated; `after` field forbidden | Workflows | High |
+| RN-005 | Name and at least one step mandatory | Workflows | High |
+| RN-006 | Unique step IDs | Graph | High |
+| RN-007 | depends_on only references existing steps | Graph | High |
+| RN-008 | Mandatory entry point (step without dependencies) | Graph | High |
+| RN-009 | Acyclic graph with path diagnosis | Graph | High |
+| RN-010 | depends_on as the only ordering criterion | Graph | High |
+| RN-011 | Available = predecessors completed/skipped | Graph | High |
+| RN-012 | Explicit blocking by incomplete predecessors | Execution | High |
+| RN-013 | Parallelism decided by the orchestrator | Graph | High |
+| RN-014 | Atomic execution creation; invalid creates nothing | Execution | High |
+| RN-015 | skipped/completed(agent) prevent re-execution | Execution | High |
+| RN-016 | Command self-completes with exit 0 + valid produces | Execution | High |
+| RN-017 | Agent never self-completes; explicit orchestrator closure | Execution | High |
+| RN-018 | Complete requires running, attempt with snapshot and complete produces | Execution | High |
+| RN-019 | requires validates at execution; stale detected by generation | Artifacts | High |
+| RN-020 | Candidates from agents[] in order; lazy probe without attempt | Fallback | High |
+| RN-021 | No candidates: failure with evaluated probes and zero attempts | Fallback | High |
+| RN-022 | Strict success (valid JSONL, no error, exit 0) leaves running | Fallback | High |
+| RN-023 | Clean error triggers fallback without semantic classification | Fallback | High |
+| RN-024 | Closed list of terminal reasons without fallback | Fallback | High |
+| RN-025 | Candidate exhaustion closes with exhaustion | Fallback | High |
+| RN-026 | Every invocation persisted as an independent attempt | Persistence | High |
+| RN-027 | Contractual order of injected context | Context | High |
+| RN-028 | Size budgets per component; excess fails closed | Context | High |
+| RN-029 | Unlimited re-executions with prior artifacts and delimited feedback | Context | High |
+| RN-030 | Resettable 5-min inactivity ends with process_inactivity_timeout | Timeouts | High |
+| RN-031 | Fixed 300 s ceiling for commands | Timeouts | High |
+| RN-032 | Three independent timers; doubtful closure = orphaned | Timeouts | High |
+| RN-033 | Permission detection only by exact signals; ambiguity fails closed | Permissions | High |
+| RN-034 | No permission bypass or interactive shell | Permissions | High |
+| RN-035 | Layered policy; only announced decisions; deny precedes | Permissions | High |
+| RN-036 | Unique idempotent resolution; explicit conflict | Permissions | High |
+| RN-037 | Visible ≤16 KiB sanitized; raw only in authorized depository ≤1 MiB | Evidence | High |
+| RN-038 | Fallback context ≤2 MiB sanitized, without raw evidence | Evidence | High |
+| RN-039 | SHA-256 snapshots with 1 MiB budget per step | Evidence | High |
+| RN-040 | Artifacts under single root with strict containment | Artifacts | High |
+| RN-041 | Generational validity; invalidated = stale even if it exists | Artifacts | High |
+| RN-042 | Re-execution overwrites files; history remains | Artifacts | High |
+| RN-043 | Produced must be a contained regular file | Artifacts | Medium |
+| RN-044 | Skip only virgin pending work; terminal | Iteration | High |
+| RN-045 | skipped releases order but does not satisfy requires | Iteration | High |
+| RN-046 | Reopen only completed/failed with mandatory feedback | Iteration | High |
+| RN-047 | Mandatory cascade when affected descendants exist | Iteration | High |
+| RN-048 | Reopen invalidates generation; new validity after new success | Iteration | High |
+| RN-049 | Live lease blocks; expired reconciled; transition audit | Iteration | High |
+| RN-050 | Transactionally derived aggregate (failed dominates) | State | High |
+| RN-051 | Resume requires unchanged workflow; does not repeat completed | Resumption | High |
+| RN-052 | Lost artifact marks reconstruction with previous response | Resumption | High |
+| RN-053 | Layered mode with headless default; override only per attempt | Modes | High |
+| RN-054 | Probed capabilities; unsupported_capability without silent fallback | Modes | High |
+| RN-055 | Supervised non-blocking; events with monotonic cursors | Modes | High |
+| RN-056 | Terminal controlled only by humans; exact attach; detach does not kill | Modes | High |
+| RN-057 | Orphans: never auto-failed nor blind re-authorization | Modes | High |
+| RN-058 | Immutable bundle with proven admission; drift fails closed | Integrity | High |
+| RN-059 | Pre-authorized reading limited to the exact bundle | Integrity | High |
+| RN-060 | Uniform exit codes 0/1 | Convention | High |
