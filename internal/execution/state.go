@@ -20,18 +20,10 @@ var allowedTransitions = map[string]map[string]bool{
 // ReopenStep invalidates generations and resets descendants to pending.
 // Files remain on disk but are considered invalid for requires.
 func (e *Engine) ReopenStep(ctx context.Context, executionID, stepID string, cascade bool, feedback string) error {
-	step, err := e.store.Steps().Get(ctx, executionID, stepID)
-	if err != nil {
+	if _, err := e.store.Steps().Get(ctx, executionID, stepID); err != nil {
 		return fmt.Errorf("get step: %w", err)
 	}
-	// Only completed/failed can be reopened? But allow pending as well to be idempotent?
-	if step.Status != "completed" && step.Status != "failed" && step.Status != "skipped" {
-		// If already pending, and cascade false, treat as no-op but still ensure audit? For test, we want to reopen a completed step.
-		// If step is pending, reopen is idempotent? We'll allow but do nothing if already pending and generations already invalidated?
-		if step.Status == "pending" && cascade {
-			// Still need to invalidate descendants? But step itself not invalidated.
-		}
-	}
+	// Allow reopen for completed/failed/skipped; pending is idempotent but still invalidates descendants if cascade
 	// Build descendants set if cascade
 	toReset := map[string]bool{stepID: true}
 	if cascade {
@@ -67,11 +59,6 @@ func (e *Engine) ReopenStep(ctx context.Context, executionID, stepID string, cas
 			continue
 		}
 		if cur.Status != "pending" {
-			// Check allowed: completed/failed/skipped -> pending is allowed, running -> pending is not allowed but shouldn't happen for completed cascade
-			if !isAllowed(cur.Status, "pending") {
-				// If not allowed, force to pending for reopen semantics (e.g., completed -> pending)
-				// But we should still audit
-			}
 			_ = e.transitionStepWithForce(ctx, executionID, sid, cur.Status, "pending")
 		}
 	}

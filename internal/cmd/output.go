@@ -46,33 +46,4 @@ func isEPIPE(err error) bool {
 	return false
 }
 
-func containsFold(s, substr string) bool {
-	// case-insensitive contains
-	return len(s) >= len(substr) && (func() bool {
-		lowerS := ""
-		lowerSub := ""
-		// simple lowercasing without importing strings to avoid cycle? but we can inline
-		for _, r := range s {
-			if r >= 'A' && r <= 'Z' {
-				lowerS += string(r + 32)
-			} else {
-				lowerS += string(r)
-			}
-		}
-		for _, r := range substr {
-			if r >= 'A' && r <= 'Z' {
-				lowerSub += string(r + 32)
-			} else {
-				lowerSub += string(r)
-			}
-		}
-		return len(lowerS) >= len(lowerSub) && (func() bool {
-			for i := 0; i <= len(lowerS)-len(lowerSub); i++ {
-				if lowerS[i:i+len(lowerSub)] == lowerSub {
-					return true
-				}
-			}
-			return false
-		})()
-	})()
-}
+

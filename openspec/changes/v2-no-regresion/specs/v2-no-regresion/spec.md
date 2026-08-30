@@ -1,0 +1,114 @@
+# v2-no-regresion Specification
+
+## Purpose
+
+Go preservation.
+
+## Constraints
+
+Core MUST use pure Go/no cgo, stdlib `flag`, no provider literals, Store interfaces, and evidence limits. `deltas-acceptance.md` and `docs/` MUST remain unchanged.
+
+## Requirements
+
+### Requirement: Idempotent initialization [v2-no-regresion/F-01] — P0 [E2E]
+
+`haro init` MUST create `.haro/config.yaml`, `workflows/`, `skills/`, `artifacts/`, and `docs/`; reruns MUST preserve bytes, report initialization, and exit 0.
+
+#### Scenario: Init
+- GIVEN empty project
+- WHEN init runs twice
+- THEN bytes remain unchanged
+
+### Requirement: Workflow discovery and validation [v2-no-regresion/F-02] — P0 [E2E]
+
+`workflows list/describe` MUST return structured JSON, flag malformed/invalid YAML, and report concrete errors: duplicates, missing dependencies, cycles, or no entry point.
+
+#### Scenario: Discovery
+- GIVEN mixed workflow YAML
+- WHEN both run
+- THEN details and errors appear
+
+### Requirement: Complete command cycle [v2-no-regresion/F-03] — P0 [E2E]
+
+`run`, `steps next`, `step run`, and `status` MUST persist state. Only `depends_on` orders; `requires` precedes execution and `produces` follows exit.
+
+#### Scenario: Outcomes
+- GIVEN four command cases
+- WHEN commands run
+- THEN exit 0 with outputs completes; nonzero fails with stdout/stderr
+- AND exit 0 with missing outputs fails listing them
+- AND unmet dependencies fail explicitly, unexecuted
+
+### Requirement: Feedback reconstruction [v2-no-regresion/F-05] — P0 [INT]
+
+`step run --feedback` MUST deliver delimited feedback plus bounded prior response and record a distinct reconstruction attempt preserving history.
+
+#### Scenario: Feedback
+- GIVEN a prior attempt
+- WHEN feedback reconstructs
+- THEN bounded context and delimited feedback are recorded
+
+### Requirement: Generational reopen and skip [v2-no-regresion/F-07] — P0 [INT]
+
+`reopen --cascade` MUST invalidate generations and reset descendants while retaining files/history; invalid files MUST NOT satisfy `requires` or completion. Skip MUST require a reason, pending state, and no attempts. `step_transition_events` MUST audit both.
+
+#### Scenario: Cascade
+- GIVEN three completed steps
+- WHEN the first reopens cascading
+- THEN generations invalidate, descendants pend, files remain
+
+#### Scenario: Skip
+- GIVEN varied step histories
+- WHEN skip has a reason
+- THEN only virgin pending work skips, audited
+
+### Requirement: Evidence budgets and redaction [v2-no-regresion/F-12] — P0 [INT]
+
+Visible evidence MUST be ≤16 KiB and redact Bearer, Basic, and tokens; snapshots MUST be ≤1 MiB, fallback ≤2 MiB, and `DiagnosticRaw` ≤1 MiB or prefix+suffix+size+SHA-256.
+
+#### Scenario: Budgets
+- GIVEN oversized evidence and credentials
+- WHEN processed
+- THEN limits and redaction apply
+
+### Requirement: Path containment [v2-no-regresion/F-13] — P0 [INT]
+
+Workflow, instruction, skill, artifact, and bundle paths MUST reject absolutes, `..`, and symlink escapes; internal symlinks MAY stay inside their root.
+
+#### Scenario: Containment
+- GIVEN malicious and internal paths
+- WHEN containment runs
+- THEN only contained targets pass
+
+### Requirement: CLI output contract [v2-no-regresion/F-14] — P0 [E2E]
+
+With `--json`, commands MUST return structured JSON; errors MUST return `{error, code}` and exit 1. EPIPE MUST exit 0. Extra arguments MUST respect `--`.
+
+#### Scenario: CLI
+- GIVEN CLI boundary cases
+- WHEN commands run
+- THEN output, exits, and parsing conform
+
+### Requirement: Go quality gate [v2-no-regresion/U-01] — P0 [UNIT]
+
+The change MUST pass `go test ./... -race`, `go vet ./...`, `golangci-lint run`, and `govulncheck ./...`.
+
+#### Scenario: Gates
+- GIVEN completed changes
+- WHEN gates run
+- THEN each exits 0
+
+### Requirement: State-machine transitions [v2-no-regresion/U-03] — P0 [UNIT]
+
+The Store machine MUST idempotently allow `pending→running→completed|failed`, `(completed|failed)→pending`, and `pending→skipped`, rejecting others without duplicate effects.
+
+#### Scenario: Transitions
+- GIVEN allowed, repeated, forbidden transitions
+- WHEN each runs twice
+- THEN allowed effects occur once; forbidden states remain
+
+## Non-Requirements and Ownership
+
+- U-02 (neutral OpenCode fixtures as-is): deferred to `v2-adapter` — no test in this change references them (their only consumers are permission-detection/supervised/agent-diagnostics tests, all adapter-owned); the original fixture source is not available in this repository, so byte-identical import is deferred with its owning surface. Recorded decision (orchestrator, 2026-08-28).
+- F-04/F-11: `v2-adapter`; agent F-05/F-12: `v2-adapter`/`v2-broker`; F-06: `v2-broker`/`v2-store`; F-08: `v2-adapter`/`v2-store`; F-09: `v2-broker`/`v2-ipc`/`v2-adapter`; F-10: deferred PTY.
+- Broker JSON-RPC, full DDL, claims, composition, reporting, and distribution belong to `v2-broker`/`v2-ipc`, `v2-store`, `v2-path-claims`, `v2-composicion`, `v2-reporte`, and `v2-distribucion`.

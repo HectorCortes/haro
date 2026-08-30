@@ -212,9 +212,9 @@ func handleWorkflowsDescribe(ctx context.Context, args []string, cwd string, out
 			}
 			// Human
 			var buf bytes.Buffer
-			buf.WriteString(fmt.Sprintf("name: %s\npath: %s\n", d.Name, d.Path))
+			fmt.Fprintf(&buf, "name: %s\npath: %s\n", d.Name, d.Path)
 			for _, s := range d.Workflow.Steps {
-				buf.WriteString(fmt.Sprintf("  - %s (%s)\n", s.ID, s.Type))
+				fmt.Fprintf(&buf, "  - %s (%s)\n", s.ID, s.Type)
 			}
 			if _, err := io.Copy(out, &buf); err != nil && !isEPIPE(err) {
 				return 1
@@ -552,9 +552,9 @@ func handleStatus(ctx context.Context, args []string, cwd string, out io.Writer,
 		return 0
 	}
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("execution %s status %s\n", exec.ID, exec.Status))
+	fmt.Fprintf(&buf, "execution %s status %s\n", exec.ID, exec.Status)
 	for _, st := range steps {
-		buf.WriteString(fmt.Sprintf("  %s: %s\n", st.StepID, st.Status))
+		fmt.Fprintf(&buf, "  %s: %s\n", st.StepID, st.Status)
 	}
 	if _, err := io.Copy(out, &buf); err != nil && !isEPIPE(err) {
 		return 1

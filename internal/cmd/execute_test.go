@@ -101,8 +101,8 @@ func TestCLI_DoubleDash(t *testing.T) {
 	}
 	var errResp map[string]string
 	combined := out.String() + errOut.String()
-	if err := json.Unmarshal([]byte(out.String()), &errResp); err != nil {
-		if err2 := json.Unmarshal([]byte(errOut.String()), &errResp); err2 != nil {
+	if err := json.Unmarshal(out.Bytes(), &errResp); err != nil {
+		if err2 := json.Unmarshal(errOut.Bytes(), &errResp); err2 != nil {
 			// Try combined?
 			t.Fatalf("unexpected_argument json not found: %q", combined)
 		}

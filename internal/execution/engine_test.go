@@ -201,33 +201,9 @@ steps:
 	}
 	// Triangulation: invalid requires should fail before runner
 	_ = os.Remove(filepath.Join(artifacts, "a.txt"))
-	// Invalidate generations to make requires invalid? We need fresh execution where a not yet produced
-	wfDir2 := filepath.Join(root, ".haro", "workflows", "reqtest2")
-	_ = os.MkdirAll(wfDir2, 0o755)
-	wfYAML2 := `version: 2
-name: reqtest2
-steps:
-  - id: a
-    type: command
-    run: echo a
-    produces: [need.txt]
-  - id: b
-    type: command
-    run: echo b
-    requires: [need.txt]
-    depends_on: [a]
-    produces: [out.txt]
-`
-	_ = os.WriteFile(filepath.Join(wfDir2, "workflow.yaml"), []byte(wfYAML2), 0o600)
-	execID2, _ := eng.CreateExecution(ctx, "reqtest2")
-	// Do not run a, try b with missing requires but depends_on also unsatisfied - first check deps
 	// To isolate requires, create execution where b depends_on a but a is completed without file
 	// We already tested depends_on; for requires we need case where depends_on satisfied but requires missing
 	// So run a without creating need.txt
-	fake2 := &FakeRunner{Handler: func(ctx context.Context, cwd string, argv []string, env map[string]string) (int, string, string, error) {
-		return 0, "", "", nil // don't create file
-	}}
-	eng2 := NewEngine(s, fake2, root)
 	// Use new execution for this test
 	wfDir3 := filepath.Join(root, ".haro", "workflows", "reqtest3")
 	_ = os.MkdirAll(wfDir3, 0o755)
@@ -246,7 +222,6 @@ steps:
     produces: [out.txt]
 `
 	_ = os.WriteFile(filepath.Join(wfDir3, "workflow.yaml"), []byte(wfYAML3), 0o600)
-	execID3, _ := eng2.CreateExecution(ctx, "reqtest3")
 	// Run a but fake does not create file, so a will fail due to missing produces, but we can force a to be completed by creating file manually?
 	// Simplify: create need.txt manually after a completes? Actually requires check for b should happen before runner, so if need.txt missing, b should fail.
 	// Let's make a succeed, then remove need.txt before b
@@ -256,7 +231,7 @@ steps:
 		return 0, "", "", nil
 	}}
 	eng3 := NewEngine(s, fake3, root)
-	execID3, _ = eng3.CreateExecution(ctx, "reqtest3")
+	execID3, _ := eng3.CreateExecution(ctx, "reqtest3")
 	if err := eng3.RunStep(ctx, execID3, "a", ""); err != nil {
 		t.Fatalf("run a3: %v", err)
 	}
@@ -269,10 +244,8 @@ steps:
 	if err == nil || !contains(strings.ToLower(err.Error()), "requires") {
 		t.Fatalf("expected requires error, got %v", err)
 	}
-	_ = execID2
 }
 
 // helpers
 func contains(s, substr string) bool { return strings.Contains(s, substr) }
 func stringsJoin(a []string) string { return strings.Join(a, " ") }
-func stringsToLower(s string) string { return strings.ToLower(s) }
