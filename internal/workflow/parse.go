@@ -16,9 +16,14 @@ type Workflow struct {
 
 // Step is a single workflow step.
 type Step struct {
-	ID   string `yaml:"id"`
-	Type string `yaml:"type"`
-	Run  string `yaml:"run"`
+	ID             string            `yaml:"id"`
+	Type           string            `yaml:"type"`
+	Run            string            `yaml:"run"`
+	Env            map[string]string `yaml:"env"`
+	TimeoutSeconds *int              `yaml:"timeout_seconds"`
+	DependsOn      []string          `yaml:"depends_on"`
+	Requires       []string          `yaml:"requires"`
+	Produces       []string          `yaml:"produces"`
 }
 
 // Parse decodes a Workflow from r and validates required fields.
