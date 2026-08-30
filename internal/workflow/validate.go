@@ -25,6 +25,28 @@ func Validate(wf *Workflow) error {
 			return fmt.Errorf("duplicate step id: %s", s.ID)
 		}
 		seen[s.ID] = 1
+		if s.Type != "command" && s.Type != "agent" && s.Type != "workflow" {
+			return fmt.Errorf("invalid step type %q for step %q", s.Type, s.ID)
+		}
+		if s.Type == "agent" {
+			if len(s.Harness) == 0 {
+				return fmt.Errorf("agent step %q must have non-empty harness", s.ID)
+			}
+			if s.Instructions == "" {
+				return fmt.Errorf("agent step %q must have instructions", s.ID)
+			}
+			if s.Mode != "" && s.Mode != "headless" && s.Mode != "supervised" && s.Mode != "terminal" {
+				return fmt.Errorf("invalid mode %q for agent step %q", s.Mode, s.ID)
+			}
+			if s.Mode == "terminal" {
+				return fmt.Errorf("terminal mode not supported (PTY deferred) for step %q", s.ID)
+			}
+		}
+		if s.Type == "command" {
+			if s.Run == "" {
+				return fmt.Errorf("command step %q must have run", s.ID)
+			}
+		}
 	}
 	// missing dependency check
 	for _, s := range wf.Steps {

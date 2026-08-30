@@ -24,6 +24,9 @@ type Step struct {
 	DependsOn      []string          `yaml:"depends_on"`
 	Requires       []string          `yaml:"requires"`
 	Produces       []string          `yaml:"produces"`
+	Harness        []string          `yaml:"harness"`
+	Instructions   string            `yaml:"instructions"`
+	Mode           string            `yaml:"mode"`
 }
 
 // Parse decodes a Workflow from r and validates required fields.
