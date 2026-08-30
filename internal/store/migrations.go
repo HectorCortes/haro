@@ -82,6 +82,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			UNIQUE (execution_id, step_id, cursor)
 		);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_step_events_cursor ON step_transition_events(execution_id, step_id, cursor);`,
+		`CREATE TABLE IF NOT EXISTS attempt_transport (
+			attempt_id TEXT PRIMARY KEY REFERENCES attempts(id),
+			adapter_name TEXT NOT NULL,
+			native_session_id TEXT,
+			protocol_version INTEGER,
+			extra TEXT NOT NULL DEFAULT '{}'
+		);`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {

@@ -125,6 +125,21 @@ type GenerationsRepository interface {
 	ListByStep(ctx context.Context, executionID, stepID string) ([]*Generation, error)
 }
 
+// Transport is per-adapter details for an attempt.
+type Transport struct {
+	AttemptID       string
+	AdapterName     string
+	NativeSessionID *string
+	ProtocolVersion *int
+	Extra           string // JSON, default '{}'
+}
+
+// TransportRepository manages attempt_transport.
+type TransportRepository interface {
+	Put(ctx context.Context, t *Transport) error
+	Get(ctx context.Context, attemptID string) (*Transport, error)
+}
+
 // EventsRepository manages attempt_events and step_transition_events.
 type EventsRepository interface {
 	CreateAttemptEvent(ctx context.Context, e *AttemptEvent) error
@@ -142,6 +157,7 @@ type Store interface {
 	Attempts() AttemptsRepository
 	Generations() GenerationsRepository
 	Events() EventsRepository
+	Transport() TransportRepository
 	WithTx(ctx context.Context, fn func(Store) error) error
 	Close() error
 }
@@ -204,6 +220,9 @@ func (s *SQLiteStore) Generations() GenerationsRepository { return &generationsR
 
 // Events returns events repo.
 func (s *SQLiteStore) Events() EventsRepository { return &eventsRepo{store: s} }
+
+// Transport returns transport repo.
+func (s *SQLiteStore) Transport() TransportRepository { return &transportRepo{store: s} }
 
 // WithTx executes fn in a transaction. Nested calls reuse the outer transaction.
 func (s *SQLiteStore) WithTx(ctx context.Context, fn func(Store) error) error {
