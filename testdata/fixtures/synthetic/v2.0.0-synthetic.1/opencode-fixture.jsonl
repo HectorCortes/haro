@@ -1,0 +1,3 @@
+{"cursor":1,"delta":{"text":"synthetic delta 1"},"payload_ref":"synthetic"}
+{"cursor":2,"delta":{"text":"synthetic delta 2"},"payload_ref":"synthetic"}
+{"cursor":3,"type":"completed","payload":"synthetic done"}

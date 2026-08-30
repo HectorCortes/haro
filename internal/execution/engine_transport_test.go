@@ -29,7 +29,7 @@ func TestAgentTransport_WithTx(t *testing.T) {
 	err = s.WithTx(ctx, func(tx store.Store) error {
 		// Need to create minimal execution/step/generation/attempt
 		if err := tx.Projects().Create(ctx, "proj", root); err != nil {
-			// ignore duplicate
+			_ = err // ignore duplicate
 		}
 		_, _ = tx.(*store.SQLiteStore).QueryForTest(ctx, "INSERT OR IGNORE INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)", "exec1", "proj", "wf.yaml", "running", "isolated", root, "2025-01-01T00:00:00Z")
 		_, _ = tx.(*store.SQLiteStore).QueryForTest(ctx, "INSERT OR IGNORE INTO execution_steps(execution_id, step_id, type, status, workspace_mode, current_generation) VALUES (?, ?, ?, ?, ?, ?)", "exec1", "step-agent", "agent", "running", "isolated", 1)

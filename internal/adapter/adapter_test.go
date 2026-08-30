@@ -38,7 +38,6 @@ func (f *fakeSession) Terminal(_ context.Context) (TerminalHandle, error) {
 // fakeAdapter implements Adapter for tests.
 type fakeAdapter struct {
 	probeResult ProbeResult
-	initCaps    Capabilities
 	initCalled  int
 	sessions    int
 }

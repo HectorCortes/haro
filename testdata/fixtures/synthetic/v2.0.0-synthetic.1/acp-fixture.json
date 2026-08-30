@@ -1,0 +1,11 @@
+{
+  "version": "v2.0.0-synthetic.1",
+  "provenance": "synthetic neutral, no byte-identity claim to OpenCode 1.17.18 originals",
+  "sequence": [
+    {"method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"protocolVersion": 1, "permission": true, "terminal": false, "loadSession": false}}, "result": {"protocolVersion": 1, "agentCapabilities": {"protocolVersion": 1, "permission": true, "terminal": false, "loadSession": false}}},
+    {"method": "session/new", "params": {"instructions": "synthetic instructions", "workspaceRoot": "/tmp", "requires": {}}, "result": {"sessionId": "synthetic-sess-1"}},
+    {"method": "session/prompt", "params": {"sessionId": "synthetic-sess-1", "text": "hello"}, "notification": {"method": "session/update", "params": {"sessionId": "synthetic-sess-1", "cursor": 1, "delta": {"text": "delta"}}}},
+    {"method": "session/cancel", "params": {"sessionId": "synthetic-sess-1"}, "result": {}},
+    {"method": "session/request_permission", "params": {"sessionId": "synthetic-sess-1", "kind": "ask", "description": "need", "options": ["allow", "deny"]}, "result": {"option": "allow"}}
+  ]
+}

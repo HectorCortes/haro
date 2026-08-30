@@ -553,6 +553,10 @@ Transport: the adapter chooses the native transport its harness supports — for
 - The broker never calls a method not announced in `agentCapabilities`.
 - The harness never calls `session/request_permission` if the broker did not announce `Permission: true` in `clientCapabilities` — in that case, any permission need must be resolved with the harness's default policy or fail (fail-closed, per V.4 and VIII.5 of the constitution).
 
+### 7.2 Transport persistence (v2-adapter)
+
+Per-attempt adapter details are persisted via `Store.Transport()` (`TransportRepository`) backed by `attempt_transport` (additive, idempotent `CREATE TABLE IF NOT EXISTS`, sole owner `v2-adapter`). `attempts` remains transport-neutral; `attempt_transport` holds `adapter_name`, `native_session_id`, `protocol_version`, and `extra` JSON. Engine inserts the attempt and its optional transport row in a single `WithTx`.
+
 ---
 
 ## 8. Traceability with the constitution

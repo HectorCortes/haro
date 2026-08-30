@@ -31,7 +31,7 @@ func TestTransport_MigrationIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query sql: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var sqlDef string
 	if rows.Next() {
 		_ = rows.Scan(&sqlDef)
@@ -68,7 +68,7 @@ func TestTransport_AttemptsNeutral(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pragma attempts: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var cols []string
 	for rows.Next() {
 		var c string
@@ -87,7 +87,7 @@ func TestTransport_AttemptsNeutral(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pragma attempt_transport: %v", err)
 	}
-	defer rows2.Close()
+	defer func() { _ = rows2.Close() }()
 	var tcols []string
 	for rows2.Next() {
 		var c string
@@ -299,7 +299,7 @@ func setupAttempt(t *testing.T, s Store, ctx context.Context, execID, stepID, ge
 		_, _ = sqlite.db.ExecContext(ctx, "INSERT OR IGNORE INTO generations(id, execution_id, step_id, number, created_at) VALUES (?, ?, ?, ?, ?)", genID, execID, stepID, 2, "2025-01-01T00:00:01Z")
 	}
 	if attemptID == "att2" {
-		// already handled via gen2
+		_ = attemptID // already handled via gen2
 	}
 	// Use attempts repo for creation
 	err := s.Attempts().Create(ctx, &Attempt{ID: attemptID, ExecutionID: execID, StepID: stepID, GenerationID: genID, Status: "running", StartedAt: "2025-01-01T00:00:00Z"})
