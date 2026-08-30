@@ -22,20 +22,117 @@ type ProjectsRepository interface {
 	Get(ctx context.Context, id string) (*Project, error)
 }
 
-// ExecutionsRepository manages executions (stub for now).
-type ExecutionsRepository interface{}
+// Execution is a stored execution.
+type Execution struct {
+	ID              string
+	ProjectID       string
+	WorkflowSource  string
+	Status          string
+	WorkspaceMode   string
+	WorkspaceRoot   string
+	StartedAt       string
+	EndedAt         *string
+}
 
-// StepsRepository manages execution_steps (stub).
-type StepsRepository interface{}
+// ExecutionStep is a stored step.
+type ExecutionStep struct {
+	ExecutionID      string
+	StepID           string
+	Type             string
+	Status           string
+	DependsOn        string // JSON array
+	Requires         string // JSON array
+	Produces         string // JSON array
+	WorkspaceMode    string
+	CurrentGeneration int
+}
 
-// AttemptsRepository manages attempts (stub).
-type AttemptsRepository interface{}
+// Generation is a stored generation.
+type Generation struct {
+	ID                 string
+	ExecutionID        string
+	StepID             string
+	Number             int
+	CreatedAt          string
+	InvalidatedAt      *string
+	InvalidatedByStep  *string
+}
 
-// GenerationsRepository manages generations (stub).
-type GenerationsRepository interface{}
+// Attempt is a stored attempt.
+type Attempt struct {
+	ID                string
+	ExecutionID       string
+	StepID            string
+	GenerationID      string
+	Status            string
+	StartedAt         string
+	EndedAt           *string
+	TerminationReason *string
+	ResultDigest      *string
+}
 
-// EventsRepository manages attempt_events and step_transition_events (stub).
-type EventsRepository interface{}
+// StepTransitionEvent is an audited transition.
+type StepTransitionEvent struct {
+	ID          int64
+	ExecutionID string
+	StepID      string
+	Cursor      int
+	FromStatus  *string
+	ToStatus    string
+	OccurredAt  string
+}
+
+// AttemptEvent is an attempt event.
+type AttemptEvent struct {
+	ID         int64
+	AttemptID  string
+	Cursor     int
+	EventType  string
+	PayloadRef *string
+	OccurredAt string
+}
+
+// ExecutionsRepository manages executions.
+type ExecutionsRepository interface {
+	Create(ctx context.Context, e *Execution) error
+	Get(ctx context.Context, id string) (*Execution, error)
+	UpdateStatus(ctx context.Context, id, status string) error
+}
+
+// StepsRepository manages execution_steps.
+type StepsRepository interface {
+	Create(ctx context.Context, s *ExecutionStep) error
+	Get(ctx context.Context, executionID, stepID string) (*ExecutionStep, error)
+	List(ctx context.Context, executionID string) ([]*ExecutionStep, error)
+	UpdateStatus(ctx context.Context, executionID, stepID, status string) error
+	UpdateGeneration(ctx context.Context, executionID, stepID string, gen int) error
+}
+
+// AttemptsRepository manages attempts.
+type AttemptsRepository interface {
+	Create(ctx context.Context, a *Attempt) error
+	Get(ctx context.Context, id string) (*Attempt, error)
+	UpdateStatus(ctx context.Context, id, status string, endedAt *string, terminationReason *string, resultDigest *string) error
+	CountByStep(ctx context.Context, executionID, stepID string) (int, error)
+}
+
+// GenerationsRepository manages generations.
+type GenerationsRepository interface {
+	Create(ctx context.Context, g *Generation) error
+	Get(ctx context.Context, id string) (*Generation, error)
+	GetByNumber(ctx context.Context, executionID, stepID string, number int) (*Generation, error)
+	InvalidateByStep(ctx context.Context, executionID, stepID, invalidatedBy string) error
+	ListByStep(ctx context.Context, executionID, stepID string) ([]*Generation, error)
+}
+
+// EventsRepository manages attempt_events and step_transition_events.
+type EventsRepository interface {
+	CreateAttemptEvent(ctx context.Context, e *AttemptEvent) error
+	CreateTransition(ctx context.Context, e *StepTransitionEvent) error
+	ListTransitions(ctx context.Context, executionID, stepID string) ([]*StepTransitionEvent, error)
+	NextAttemptCursor(ctx context.Context, attemptID string) (int, error)
+	NextTransitionCursor(ctx context.Context, executionID, stepID string) (int, error)
+}
 
 // Store is the repository facade. Only internal/store imports database/sql.
 type Store interface {
@@ -93,26 +190,20 @@ func (s *SQLiteStore) Projects() ProjectsRepository {
 	return &projectsRepo{store: s}
 }
 
-// Executions stub.
-func (s *SQLiteStore) Executions() ExecutionsRepository { return stubExecRepo{} }
+// Executions returns executions repo.
+func (s *SQLiteStore) Executions() ExecutionsRepository { return &executionsRepo{store: s} }
 
-// Steps stub.
-func (s *SQLiteStore) Steps() StepsRepository { return stubStepsRepo{} }
+// Steps returns steps repo.
+func (s *SQLiteStore) Steps() StepsRepository { return &stepsRepo{store: s} }
 
-// Attempts stub.
-func (s *SQLiteStore) Attempts() AttemptsRepository { return stubAttemptsRepo{} }
+// Attempts returns attempts repo.
+func (s *SQLiteStore) Attempts() AttemptsRepository { return &attemptsRepo{store: s} }
 
-// Generations stub.
-func (s *SQLiteStore) Generations() GenerationsRepository { return stubGenerationsRepo{} }
+// Generations returns generations repo.
+func (s *SQLiteStore) Generations() GenerationsRepository { return &generationsRepo{store: s} }
 
-// Events stub.
-func (s *SQLiteStore) Events() EventsRepository { return stubEventsRepo{} }
-
-type stubExecRepo struct{}
-type stubStepsRepo struct{}
-type stubAttemptsRepo struct{}
-type stubGenerationsRepo struct{}
-type stubEventsRepo struct{}
+// Events returns events repo.
+func (s *SQLiteStore) Events() EventsRepository { return &eventsRepo{store: s} }
 
 // WithTx executes fn in a transaction. Nested calls reuse the outer transaction.
 func (s *SQLiteStore) WithTx(ctx context.Context, fn func(Store) error) error {
@@ -156,6 +247,11 @@ func (s *SQLiteStore) queryRow(ctx context.Context, query string, args ...any) *
 		return s.tx.QueryRowContext(ctx, query, args...)
 	}
 	return s.db.QueryRowContext(ctx, query, args...)
+}
+
+// QueryForTest exposes query for tests (uses underlying db/tx).
+func (s *SQLiteStore) QueryForTest(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return s.query(ctx, query, args...)
 }
 
 // projectsRepo implements ProjectsRepository.
