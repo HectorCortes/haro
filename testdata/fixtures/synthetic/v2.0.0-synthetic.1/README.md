@@ -7,7 +7,6 @@ Version: v2.0.0-synthetic.1
 Contents:
 - `acp-fixture.json` — minimal ACP initialize → session/new → prompt → update → cancel → request_permission cycle.
 - `opencode-fixture.jsonl` — synthetic OpenCode JSONL events with `cursor`, `delta`, neutral payloads.
-- `claude-fixture.json` — synthetic Claude shape, neutral.
 
 Usage:
 - Contract suite `internal/adapter/contract` and `internal/adapter/acp` use these fixtures for fast-path verification without requiring a real binary. CI runs with `go test ./... -short` use fixtures only.
