@@ -1,0 +1,6 @@
+version: 2
+name: b
+steps:
+  - id: back
+    type: workflow
+    source: ../main/workflow.yaml

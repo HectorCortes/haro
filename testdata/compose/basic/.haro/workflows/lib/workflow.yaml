@@ -1,0 +1,7 @@
+version: 2
+name: lib
+steps:
+  - id: build
+    type: command
+    run: echo build
+    produces: [build.txt]

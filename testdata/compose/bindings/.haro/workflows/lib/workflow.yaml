@@ -1,0 +1,17 @@
+version: 2
+name: lib
+inputs:
+  - name: src
+    satisfied_by: consumer
+outputs:
+  - name: out
+    produced_by: producer
+steps:
+  - id: consumer
+    type: command
+    run: echo consumer
+    requires: [src]
+  - id: producer
+    type: command
+    run: echo producer
+    produces: [out]

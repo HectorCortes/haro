@@ -1,0 +1,10 @@
+version: 2
+name: main
+steps:
+  - id: lib_node
+    type: workflow
+    source: ../lib/workflow.yaml
+  - id: final
+    type: command
+    run: echo final
+    depends_on: [lib_node]

@@ -1,0 +1,6 @@
+version: 2
+name: leaf
+steps:
+  - id: leaf_step
+    type: command
+    run: echo leaf

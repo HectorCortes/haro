@@ -1,0 +1,9 @@
+version: 2
+name: lib
+steps:
+  - id: x
+    type: command
+    run: echo x
+  - id: y
+    type: command
+    run: echo y

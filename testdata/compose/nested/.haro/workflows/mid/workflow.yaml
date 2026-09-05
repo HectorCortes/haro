@@ -1,0 +1,6 @@
+version: 2
+name: mid
+steps:
+  - id: leaf_node
+    type: workflow
+    source: ../leaf/workflow.yaml

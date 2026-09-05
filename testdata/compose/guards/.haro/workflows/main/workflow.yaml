@@ -1,0 +1,6 @@
+version: 2
+name: main
+steps:
+  - id: w
+    type: workflow
+    source: ../depth/workflow.yaml

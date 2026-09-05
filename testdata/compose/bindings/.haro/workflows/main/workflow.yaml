@@ -1,0 +1,14 @@
+version: 2
+name: main
+steps:
+  - id: wf
+    type: workflow
+    source: ../lib/workflow.yaml
+    bindings:
+      src: parent_src.txt
+      out: parent_out.txt
+  - id: downstream
+    type: command
+    run: echo downstream
+    requires: [parent_out.txt]
+    depends_on: [wf]

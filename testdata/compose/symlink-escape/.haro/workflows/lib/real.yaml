@@ -1,0 +1,6 @@
+version: 2
+name: real
+steps:
+  - id: s
+    type: command
+    run: echo hi

@@ -1,0 +1,6 @@
+version: 2
+name: main
+steps:
+  - id: bad
+    type: workflow
+    source: /etc/passwd

@@ -1,0 +1,6 @@
+version: 2
+name: a
+steps:
+  - id: b_node
+    type: workflow
+    source: ../b/workflow.yaml

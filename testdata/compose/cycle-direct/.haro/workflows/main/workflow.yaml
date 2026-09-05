@@ -1,0 +1,6 @@
+version: 2
+name: main
+steps:
+  - id: self
+    type: workflow
+    source: ./workflow.yaml

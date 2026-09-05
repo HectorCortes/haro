@@ -1,0 +1,14 @@
+version: 2
+name: main
+workspace:
+  mode: shared
+  on_logical_conflict: allow
+steps:
+  - id: isolated_step
+    type: command
+    run: echo hi
+    workspace:
+      mode: isolated
+  - id: shared_step
+    type: command
+    run: echo hi2

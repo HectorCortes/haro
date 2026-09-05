@@ -1,0 +1,9 @@
+version: 2
+name: main
+steps:
+  - id: a
+    type: workflow
+    source: ../lib/workflow.yaml
+  - id: b
+    type: workflow
+    source: ../lib/workflow.yaml

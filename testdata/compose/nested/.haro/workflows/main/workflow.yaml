@@ -1,0 +1,6 @@
+version: 2
+name: main
+steps:
+  - id: mid_node
+    type: workflow
+    source: ../mid/workflow.yaml

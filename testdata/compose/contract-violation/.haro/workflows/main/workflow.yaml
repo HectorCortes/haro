@@ -1,0 +1,10 @@
+version: 2
+name: main
+steps:
+  - id: wf
+    type: workflow
+    source: ../lib/workflow.yaml
+  - id: bad
+    type: command
+    run: echo bad
+    depends_on: [wf.internal]
