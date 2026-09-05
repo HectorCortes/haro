@@ -557,6 +557,10 @@ Transport: the adapter chooses the native transport its harness supports — for
 
 Per-attempt adapter details are persisted via `Store.Transport()` (`TransportRepository`) backed by `attempt_transport` (additive, idempotent `CREATE TABLE IF NOT EXISTS`, sole owner `v2-adapter`). `attempts` remains transport-neutral; `attempt_transport` holds `adapter_name`, `native_session_id`, `protocol_version`, and `extra` JSON. Engine inserts the attempt and its optional transport row in a single `WithTx`.
 
+### 7.3 Path claims and workspace isolation (v2-path-claims)
+
+Path coordination is persisted via `Store.PathClaims()` (`PathClaimRepository`) backed by `path_claims` (additive, idempotent `CREATE TABLE IF NOT EXISTS` plus `CREATE INDEX IF NOT EXISTS idx_path_claims_active WHERE released_at IS NULL`, sole owner `v2-path-claims`; `v2-store` verifies but MUST NOT redefine). DDL columns are `id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL REFERENCES projects(id), logical_path TEXT NOT NULL, mode TEXT NOT NULL, owner_execution_id TEXT NOT NULL, owner_step_id TEXT NOT NULL, acquired_at TEXT NOT NULL, released_at TEXT` with NOT NULLs and partial active index. API is `Acquire(ctx context.Context, claim PathClaim) (bool, *PathClaim, error)` with `BEGIN IMMEDIATE` atomic prefix scan (`a==b || HasPrefix(a,b+"/")`) and `ShouldBlock` policy, plus owner-checked `Release` and `ListActive`. `Engine.CreateExecution` resolves `system→workflow→step` (`isolated/block` defaults) and creates `.haro/worktrees/<executionID>` via `git worktree add --detach` with resolved `cmd.Dir` and fixed argv; terminal `resync` removes the worktree and startup `prune` cleans orphans. `Engine.RunStep` canonicalizes `requires ∪ produces` via root-anchored `EvalSymlinks`, acquires before `pending→running`, and defers `Release` on success and failure; conflicts return typed `logical_conflict` with owner and are filtered from `steps next`. `.haro/worktrees/` is git-ignored. Rollback retains the `path_claims` schema.
+
 ---
 
 ## 8. Traceability with the constitution

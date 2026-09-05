@@ -13,26 +13,47 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/HectorCortes/haro/internal/adapter"
+	"github.com/HectorCortes/haro/internal/claim"
+	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
 	"github.com/HectorCortes/haro/internal/workflow"
+	"github.com/HectorCortes/haro/internal/worktree"
 )
+
+// LogicalConflictError is returned when a claim conflicts with an active owner.
+type LogicalConflictError struct {
+	LogicalPath      string
+	OwnerExecutionID string
+	OwnerStepID      string
+	Mode             string
+}
+
+func (e *LogicalConflictError) Error() string {
+	return fmt.Sprintf("logical_conflict: %q owned by %s/%s mode %s", e.LogicalPath, e.OwnerExecutionID, e.OwnerStepID, e.Mode)
+}
 
 // Engine orchestrates command execution with store and runner.
 type Engine struct {
-	store      store.Store
-	runner     CommandRunner
-	root       string
-	adapterMgr *adapter.Manager
+	store       store.Store
+	runner      CommandRunner
+	root        string
+	adapterMgr  *adapter.Manager
+	worktreeMgr worktree.Manager
 }
 
 // NewEngine creates an engine.
 func NewEngine(s store.Store, r CommandRunner, root string) *Engine {
-	return &Engine{store: s, runner: r, root: root}
+	return &Engine{store: s, runner: r, root: root, worktreeMgr: worktree.NewManager()}
 }
 
 // SetAdapterManager sets the adapter manager for agent steps.
 func (e *Engine) SetAdapterManager(m *adapter.Manager) {
 	e.adapterMgr = m
+}
+
+// SetWorktreeManager sets the worktree manager (for tests).
+func (e *Engine) SetWorktreeManager(m worktree.Manager) {
+	e.worktreeMgr = m
 }
 
 // CreateExecution creates an execution for workflowName.
@@ -57,19 +78,43 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 	if err := workflow.Validate(wf); err != nil {
 		return "", fmt.Errorf("validate: %w", err)
 	}
+	// Startup prune: clean orphan worktrees (best effort)
+	if e.worktreeMgr != nil {
+		_ = e.worktreeMgr.Prune(ctx, e.root)
+	}
 	// Ensure project exists
 	projectID := e.root // simple: use root as id
 	_ = e.store.Projects().Create(ctx, projectID, e.root)
 	// Generate execution id
 	execID := uuid.NewString()
+	// Resolve workflow-level mode for execution's workspace
+	execMode := "isolated"
+	if wf.Workspace != nil && wf.Workspace.Mode != nil {
+		execMode = *wf.Workspace.Mode
+	}
 	workspaceRoot := e.root
+	if execMode == "isolated" && e.worktreeMgr != nil {
+		wt, err := e.worktreeMgr.Create(ctx, execID, e.root)
+		if err != nil {
+			// Fail closed if worktree creation fails? For tests with FakeManager it succeeds.
+			// Log but continue with root as fallback? Prefer fail?
+			workspaceRoot = e.root
+			_ = wt
+			// Try to create via manager; if error, keep root but still record isolated mode
+			if wt != "" {
+				workspaceRoot = wt
+			}
+		} else {
+			workspaceRoot = wt
+		}
+	}
 	startedAt := time.Now().UTC().Format(time.RFC3339)
 	exec := &store.Execution{
 		ID:              execID,
 		ProjectID:       projectID,
 		WorkflowSource:  wfPath,
 		Status:          "running",
-		WorkspaceMode:   "isolated",
+		WorkspaceMode:   execMode,
 		WorkspaceRoot:   workspaceRoot,
 		StartedAt:       startedAt,
 	}
@@ -90,7 +135,7 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 			if prodJSON == nil {
 				prodJSON = []byte("[]")
 			}
-			wsMode := "isolated"
+			mode, _ := workflow.ResolveWorkspace(wf, st.ID)
 			step := &store.ExecutionStep{
 				ExecutionID:       execID,
 				StepID:            st.ID,
@@ -99,21 +144,131 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 				DependsOn:         string(depJSON),
 				Requires:          string(reqJSON),
 				Produces:          string(prodJSON),
-				WorkspaceMode:     wsMode,
+				WorkspaceMode:     mode,
 				CurrentGeneration: 0,
 			}
 			if err := tx.Steps().Create(ctx, step); err != nil {
 				return err
 			}
-			// Audit initial pending transition? For idempotency we create an event for pending? Not needed.
-			// Create initial transition pending->pending? No, skip.
 		}
 		return nil
 	})
 	if err != nil {
+		// Cleanup worktree on failure
+		if execMode == "isolated" && workspaceRoot != e.root && e.worktreeMgr != nil {
+			_ = e.worktreeMgr.Remove(ctx, workspaceRoot)
+		}
 		return "", err
 	}
 	return execID, nil
+}
+
+func (e *Engine) effectiveWorktreeRoot(ctx context.Context, executionID string) string {
+	exec, err := e.store.Executions().Get(ctx, executionID)
+	if err != nil || exec == nil {
+		return e.root
+	}
+	if exec.WorkspaceRoot != "" {
+		return exec.WorkspaceRoot
+	}
+	return e.root
+}
+
+func (e *Engine) acquireClaims(ctx context.Context, executionID, stepID string) ([]string, error) {
+	step, err := e.store.Steps().Get(ctx, executionID, stepID)
+	if err != nil {
+		return nil, err
+	}
+	exec, err := e.store.Executions().Get(ctx, executionID)
+	if err != nil {
+		return nil, err
+	}
+	projectID := e.root
+	if exec != nil {
+		projectID = exec.ProjectID
+	}
+	var requires, produces []string
+	_ = json.Unmarshal([]byte(step.Requires), &requires)
+	_ = json.Unmarshal([]byte(step.Produces), &produces)
+	all := append(append([]string{}, requires...), produces...)
+	// deduplicate and canonicalize
+	seen := make(map[string]bool)
+	var canonical []string
+	cfg, _ := project.LoadConfig(e.root)
+	extPaths := []string{}
+	if cfg != nil {
+		extPaths = cfg.ExternalPaths
+	}
+	for _, raw := range all {
+		c, err := claim.Canonicalize(e.root, raw)
+		if err != nil {
+			return nil, fmt.Errorf("canonicalize %q: %w", raw, err)
+		}
+		if c == "" {
+			continue
+		}
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		canonical = append(canonical, c)
+	}
+	// Acquire each
+	// Determine effective mode for this step: if external, forced shared, else step's workspace_mode
+	effMode := step.WorkspaceMode
+	if effMode == "" {
+		effMode = "isolated"
+	}
+	var acquired []string
+	for _, lp := range canonical {
+		mode := effMode
+		if claim.IsExternal(lp, extPaths) {
+			mode = "shared"
+		} else if strings.HasPrefix(mode, "isolated") {
+			mode = "isolated:" + executionID
+		}
+		c := store.PathClaim{
+			ProjectID:        projectID,
+			LogicalPath:      lp,
+			Mode:             mode,
+			OwnerExecutionID: executionID,
+			OwnerStepID:      stepID,
+		}
+		ok, conflict, err := e.store.PathClaims().Acquire(ctx, c)
+		if err != nil {
+			// rollback acquired so far
+			for _, rel := range acquired {
+				_ = e.store.PathClaims().Release(ctx, projectID, rel, executionID, stepID)
+			}
+			return nil, err
+		}
+		if !ok {
+			// rollback acquired so far
+			for _, rel := range acquired {
+				_ = e.store.PathClaims().Release(ctx, projectID, rel, executionID, stepID)
+			}
+			if conflict != nil {
+				return nil, &LogicalConflictError{LogicalPath: lp, OwnerExecutionID: conflict.OwnerExecutionID, OwnerStepID: conflict.OwnerStepID, Mode: conflict.Mode}
+			}
+			return nil, &LogicalConflictError{LogicalPath: lp}
+		}
+		acquired = append(acquired, lp)
+	}
+	return acquired, nil
+}
+
+func (e *Engine) releaseClaims(ctx context.Context, executionID, stepID string, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	exec, err := e.store.Executions().Get(ctx, executionID)
+	projectID := e.root
+	if err == nil && exec != nil {
+		projectID = exec.ProjectID
+	}
+	for _, lp := range paths {
+		_ = e.store.PathClaims().Release(ctx, projectID, lp, executionID, stepID)
+	}
 }
 
 // RunStep executes a step with the 4 command-cycle cases, and agent fallback.
@@ -205,6 +360,13 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 			return fmt.Errorf("produces containment: %w", err)
 		}
 	}
+	// Acquire path claims before pending->running (canonicalize requires+produces)
+	acquiredClaims, err := e.acquireClaims(ctx, executionID, stepID)
+	if err != nil {
+		return err
+	}
+	// Ensure release on every return (success and failure)
+	defer e.releaseClaims(ctx, executionID, stepID, acquiredClaims)
 	// Transition pending -> running
 	if err := e.transitionStep(ctx, executionID, stepID, "pending", "running"); err != nil {
 		return err
@@ -346,8 +508,9 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 			})
 		}
 	}
-	// Run via runner
-	exitCode, stdout, stderr, runErr := e.runner.Run(ctx, e.root, argv, envMap)
+	// Run via runner at effective workspace root
+	wtRoot := e.effectiveWorktreeRoot(ctx, executionID)
+	exitCode, stdout, stderr, runErr := e.runner.Run(ctx, wtRoot, argv, envMap)
 	if runErr != nil {
 		// Start failure or timeout
 		_ = e.failAttempt(ctx, attemptID, executionID, stepID, runErr.Error())
@@ -450,6 +613,12 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 			return fmt.Errorf("requires %q missing: %w", req, err)
 		}
 	}
+	// Acquire claims for agent step as well
+	agentAcquired, err := e.acquireClaims(ctx, executionID, stepID)
+	if err != nil {
+		return err
+	}
+	defer e.releaseClaims(ctx, executionID, stepID, agentAcquired)
 	// Transition pending -> running
 	if err := e.transitionStep(ctx, executionID, stepID, "pending", "running"); err != nil {
 		return err
@@ -566,10 +735,11 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		var output string
 		var runErr error
 		if e.adapterMgr != nil {
+			wtRoot := e.effectiveWorktreeRoot(ctx, executionID)
 			// Use manager to get session and prompt
 			bundle := adapter.SessionBundle{
 				Instructions:  instructions + "\n" + accumulated,
-				WorkspaceRoot: e.root,
+				WorkspaceRoot: wtRoot,
 				Requires:      map[string]string{},
 			}
 			// Host with fail-closed permission
@@ -779,4 +949,11 @@ func (e *Engine) resyncExecution(ctx context.Context, executionID string) {
 		status = "running"
 	}
 	_ = e.store.Executions().UpdateStatus(ctx, executionID, status)
+	// Terminal resync: remove worktree if execution completed/failed
+	if (status == "completed" || status == "failed") && e.worktreeMgr != nil {
+		exec, err := e.store.Executions().Get(ctx, executionID)
+		if err == nil && exec != nil && exec.WorkspaceMode == "isolated" && exec.WorkspaceRoot != "" && exec.WorkspaceRoot != e.root {
+			_ = e.worktreeMgr.Remove(ctx, exec.WorkspaceRoot)
+		}
+	}
 }

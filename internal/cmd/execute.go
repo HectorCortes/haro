@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/HectorCortes/haro/internal/claim"
 	"github.com/HectorCortes/haro/internal/execution"
 	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
@@ -313,8 +314,20 @@ func handleStepsNext(ctx context.Context, args []string, cwd string, out io.Writ
 	if err != nil {
 		return writeErr(err.Error(), "not_found")
 	}
-	// Find next pending whose deps satisfied
+	// Find next pending whose deps satisfied and not blocked by active claims
 	var next *store.ExecutionStep
+	// Load projectID for claim lookup: use cwd as projectID (same as engine)
+	projectID := cwd
+	if exec, err := s.Executions().Get(ctx, execID); err == nil && exec != nil {
+		projectID = exec.ProjectID
+	}
+	// Load active claims and external config once
+	activeClaims, _ := s.PathClaims().ListActive(ctx, projectID)
+	cfg, _ := project.LoadConfig(cwd)
+	extPaths := []string{}
+	if cfg != nil {
+		extPaths = cfg.ExternalPaths
+	}
 	for _, st := range steps {
 		if st.Status != "pending" {
 			continue
@@ -331,10 +344,15 @@ func handleStepsNext(ctx context.Context, args []string, cwd string, out io.Writ
 				}
 			}
 		}
-		if satisfied {
-			next = st
-			break
+		if !satisfied {
+			continue
 		}
+		// Claim-aware filtering: if this pending step would conflict with any active claim, skip it
+		if isBlockedByClaims(st, activeClaims, cwd, extPaths) {
+			continue
+		}
+		next = st
+		break
 	}
 	if next == nil {
 		// No next step, maybe all done
@@ -351,6 +369,48 @@ func handleStepsNext(ctx context.Context, args []string, cwd string, out io.Writ
 		_, _ = fmt.Fprintln(out, next.StepID)
 	}
 	return 0
+}
+
+func isBlockedByClaims(st *store.ExecutionStep, active []store.PathClaim, repoRoot string, extPaths []string) bool {
+	var requires, produces []string
+	_ = jsonUnmarshal(st.Requires, &requires)
+	_ = jsonUnmarshal(st.Produces, &produces)
+	all := append(append([]string{}, requires...), produces...)
+	// Deduplicate canonical paths
+	seen := make(map[string]bool)
+	var canonical []string
+	for _, raw := range all {
+		c, err := claim.Canonicalize(repoRoot, raw)
+		if err != nil || c == "" {
+			continue
+		}
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		canonical = append(canonical, c)
+	}
+	if len(canonical) == 0 {
+		return false
+	}
+	effMode := st.WorkspaceMode
+	if effMode == "" {
+		effMode = "isolated"
+	}
+	for _, lp := range canonical {
+		candidateMode := effMode
+		if claim.IsExternal(lp, extPaths) {
+			candidateMode = "shared"
+		}
+		for _, ac := range active {
+			if claim.Overlaps(ac.LogicalPath, lp) {
+				if claim.ShouldBlock(ac.Mode, candidateMode, "block", false) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func handleStep(ctx context.Context, args []string, cwd string, out io.Writer, writeErr func(string, string) int) int {
@@ -404,6 +464,24 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 	defer func() { _ = s.Close() }()
 	eng := execution.NewEngine(s, getRunner(), cwd)
 	if err := eng.RunStep(ctx, execID, stepID, feedback); err != nil {
+		// Check logical_conflict first
+		if lc, ok := err.(*execution.LogicalConflictError); ok {
+			// structured output with owner fields
+			payload := map[string]string{
+				"error":              lc.Error(),
+				"code":               "logical_conflict",
+				"owner_execution_id": lc.OwnerExecutionID,
+				"owner_step_id":      lc.OwnerStepID,
+				"logical_path":       lc.LogicalPath,
+			}
+			_ = writeJSON(out, payload)
+			return 1
+		}
+		if strings.Contains(err.Error(), "logical_conflict") {
+			// Fallback string match for wrapped errors
+			_ = writeJSON(out, map[string]string{"error": err.Error(), "code": "logical_conflict"})
+			return 1
+		}
 		// Check if error is due to missing dependency etc. Return json error
 		// For engine errors, we return {"error":..., "code":...}
 		code := "run_failed"
