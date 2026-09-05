@@ -1,8 +1,11 @@
 package workflow
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,11 +16,25 @@ type WorkspaceConfig struct {
 	OnLogicalConflict *string `yaml:"on_logical_conflict"`
 }
 
+// Input declares a required input for an included workflow.
+type Input struct {
+	Name        string `yaml:"name"`
+	SatisfiedBy string `yaml:"satisfied_by"`
+}
+
+// Output declares a produced output for an included workflow.
+type Output struct {
+	Name       string `yaml:"name"`
+	ProducedBy string `yaml:"produced_by"`
+}
+
 // Workflow is the minimal subset parsed for the spike.
 type Workflow struct {
 	Version   int              `yaml:"version"`
 	Name      string           `yaml:"name"`
 	Workspace *WorkspaceConfig `yaml:"workspace"`
+	Inputs    []Input          `yaml:"inputs"`
+	Outputs   []Output         `yaml:"outputs"`
 	Steps     []Step           `yaml:"steps"`
 }
 
@@ -35,6 +52,8 @@ type Step struct {
 	Instructions   string            `yaml:"instructions"`
 	Mode           string            `yaml:"mode"`
 	Workspace      *WorkspaceConfig  `yaml:"workspace"`
+	Source         *string           `yaml:"source"`
+	Bindings       map[string]string `yaml:"bindings"`
 }
 
 // ResolveWorkspace resolves system→workflow→step inheritance for the given stepID.
@@ -71,15 +90,33 @@ func Parse(r io.Reader) (*Workflow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read workflow: %w", err)
 	}
+	// Strict decoding: fail on unknown fields.
 	var wf Workflow
-	if err := yaml.Unmarshal(data, &wf); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&wf); err != nil {
+		// Convert strict field errors into ValidationError with field path.
+		msg := err.Error()
+		if strings.Contains(msg, "not found in type") {
+			// Extract field name: "field <name> not found"
+			re := regexp.MustCompile(`field ([^\s]+) not found`)
+			m := re.FindStringSubmatch(msg)
+			field := "unknown"
+			if len(m) == 2 {
+				field = m[1]
+			}
+			return nil, newValidationError("unknown_field", field, msg)
+		}
+		if strings.Contains(msg, "line") {
+			return nil, newValidationError("invalid_yaml", "", msg)
+		}
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
 	}
 	if wf.Version != 2 {
-		return nil, fmt.Errorf("unsupported version %d: want 2", wf.Version)
+		return nil, newValidationError("invalid_version", "version", fmt.Sprintf("unsupported version %d: want 2", wf.Version))
 	}
 	if len(wf.Steps) == 0 {
-		return nil, fmt.Errorf("workflow must have at least one step")
+		return nil, newValidationError("missing_field", "steps", "workflow must have at least one step")
 	}
 	return &wf, nil
 }
