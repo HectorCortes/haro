@@ -189,6 +189,12 @@ func resolveWorkspaceForFlat(rootWf *workflow.Workflow, flat *workflow.FlatStep)
 	return mode
 }
 
+// ResolveWorkspaceForFlat is exported for testing that root policy governs flattened steps.
+// It mirrors resolveWorkspaceForFlat without behavior change.
+func ResolveWorkspaceForFlat(rootWf *workflow.Workflow, flat *workflow.FlatStep) string {
+	return resolveWorkspaceForFlat(rootWf, flat)
+}
+
 func (e *Engine) effectiveWorktreeRoot(ctx context.Context, executionID string) string {
 	exec, err := e.store.Executions().Get(ctx, executionID)
 	if err != nil || exec == nil {
@@ -298,6 +304,10 @@ func (e *Engine) releaseClaims(ctx context.Context, executionID, stepID string, 
 }
 
 // verifyDAGHash re-flattens source and compares to stored hash.
+func (e *Engine) VerifyDAGHashForTest(ctx context.Context, executionID string) error {
+	return e.verifyDAGHash(ctx, executionID)
+}
+
 func (e *Engine) verifyDAGHash(ctx context.Context, executionID string) error {
 	exec, err := e.store.Executions().Get(ctx, executionID)
 	if err != nil || exec == nil || exec.DagHash == nil || exec.WorkflowSource == "" {
