@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 // migrate creates the 7-table DDL idempotently with CHECKs, FK, WAL.
@@ -106,5 +107,51 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
+	// First ALTER migration: dag_hash on executions (nullable, idempotent)
+	if err := ensureDagHashColumn(ctx, db); err != nil {
+		return err
+	}
 	return nil
+}
+
+func ensureDagHashColumn(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(executions)")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	has := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "dag_hash" {
+			has = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.ExecContext(ctx, "ALTER TABLE executions ADD COLUMN dag_hash TEXT"); err != nil {
+			// If column already exists (race), ignore duplicate error
+			if !isDuplicateColumnError(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists")
 }

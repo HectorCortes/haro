@@ -32,6 +32,7 @@ type Execution struct {
 	WorkspaceRoot   string
 	StartedAt       string
 	EndedAt         *string
+	DagHash         *string
 }
 
 // ExecutionStep is a stored step.
