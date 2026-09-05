@@ -89,6 +89,17 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			protocol_version INTEGER,
 			extra TEXT NOT NULL DEFAULT '{}'
 		);`,
+		`CREATE TABLE IF NOT EXISTS path_claims (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id TEXT NOT NULL REFERENCES projects(id),
+			logical_path TEXT NOT NULL,
+			mode TEXT NOT NULL,
+			owner_execution_id TEXT NOT NULL,
+			owner_step_id TEXT NOT NULL,
+			acquired_at TEXT NOT NULL,
+			released_at TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_path_claims_active ON path_claims(project_id, logical_path) WHERE released_at IS NULL;`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {

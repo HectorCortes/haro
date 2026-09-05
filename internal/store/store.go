@@ -158,6 +158,7 @@ type Store interface {
 	Generations() GenerationsRepository
 	Events() EventsRepository
 	Transport() TransportRepository
+	PathClaims() PathClaimRepository
 	WithTx(ctx context.Context, fn func(Store) error) error
 	Close() error
 }
@@ -223,6 +224,9 @@ func (s *SQLiteStore) Events() EventsRepository { return &eventsRepo{store: s} }
 
 // Transport returns transport repo.
 func (s *SQLiteStore) Transport() TransportRepository { return &transportRepo{store: s} }
+
+// PathClaims returns path claims repo.
+func (s *SQLiteStore) PathClaims() PathClaimRepository { return &pathClaimRepo{store: s} }
 
 // WithTx executes fn in a transaction. Nested calls reuse the outer transaction.
 func (s *SQLiteStore) WithTx(ctx context.Context, fn func(Store) error) error {
