@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,15 +48,158 @@ func TestU01(t *testing.T) {
 }
 
 func TestU03_ContractTable(t *testing.T) {
-	t.Run("root contract", func(t *testing.T) {
+	// Full rejection table: root contracts, direct internal reference, unknown input/output, missing binding, unsatisfied mapping
+	t.Run("root_contract_forbidden inputs", func(t *testing.T) {
 		wf, _ := Parse(strings.NewReader("version: 2\nname: root\ninputs:\n  - name: inp\n    satisfied_by: s1\nsteps:\n  - id: s1\n    type: command\n    run: echo hi\n"))
 		err := ValidateFile(wf, "/tmp/root.yaml", true)
 		if err == nil {
 			t.Fatalf("expected root_contract_forbidden")
 		}
 		ve, _ := err.(*ValidationError)
-		if ve.Code != "root_contract_forbidden" {
-			t.Fatalf("code %q", ve.Code)
+		if ve.Code != "root_contract_forbidden" || ve.Field != "inputs" {
+			t.Fatalf("code=%q field=%q want root_contract_forbidden@inputs", ve.Code, ve.Field)
+		}
+	})
+	t.Run("root_contract_forbidden outputs", func(t *testing.T) {
+		wf, _ := Parse(strings.NewReader("version: 2\nname: root\noutputs:\n  - name: out\n    produced_by: s1\nsteps:\n  - id: s1\n    type: command\n    run: echo hi\n"))
+		err := ValidateFile(wf, "/tmp/root.yaml", true)
+		if err == nil {
+			t.Fatalf("expected root_contract_forbidden")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "root_contract_forbidden" || ve.Field != "outputs" {
+			t.Fatalf("code=%q field=%q want root_contract_forbidden@outputs", ve.Code, ve.Field)
+		}
+	})
+	t.Run("contract_violation direct internal depends_on", func(t *testing.T) {
+		// Parent step depends_on wf.internal where internal is inside included file not exposed
+		root := "/tmp/root/.haro/workflows/main/workflow.yaml"
+		files := map[string][]byte{
+			root: []byte("version: 2\nname: main\nsteps:\n  - id: wf\n    type: workflow\n    source: ../lib/workflow.yaml\n  - id: bad\n    type: command\n    run: echo bad\n    depends_on: [wf.internal]\n"),
+			"/tmp/root/.haro/workflows/lib/workflow.yaml": []byte("version: 2\nname: lib\nsteps:\n  - id: internal\n    type: command\n    run: echo internal\n"),
+		}
+		_, err := Flatten(root, func(p string) ([]byte, error) {
+			for k, v := range files {
+				if p == k {
+					return v, nil
+				}
+			}
+			return nil, fmt.Errorf("not found %q", p)
+		})
+		if err == nil {
+			t.Fatalf("expected contract_violation for direct internal reference")
+		}
+		ve, ok := err.(*ValidationError)
+		if !ok || ve.Code != "contract_violation" || !strings.Contains(ve.Field, "depends_on") {
+			t.Fatalf("expected contract_violation@steps[i].depends_on[j] got %v", err)
+		}
+	})
+	t.Run("contract_violation requires targets internal step", func(t *testing.T) {
+		dag := &FlatDAG{Steps: []FlatStep{
+			{ID: "a.x", Type: "command", Run: "echo hi"},
+			{ID: "consumer", Type: "command", Run: "echo hi", Requires: []string{"a.x"}},
+		}}
+		err := ValidateFlat(dag)
+		if err == nil {
+			t.Fatalf("expected contract_violation@requires")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "contract_violation" || !strings.Contains(ve.Field, "requires") {
+			t.Fatalf("code=%q field=%q want contract_violation@steps[i].requires[j]", ve.Code, ve.Field)
+		}
+	})
+	t.Run("unknown_input binding", func(t *testing.T) {
+		root := "/tmp/root/.haro/workflows/main/workflow.yaml"
+		files := map[string][]byte{
+			root: []byte("version: 2\nname: main\nsteps:\n  - id: wf\n    type: workflow\n    source: ../lib/workflow.yaml\n    bindings:\n      unknownKey: some.txt\n"),
+			"/tmp/root/.haro/workflows/lib/workflow.yaml": []byte("version: 2\nname: lib\ninputs:\n  - name: in1\n    satisfied_by: c1\nsteps:\n  - id: c1\n    type: command\n    run: echo hi\n    requires: [in1]\n"),
+		}
+		_, err := Flatten(root, func(p string) ([]byte, error) {
+			for k, v := range files {
+				if p == k {
+					return v, nil
+				}
+			}
+			return nil, fmt.Errorf("not found %q", p)
+		})
+		if err == nil {
+			t.Fatalf("expected unknown_input|unknown_output")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "unknown_input" && ve.Code != "unknown_output" {
+			t.Fatalf("code=%q want unknown_input|unknown_output", ve.Code)
+		}
+		if !strings.Contains(ve.Field, "bindings.unknownKey") {
+			t.Fatalf("field=%q want bindings.unknownKey", ve.Field)
+		}
+		if ve.Field != "steps[0].bindings.unknownKey" {
+			t.Fatalf("field = %q want steps[0].bindings.unknownKey", ve.Field)
+		}
+	})
+	t.Run("missing_binding input", func(t *testing.T) {
+		root := "/tmp/root/.haro/workflows/main/workflow.yaml"
+		files := map[string][]byte{
+			root: []byte("version: 2\nname: main\nsteps:\n  - id: wf\n    type: workflow\n    source: ../lib/workflow.yaml\n"),
+			"/tmp/root/.haro/workflows/lib/workflow.yaml": []byte("version: 2\nname: lib\ninputs:\n  - name: src\n    satisfied_by: consumer\nsteps:\n  - id: consumer\n    type: command\n    run: echo hi\n    requires: [src]\n"),
+		}
+		_, err := Flatten(root, func(p string) ([]byte, error) {
+			for k, v := range files {
+				if p == k {
+					return v, nil
+				}
+			}
+			return nil, fmt.Errorf("not found %q", p)
+		})
+		if err == nil {
+			t.Fatalf("expected missing_binding")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "missing_binding" || ve.Field != "steps[0].bindings.src" {
+			t.Fatalf("code=%q field=%q want missing_binding@steps[0].bindings.src", ve.Code, ve.Field)
+		}
+	})
+	t.Run("missing_binding output", func(t *testing.T) {
+		root := "/tmp/root/.haro/workflows/main/workflow.yaml"
+		files := map[string][]byte{
+			root: []byte("version: 2\nname: main\nsteps:\n  - id: wf\n    type: workflow\n    source: ../lib/workflow.yaml\n"),
+			"/tmp/root/.haro/workflows/lib/workflow.yaml": []byte("version: 2\nname: lib\noutputs:\n  - name: out\n    produced_by: producer\nsteps:\n  - id: producer\n    type: command\n    run: echo hi\n    produces: [out]\n"),
+		}
+		_, err := Flatten(root, func(p string) ([]byte, error) {
+			for k, v := range files {
+				if p == k {
+					return v, nil
+				}
+			}
+			return nil, fmt.Errorf("not found %q", p)
+		})
+		if err == nil {
+			t.Fatalf("expected missing_binding for output")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "missing_binding" || ve.Field != "steps[0].bindings.out" {
+			t.Fatalf("code=%q field=%q want missing_binding@steps[0].bindings.out", ve.Code, ve.Field)
+		}
+	})
+	t.Run("contract_violation inputs satisfied_by", func(t *testing.T) {
+		wf, _ := Parse(strings.NewReader("version: 2\nname: lib\ninputs:\n  - name: in1\n    satisfied_by: missing_step\nsteps:\n  - id: c1\n    type: command\n    run: echo hi\n"))
+		err := ValidateFile(wf, "/tmp/lib.yaml", false)
+		if err == nil {
+			t.Fatalf("expected contract_violation")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "contract_violation" || ve.Field != "inputs[0].satisfied_by" {
+			t.Fatalf("code=%q field=%q want contract_violation@inputs[0].satisfied_by", ve.Code, ve.Field)
+		}
+	})
+	t.Run("contract_violation outputs produced_by", func(t *testing.T) {
+		wf, _ := Parse(strings.NewReader("version: 2\nname: lib\noutputs:\n  - name: out1\n    produced_by: missing_step\nsteps:\n  - id: c1\n    type: command\n    run: echo hi\n"))
+		err := ValidateFile(wf, "/tmp/lib.yaml", false)
+		if err == nil {
+			t.Fatalf("expected contract_violation")
+		}
+		ve, _ := err.(*ValidationError)
+		if ve.Code != "contract_violation" || ve.Field != "outputs[0].produced_by" {
+			t.Fatalf("code=%q field=%q want contract_violation@outputs[0].produced_by", ve.Code, ve.Field)
 		}
 	})
 }
