@@ -7,11 +7,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// WorkspaceConfig holds workspace isolation settings.
+type WorkspaceConfig struct {
+	Mode              *string `yaml:"mode"`
+	OnLogicalConflict *string `yaml:"on_logical_conflict"`
+}
+
 // Workflow is the minimal subset parsed for the spike.
 type Workflow struct {
-	Version int    `yaml:"version"`
-	Name    string `yaml:"name"`
-	Steps   []Step `yaml:"steps"`
+	Version   int              `yaml:"version"`
+	Name      string           `yaml:"name"`
+	Workspace *WorkspaceConfig `yaml:"workspace"`
+	Steps     []Step           `yaml:"steps"`
 }
 
 // Step is a single workflow step.
@@ -27,6 +34,34 @@ type Step struct {
 	Harness        []string          `yaml:"harness"`
 	Instructions   string            `yaml:"instructions"`
 	Mode           string            `yaml:"mode"`
+	Workspace      *WorkspaceConfig  `yaml:"workspace"`
+}
+
+// ResolveWorkspace resolves system→workflow→step inheritance for the given stepID.
+// Defaults are isolated/block.
+func ResolveWorkspace(wf *Workflow, stepID string) (mode string, onConflict string) {
+	mode = "isolated"
+	onConflict = "block"
+	if wf.Workspace != nil {
+		if wf.Workspace.Mode != nil {
+			mode = *wf.Workspace.Mode
+		}
+		if wf.Workspace.OnLogicalConflict != nil {
+			onConflict = *wf.Workspace.OnLogicalConflict
+		}
+	}
+	for _, s := range wf.Steps {
+		if s.ID == stepID && s.Workspace != nil {
+			if s.Workspace.Mode != nil {
+				mode = *s.Workspace.Mode
+			}
+			if s.Workspace.OnLogicalConflict != nil {
+				onConflict = *s.Workspace.OnLogicalConflict
+			}
+			break
+		}
+	}
+	return mode, onConflict
 }
 
 // Parse decodes a Workflow from r and validates required fields.

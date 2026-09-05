@@ -47,6 +47,24 @@ func Validate(wf *Workflow) error {
 				return fmt.Errorf("command step %q must have run", s.ID)
 			}
 		}
+		// workspace validation per step
+		if s.Workspace != nil {
+			if s.Workspace.Mode != nil && *s.Workspace.Mode != "isolated" && *s.Workspace.Mode != "shared" {
+				return fmt.Errorf("invalid workspace mode %q for step %q", *s.Workspace.Mode, s.ID)
+			}
+			if s.Workspace.OnLogicalConflict != nil && *s.Workspace.OnLogicalConflict != "block" && *s.Workspace.OnLogicalConflict != "allow" {
+				return fmt.Errorf("invalid on_logical_conflict %q for step %q", *s.Workspace.OnLogicalConflict, s.ID)
+			}
+		}
+	}
+	// workflow workspace validation
+	if wf.Workspace != nil {
+		if wf.Workspace.Mode != nil && *wf.Workspace.Mode != "isolated" && *wf.Workspace.Mode != "shared" {
+			return fmt.Errorf("invalid workspace mode %q for workflow", *wf.Workspace.Mode)
+		}
+		if wf.Workspace.OnLogicalConflict != nil && *wf.Workspace.OnLogicalConflict != "block" && *wf.Workspace.OnLogicalConflict != "allow" {
+			return fmt.Errorf("invalid on_logical_conflict %q for workflow", *wf.Workspace.OnLogicalConflict)
+		}
 	}
 	// missing dependency check
 	for _, s := range wf.Steps {
