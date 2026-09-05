@@ -258,6 +258,11 @@ func handleRun(ctx context.Context, args []string, cwd string, out io.Writer, wr
 	eng := execution.NewEngine(s, getRunner(), cwd)
 	id, err := eng.CreateExecution(ctx, name)
 	if err != nil {
+		if ve, ok := err.(*workflow.ValidationError); ok {
+			payload := map[string]string{"error": ve.Message, "code": ve.Code, "field": ve.Field}
+			_ = writeJSON(out, payload)
+			return 1
+		}
 		return writeErr(err.Error(), "create_failed")
 	}
 	if jsonOut {
@@ -329,6 +334,9 @@ func handleStepsNext(ctx context.Context, args []string, cwd string, out io.Writ
 		extPaths = cfg.ExternalPaths
 	}
 	for _, st := range steps {
+		if st.Type == "workflow" {
+			continue
+		}
 		if st.Status != "pending" {
 			continue
 		}
@@ -464,6 +472,11 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 	defer func() { _ = s.Close() }()
 	eng := execution.NewEngine(s, getRunner(), cwd)
 	if err := eng.RunStep(ctx, execID, stepID, feedback); err != nil {
+		if ve, ok := err.(*workflow.ValidationError); ok {
+			payload := map[string]string{"error": ve.Message, "code": ve.Code, "field": ve.Field}
+			_ = writeJSON(out, payload)
+			return 1
+		}
 		// Check logical_conflict first
 		if lc, ok := err.(*execution.LogicalConflictError); ok {
 			// structured output with owner fields
@@ -491,6 +504,8 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 			code = "missing_artifact"
 		} else if strings.Contains(err.Error(), "requires") {
 			code = "requires_failed"
+		} else if strings.Contains(err.Error(), "workflow_invalid") {
+			code = "workflow_invalid"
 		}
 		return writeErr(err.Error(), code)
 	}

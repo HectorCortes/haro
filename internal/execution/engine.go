@@ -75,8 +75,23 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 	if wf == nil {
 		return "", fmt.Errorf("workflow %q not found", workflowName)
 	}
-	if err := workflow.Validate(wf); err != nil {
-		return "", fmt.Errorf("validate: %w", err)
+	// Validate root file before flatten (fail before any side effects)
+	if err := workflow.ValidateFile(wf, wfPath, true); err != nil {
+		return "", err
+	}
+	// Planning-time flatten: validates, checks guards, cycles, containment before any execution row or worktree
+	flatDAG, err := workflow.Flatten(wfPath, nil)
+	if err != nil {
+		return "", err
+	}
+	if err := workflow.ValidateFlat(flatDAG); err != nil {
+		return "", err
+	}
+	// Guard: runtime leaked workflow node → workflow_invalid (should have been caught by ValidateFlat)
+	for _, s := range flatDAG.Steps {
+		if s.Type == "workflow" {
+			return "", &workflow.ValidationError{Code: "workflow_invalid", Field: "steps", Message: "workflow node leaked to flat DAG"}
+		}
 	}
 	// Startup prune: clean orphan worktrees (best effort)
 	if e.worktreeMgr != nil {
@@ -87,7 +102,7 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 	_ = e.store.Projects().Create(ctx, projectID, e.root)
 	// Generate execution id
 	execID := uuid.NewString()
-	// Resolve workflow-level mode for execution's workspace
+	// Resolve workflow-level mode for execution's workspace (root governs)
 	execMode := "isolated"
 	if wf.Workspace != nil && wf.Workspace.Mode != nil {
 		execMode = *wf.Workspace.Mode
@@ -96,11 +111,8 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 	if execMode == "isolated" && e.worktreeMgr != nil {
 		wt, err := e.worktreeMgr.Create(ctx, execID, e.root)
 		if err != nil {
-			// Fail closed if worktree creation fails? For tests with FakeManager it succeeds.
-			// Log but continue with root as fallback? Prefer fail?
 			workspaceRoot = e.root
 			_ = wt
-			// Try to create via manager; if error, keep root but still record isolated mode
 			if wt != "" {
 				workspaceRoot = wt
 			}
@@ -109,6 +121,7 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 		}
 	}
 	startedAt := time.Now().UTC().Format(time.RFC3339)
+	hashCopy := flatDAG.Hash
 	exec := &store.Execution{
 		ID:              execID,
 		ProjectID:       projectID,
@@ -117,12 +130,13 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 		WorkspaceMode:   execMode,
 		WorkspaceRoot:   workspaceRoot,
 		StartedAt:       startedAt,
+		DagHash:         &hashCopy,
 	}
 	err = e.store.WithTx(ctx, func(tx store.Store) error {
 		if err := tx.Executions().Create(ctx, exec); err != nil {
 			return err
 		}
-		for _, st := range wf.Steps {
+		for _, st := range flatDAG.Steps {
 			depJSON, _ := json.Marshal(st.DependsOn)
 			reqJSON, _ := json.Marshal(st.Requires)
 			prodJSON, _ := json.Marshal(st.Produces)
@@ -135,7 +149,8 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 			if prodJSON == nil {
 				prodJSON = []byte("[]")
 			}
-			mode, _ := workflow.ResolveWorkspace(wf, st.ID)
+			// Resolve workspace for flattened step: system->root->step override (included workflow's workflow-level ignored)
+			mode := resolveWorkspaceForFlat(wf, &st)
 			step := &store.ExecutionStep{
 				ExecutionID:       execID,
 				StepID:            st.ID,
@@ -154,13 +169,24 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 		return nil
 	})
 	if err != nil {
-		// Cleanup worktree on failure
+		// Cleanup worktree on transaction failure
 		if execMode == "isolated" && workspaceRoot != e.root && e.worktreeMgr != nil {
 			_ = e.worktreeMgr.Remove(ctx, workspaceRoot)
 		}
 		return "", err
 	}
 	return execID, nil
+}
+
+func resolveWorkspaceForFlat(rootWf *workflow.Workflow, flat *workflow.FlatStep) string {
+	mode := "isolated"
+	if rootWf != nil && rootWf.Workspace != nil && rootWf.Workspace.Mode != nil {
+		mode = *rootWf.Workspace.Mode
+	}
+	if flat.Workspace != nil && flat.Workspace.Mode != nil {
+		mode = *flat.Workspace.Mode
+	}
+	return mode
 }
 
 func (e *Engine) effectiveWorktreeRoot(ctx context.Context, executionID string) string {
@@ -271,12 +297,36 @@ func (e *Engine) releaseClaims(ctx context.Context, executionID, stepID string, 
 	}
 }
 
+// verifyDAGHash re-flattens source and compares to stored hash.
+func (e *Engine) verifyDAGHash(ctx context.Context, executionID string) error {
+	exec, err := e.store.Executions().Get(ctx, executionID)
+	if err != nil || exec == nil || exec.DagHash == nil || exec.WorkflowSource == "" {
+		return nil
+	}
+	flat, err := workflow.Flatten(exec.WorkflowSource, nil)
+	if err != nil {
+		return &workflow.ValidationError{Code: "workflow_invalid", Field: "", Message: fmt.Sprintf("re-flatten failed: %v", err)}
+	}
+	if flat.Hash != *exec.DagHash {
+		return &workflow.ValidationError{Code: "workflow_invalid", Field: "dag_hash", Message: fmt.Sprintf("dag hash mismatch: stored %q vs current %q", *exec.DagHash, flat.Hash)}
+	}
+	return nil
+}
+
 // RunStep executes a step with the 4 command-cycle cases, and agent fallback.
 func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback string) error {
+	// Runtime re-flatten + hash verification on rehydrate
+	if err := e.verifyDAGHash(ctx, executionID); err != nil {
+		return err
+	}
 	// Fetch step
 	step, err := e.store.Steps().Get(ctx, executionID, stepID)
 	if err != nil {
 		return fmt.Errorf("get step: %w", err)
+	}
+	// Guard: leaked workflow node → workflow_invalid
+	if step.Type == "workflow" {
+		return &workflow.ValidationError{Code: "workflow_invalid", Field: "steps[" + stepID + "].type", Message: fmt.Sprintf("workflow node %q leaked to runtime", stepID)}
 	}
 	if step.Type == "agent" {
 		return e.runAgentStep(ctx, executionID, stepID, feedback)
@@ -575,10 +625,16 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 }
 
 func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback string) error {
+	if err := e.verifyDAGHash(ctx, executionID); err != nil {
+		return err
+	}
 	// Fetch step for status checks (already verified pending)
 	step, err := e.store.Steps().Get(ctx, executionID, stepID)
 	if err != nil {
 		return fmt.Errorf("get step: %w", err)
+	}
+	if step.Type == "workflow" {
+		return &workflow.ValidationError{Code: "workflow_invalid", Field: "steps[" + stepID + "].type", Message: fmt.Sprintf("workflow node %q leaked to runtime", stepID)}
 	}
 	if step.Status != "pending" {
 		if feedback != "" && (step.Status == "completed" || step.Status == "failed") {

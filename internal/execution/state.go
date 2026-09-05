@@ -24,12 +24,11 @@ func (e *Engine) ReopenStep(ctx context.Context, executionID, stepID string, cas
 		return fmt.Errorf("get step: %w", err)
 	}
 	// Allow reopen for completed/failed/skipped; pending is idempotent but still invalidates descendants if cascade
-	// Build descendants set if cascade
+	// Build descendants set if cascade: UNION of (1) depends_on closure + (2) produces->requires feeder drill-down
 	toReset := map[string]bool{stepID: true}
 	if cascade {
 		steps, _ := e.store.Steps().List(ctx, executionID)
-		// Build adjacency: step -> depends_on
-		// Descendants are those that depend (transitively) on stepID
+		// (1) depends_on descendants closure (retained)
 		changed := true
 		for changed {
 			changed = false
@@ -47,6 +46,55 @@ func (e *Engine) ReopenStep(ctx context.Context, executionID, stepID string, cas
 					}
 				}
 			}
+		}
+		// (2) flattened artifact feeder closure
+		// Build maps: artifact -> producers, step -> requires
+		producesMap := map[string][]string{}
+		requiresMap := map[string][]string{}
+		for _, s := range steps {
+			var reqs, prods []string
+			_ = json.Unmarshal([]byte(s.Requires), &reqs)
+			_ = json.Unmarshal([]byte(s.Produces), &prods)
+			requiresMap[s.StepID] = reqs
+			for _, p := range prods {
+				producesMap[p] = append(producesMap[p], s.StepID)
+			}
+		}
+		// Get reopened step's requires
+		var reopenedRequires []string
+		for _, s := range steps {
+			if s.StepID == stepID {
+				_ = json.Unmarshal([]byte(s.Requires), &reopenedRequires)
+				break
+			}
+		}
+		// BFS over artifact edges
+		feederSet := map[string]bool{}
+		queue := append([]string{}, reopenedRequires...)
+		visitedArt := map[string]bool{}
+		for len(queue) > 0 {
+			art := queue[0]
+			queue = queue[1:]
+			if visitedArt[art] {
+				continue
+			}
+			visitedArt[art] = true
+			producers := producesMap[art]
+			for _, prodID := range producers {
+				if toReset[prodID] || feederSet[prodID] {
+					continue
+				}
+				feederSet[prodID] = true
+				// enqueue producer's requires for transitive
+				for _, reqArt := range requiresMap[prodID] {
+					if !visitedArt[reqArt] {
+						queue = append(queue, reqArt)
+					}
+				}
+			}
+		}
+		for fid := range feederSet {
+			toReset[fid] = true
 		}
 	}
 	// For each step to reset, invalidate generations and transition to pending
