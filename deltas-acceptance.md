@@ -343,47 +343,47 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 
 # Spec: v2-composicion — Workflow composition
 
-### F-01 — Flat DAG under a single execution_id [E2E] · P0 · [ ]
+### F-01 — Flat DAG under a single execution_id [E2E] · P0 · [x]
 **Criterion**: a `type: workflow` step references another YAML; composition happens at planning time, the result is a single flat DAG under a single `execution_id`, with no child executions.
 **Verification**: workflow with a workflow node → `steps next` exposes the flattened internal steps; `status` shows no child execution.
 
-### F-02 — Internal step namespacing [E2E] · P0 · [ ]
+### F-02 — Internal step namespacing [E2E] · P0 · [x]
 **Criterion**: internal steps are identified `<node>.<internal_step>`; including the same workflow twice under different nodes does not collide.
 **Verification**: workflow with two nodes pointing at the same file → ids `a.x`, `a.y`, `b.x`, `b.y` coexist and run independently.
 
-### F-03 — Explicit inputs/outputs contract [E2E] · P0 · [ ]
+### F-03 — Explicit inputs/outputs contract [E2E] · P0 · [x]
 **Criterion**: `inputs`/`outputs` are only valid in the included file; the parent wires (`depends_on`, `requires`) only against that contract, never against internal steps.
 **Verification**: parent referencing an internal step of the included file (not declared as input/output) → clear validation error.
 
-### F-04 — Workflow node bindings [INT] · P1 · [ ]
+### F-04 — Workflow node bindings [INT] · P1 · [x]
 **Criterion**: `bindings` connects the parent's `requires`/`produces` with the included file's `inputs`/`outputs` and artifact resolution respects those mappings.
 **Verification**: fixture with bindings → the parent's artifacts feed the included file's correct inputs and vice versa.
 
-### F-05 — Static cycle detection [E2E] · P0 · [ ]
+### F-05 — Static cycle detection [E2E] · P0 · [x]
 **Criterion**: a workflow cannot include itself, directly or transitively; detection is static, over the file-reference graph, before flattening.
 **Verification**: fixture with direct and transitive self-inclusion → `run` fails with a cycle error, without a created execution.
 
-### F-06 — Cascade that ignores the boundary [E2E] · P0 · [ ]
+### F-06 — Cascade that ignores the boundary [E2E] · P0 · [x]
 **Criterion**: the invalidation cascade operates on the flattened generation graph: reopening a step invalidates only the internal steps whose `produces` actually feed what was reopened, with fine granularity, regardless of the declared `outputs` contract.
 **Verification**: node with two internal steps where only one feeds what was reopened → `step.reopen` invalidates only that internal step, not the other or those of other nodes.
 
-### F-07 — Parallelization through the same DAG [E2E] · P1 · [ ]
+### F-07 — Parallelization through the same DAG [E2E] · P1 · [x]
 **Criterion**: `workflow` nodes without `depends_on` between them are parallelizable through the same mechanism as any step.
 **Verification**: two workflow nodes without dependencies → both appear in `steps next` as available.
 
-### U-01 — Pure and reproducible flattening [UNIT] · P0 · [ ]
+### U-01 — Pure and reproducible flattening [UNIT] · P0 · [x]
 **Criterion**: flattening is a pure function: same YAML files → same flat DAG; includes namespacing, contract and stable topological order.
 **Verification**: structural equality tests (DAG hash) on nested composition fixtures, run twice.
 
-### U-02 — Static cycles by table [UNIT] · P0 · [ ]
+### U-02 — Static cycles by table [UNIT] · P0 · [x]
 **Criterion**: cycle detection covers direct, transitive and self-inclusion with different node name vs file.
 **Verification**: table of file-reference fixtures → expected result in each case.
 
-### U-03 — Contract validation by table [UNIT] · P1 · [ ]
+### U-03 — Contract validation by table [UNIT] · P1 · [x]
 **Criterion**: wiring against an undeclared internal step, referencing a nonexistent input/output or declaring `inputs`/`outputs` in a root file → specific validation errors.
 **Verification**: table of invalid YAMLs → expected error code and message.
 
-### U-04 — v2 schema validated with zod (not JSON Schema) [UNIT] · P1 · [ ]
+### U-04 — v2 schema validated with zod (not JSON Schema) [UNIT] · P1 · [x]
 **Criterion**: the v2 workflow schema (version, steps, workspace, inputs/outputs, bindings and per-step-type conditionals) is defined with zod (current repo practice); the YAML is validated against the equivalent zod representation, not against JSON Schema; errors name the exact field.
 **Verification**: table of invalid YAMLs → error messages with field path and stable code.
 
@@ -485,14 +485,14 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 | `v2-ipc` | JSON-RPC IPC CLI↔Broker and events | 13 | 6 | pending |
 | `v2-adapter` | v2 adapter contract and multi-harness | 10 | 6 | pending |
 | `v2-path-claims` | path_claims and workspace isolation | 10 | 5 | pending |
-| `v2-composicion` | Workflow composition | 11 | 6 | pending |
+| `v2-composicion` | Workflow composition | 11 | 6 | **complete** |
 | `v2-reporte` | Change reporting | 4 | 1 | pending |
 | `v2-store` | Persistence behind a repository interface | 6 | 3 | pending |
 | `v2-distribucion` | Distribution | 3 | 1 | pending |
 | `v2-flujo-gentle-ai` | Development flow with gentle-ai | 4 | 3 | pending |
 | **Total** | | **92** | **52** | |
 
-Last updated: 2026-08-27 — `v2-reconciliacion` **complete** (5/5 criteria, verify PASS, archived in `openspec/changes/archive/2026-08-27-v2-reconciliacion/`).
+Last updated: 2026-09-06 — `v2-composicion` **complete** (11/11 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-06-v2-composicion/`).
 
 ## Out of scope (explicitly not covered)
 
