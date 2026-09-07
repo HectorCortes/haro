@@ -17,7 +17,7 @@
 - [x] 2.2 GREEN `repositories.go` — All Get/Scan/exec paths wrapped via normalizeSQLiteError; applied same helper in claim.go/transport.go. Import database/sql confined to internal/store.
 - [x] 2.3 RED→GREEN `leases.go` — RED TestLeaseMonotonicFencing 1,2,3 + stale holder/token → ErrNotFound failed with stub; GREEN Acquire via dedicated Conn PRAGMA foreign_keys=1 BEGIN IMMEDIATE MAX+1 retained init 1, Renew/Release RowsAffected==1 else ErrNotFound fail-closed.
 - [x] 2.4 RED→GREEN `interactions.go` — RED TestInteractionCASIdempotent failed with stub; GREEN Create/Get/Resolve CAS pending+key, same key idempotent, mismatched key → ErrUniqueViolation, FK/CHECK→sentinels, RFC3339 UTC.
-- [x] 2.5 GREEN `claim.go` — Added PRAGMA foreign_keys=1 on Conn before BEGIN IMMEDIATE, normalized all errors via normalizeSQLiteError.
+- [x] 2.5 RED→GREEN `claim.go` + `claim_fk_test.go:TestClaimAcquireForeignKey` — File-backed `Open(t.TempDir()+"/claim-fk.db")` Acquire with absent `project_id` via dedicated Conn `PRAGMA foreign_keys=1` before `BEGIN IMMEDIATE` → `errors.Is(err, ErrForeignKeyViolation)`, rollback leaves 0 orphan rows in `path_claims`, store `PRAGMA foreign_keys=1` remains, then create project + acquire succeeds. D07 F-03 Dedicated claim connection (production code already correct; test closes coverage gap from PASS_WITH_NOTES).
 
 ### Phase 3: Fake & Contract — ✅ Complete
 - [x] 3.1 GREEN `fake.go` — No database/sql import; mutex maps for 11 tables, CHECK/UNIQUE/FK validation → sentinels, RFC3339 UTC, monotonic cursors (attempt/transition), copy-on-write WithTx (clone/commit), Leases retained token, Interactions CAS. Passes golangci-lint.
@@ -47,7 +47,7 @@
 | 2.2 | repositories.go | Unit | ✅ | N/A | ✅ Passed | ✅ wrap all repos | ✅ Clean |
 | 2.3 | leases_test.go / leases.go | Unit | ✅ | ✅ Written (stub returned ErrNotFound) → FAIL Acquire 1: not found | ✅ Passed (tokens 1,2,3 + stale ErrNotFound) | ✅ 2 cases (monotonic + fail-closed renew/release) | ✅ Conn+IMMEDIATE |
 | 2.4 | interactions_test.go / interactions.go | Unit | ✅ | ✅ Written (stub not found) → FAIL Create: not found | ✅ Passed (CAS idempotent + ErrUniqueViolation) | ✅ 4 cases (create/get/resolve/duplicate/wrong-key) | ✅ CAS |
-| 2.5 | claim.go | Unit | ✅ | N/A | ✅ Passed (concurrency 8 workers) | ✅ PRAGMA + normalize | ✅ Clean |
+| 2.5 | claim.go + claim_fk_test.go:TestClaimAcquireForeignKey | Unit | ✅ | ✅ Coverage gap: no dedicated-Conn FK test existed (TestClaimAcquireForeignKey was referenced but absent) | ✅ Passed (0.012s file-backed, `errors.Is` FK, 0 orphan rows, pragma=1, store usable after rollback) | ✅ PRAGMA foreign_keys=1 on dedicated Conn before BEGIN IMMEDIATE + normalizeSQLiteError → ErrForeignKeyViolation + ROLLBACK | ✅ Clean — no prod change, only coverage test added |
 | 3.1 | fake.go | Unit | ✅ | N/A | ✅ Passed | ✅ mutex maps, cursor, UTC, WithTx copy-on-write | ✅ 0 lint |
 | 3.2 | contract/suite.go | Integration | ✅ | N/A | ✅ Passed (fake+sqlite) | ✅ 5 suites | ✅ Clean |
 | 3.3 | interchangeable_test.go | Integration | ✅ | N/A | ✅ Passed (0.049s) | ✅ dual backend | ✅ file-backed not :memory: |
@@ -60,7 +60,7 @@
 
 | Evidence | Value |
 |----------|-------|
-| Focused test command | `go test ./internal/store -run TestStoreInterchangeability -count=1` → ok 0.049s; `go test ./internal/store -run TestLeaseMonotonicFencing -count=1` → ok 0.012s; `go test ./internal/store -run TestInteractionCASIdempotent -count=1` → ok 0.012s |
+| Focused test command | `go test ./internal/store -run TestClaimAcquireForeignKey -count=1 -race` → ok 0.09s PASS; `go test ./internal/store -run TestStoreInterchangeability -count=1` → ok 0.049s; `go test ./internal/store -run TestLeaseMonotonicFencing -count=1` → ok 0.012s; `go test ./internal/store -run TestInteractionCASIdempotent -count=1` → ok 0.012s |
 | Runtime harness | `bash scripts/verify-store-boundary.sh` → store boundary check passed — no SQL imports outside internal/store (exit 0) |
 | Rollback boundary | Revert `internal/store/*`, `internal/store/contract/*`, `internal/execution/report.go`, `scripts/verify-store-boundary.sh` — additive schema retained safely under IF NOT EXISTS; no data migration |
 
@@ -83,6 +83,7 @@
 | `internal/store/leases_test.go` | Created | RED→GREEN monotonic fencing |
 | `internal/store/interactions_test.go` | Created | RED→GREEN CAS idempotent |
 | `internal/store/parity_test.go` | Created | UTC Z, constraints parity, sole-owners 11-table |
+| `internal/store/claim_fk_test.go` | Created | TestClaimAcquireForeignKey — F-03 dedicated Conn FK: file-backed Acquire absent project → ErrForeignKeyViolation (errors.Is), 0 orphan rows, pragma=1, store usable after ROLLBACK |
 | `internal/execution/report.go` | Modified | Removed database/sql, uses store.ErrNotFound |
 | `scripts/verify-store-boundary.sh` | Created | +x gate git grep both SQL imports outside internal/store |
 | `openspec/changes/v2-store/tasks.md` | Modified | All 19 tasks marked [x] |
@@ -96,19 +97,21 @@ None — implementation matches design.md verbatim DDL, sentinels, seam, DSN pra
 - fake.go staticcheck SA4006 for unused step existence check in CreateTransition; removed dead FK check.
 - verify-store-boundary.sh initially flagged docs/go.mod; filtered to '*.go' only.
 
-## Gate Outputs (summarized)
+## Gate Outputs (summarized, re-run corrective)
+- `go test ./internal/store -run TestClaimAcquireForeignKey -count=1 -v` → PASS 0.012s (coverage gap closed)
+- `go test ./internal/store -run TestClaimAcquireForeignKey -race -count=1 -v` → PASS 0.09s
+- `go test ./... -race -count=1` → ok 14 pkgs (store 6.847s, execution 29.653s, adapter/opencode 3.873s) — all PASS
+- `bash scripts/verify-store-boundary.sh` → store boundary check passed — no SQL imports outside internal/store (exit 0)
 - `go build ./...` → exit 0
 - `go vet ./...` → exit 0
-- `go test ./... -race -count=1` → ok 14 pkgs (store 5.947s, execution 29.029s, adapter/opencode 3.279s)
 - `golangci-lint run` → 0 issues
-- `bash scripts/verify-store-boundary.sh` → store boundary check passed — no SQL imports outside internal/store
 
 ## Next Recommended
 sdd-verify
 
 ## Risks
 - Fake fidelity drift mitigated by shared suite; future changes must extend both fake and contract together.
-- Per-connection FK: DSN pragma plus dedicated-Conn PRAGMA ensures enforcement; tested via claim Acquire dedicated Conn.
+- Per-connection FK: DSN pragma plus dedicated-Conn `PRAGMA foreign_keys=1` ensures enforcement; now covered by `TestClaimAcquireForeignKey` in `claim_fk_test.go` (file-backed Acquire absent project → ErrForeignKeyViolation, 0 orphan rows, pragma=1 verified; prior "tested via claim Acquire dedicated Conn" assertion without test has been replaced).
 
 ## Skill Resolution
 - sdd-apply Strict TDD followed
