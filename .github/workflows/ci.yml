@@ -19,7 +19,7 @@ jobs:
       # Aún no existe go.mod (se creará en la fase spike), por eso se fija
       # go-version: 'stable' en lugar de derivar la versión del módulo.
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache: true
@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache: true
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache: true
