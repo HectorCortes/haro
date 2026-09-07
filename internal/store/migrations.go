@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// migrate creates the 7-table DDL idempotently with CHECKs, FK, WAL.
-// It is called once per connection after PRAGMA foreign_keys=ON and journal_mode=WAL.
-func migrate(ctx context.Context, db *sql.DB) error {
-	statements := []string{
+// migrationStatements returns the canonical DDL statements (IF NOT EXISTS).
+// It is split for test seam injection.
+func migrationStatements() []string {
+	return []string{
 		`CREATE TABLE IF NOT EXISTS projects (
 			id TEXT PRIMARY KEY,
 			root_path TEXT NOT NULL,
@@ -101,11 +101,41 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			released_at TEXT
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_path_claims_active ON path_claims(project_id, logical_path) WHERE released_at IS NULL;`,
+		`CREATE TABLE IF NOT EXISTS leases (execution_id TEXT NOT NULL, step_id TEXT NOT NULL, holder TEXT NOT NULL, fencing_token INTEGER NOT NULL, acquired_at TEXT NOT NULL, expires_at TEXT NOT NULL, PRIMARY KEY (execution_id, step_id));`,
+		`CREATE TABLE IF NOT EXISTS interactions (id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES attempts(id), type TEXT NOT NULL CHECK (type IN ('permission','question')), status TEXT NOT NULL CHECK (status IN ('pending','resolved')), decision TEXT, idempotency_key TEXT NOT NULL, resolved_at TEXT, UNIQUE (attempt_id, idempotency_key));`,
 	}
+}
+
+// migrateWithStatements executes statements transactionally. It is the test seam for injected failures.
+func migrateWithStatements(ctx context.Context, db *sql.DB, statements []string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// Ensure rollback on error
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 	for _, stmt := range statements {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// migrate creates the DDL idempotently with CHECKs, FK, WAL.
+// It is called once per connection after PRAGMA foreign_keys=ON and journal_mode=WAL.
+func migrate(ctx context.Context, db *sql.DB) error {
+	if err := migrateWithStatements(ctx, db, migrationStatements()); err != nil {
+		return err
 	}
 	// First ALTER migration: dag_hash on executions (nullable, idempotent)
 	if err := ensureDagHashColumn(ctx, db); err != nil {
