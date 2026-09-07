@@ -3,7 +3,6 @@ package execution
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/HectorCortes/haro/internal/claim"
+	"github.com/HectorCortes/haro/internal/store"
 )
 
 // Report is execution-scoped, side-effect-free result.
@@ -44,7 +44,7 @@ func (e *Engine) ChangedFiles(ctx context.Context, executionID string) ([]string
 func (e *Engine) Report(ctx context.Context, executionID string) (*Report, error) {
 	execRec, err := e.store.Executions().Get(ctx, executionID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") || strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil, &ReportError{Code: "not_found", Message: fmt.Sprintf("execution %q not found", executionID)}
 		}
 		return nil, &ReportError{Code: "not_found", Message: fmt.Sprintf("execution %q not found: %v", executionID, err)}
