@@ -106,3 +106,83 @@ func TestDistributionOfflineInitIdempotentE2E(t *testing.T) {
 		t.Fatalf("user content removed by rerun: %v", err)
 	}
 }
+
+// runDistributionGate runs scripts/verify-distribution.sh against a fixture
+// root and returns its exit code and combined output.
+func runDistributionGate(t *testing.T, root string) (int, string) {
+	t.Helper()
+	script := filepath.Join("..", "..", "scripts", "verify-distribution.sh")
+	cmd := exec.Command("bash", script, root)
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		code = exitErr.ExitCode()
+	} else if err != nil {
+		return 127, string(out)
+	}
+	return code, string(out)
+}
+
+// TestDistributionGateCleanFixture asserts the gate passes on a repository
+// without npm manifests or install lifecycle hooks.
+func TestDistributionGateCleanFixture(t *testing.T) {
+	root := t.TempDir()
+	code, out := runDistributionGate(t, root)
+	if code != 0 {
+		t.Fatalf("clean fixture: gate exit = %d, want 0\n%s", code, out)
+	}
+}
+
+// TestDistributionGateRejectsPackageArtifacts asserts the gate fails closed
+// on npm package artifacts (validator MINOR 1 regression class).
+func TestDistributionGateRejectsPackageArtifacts(t *testing.T) {
+	for _, name := range []string{"package.json", "npm-shrinkwrap.json"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, name), []byte("{}"), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			if code, out := runDistributionGate(t, root); code == 0 {
+				t.Fatalf("%s: gate exit = 0, want nonzero\n%s", name, out)
+			}
+		})
+	}
+}
+
+// TestDistributionGateRejectsInstallHooks asserts the gate fails closed on
+// executable install lifecycle scripts.
+func TestDistributionGateRejectsInstallHooks(t *testing.T) {
+	for _, name := range []string{"preinstall.sh", "install.sh", "postinstall.sh"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			if code, out := runDistributionGate(t, root); code == 0 {
+				t.Fatalf("%s: gate exit = 0, want nonzero\n%s", name, out)
+			}
+		})
+	}
+}
+
+// TestDistributionGateAllowList asserts exact-name classification does not
+// reject legitimate non-npm files: requirements.txt, CMakeLists.txt,
+// executable Markdown/MDX, and README.sh.
+func TestDistributionGateAllowList(t *testing.T) {
+	root := t.TempDir()
+	files := map[string][]byte{
+		"requirements.txt": []byte("yaml\n"),
+		"CMakeLists.txt":   []byte("project(x)\n"),
+		"README.md":        []byte("# docs\n"),
+		"guide.mdx":        []byte("# guide\n"),
+		"README.sh":        []byte("#!/bin/sh\necho docs\n"),
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(root, name), content, 0o755); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if code, out := runDistributionGate(t, root); code != 0 {
+		t.Fatalf("allow-list fixture: gate exit = %d, want 0\n%s", code, out)
+	}
+}

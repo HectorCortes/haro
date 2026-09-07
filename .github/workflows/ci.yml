@@ -30,6 +30,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # D08 F-02: fail closed if npm package artifacts or install lifecycle
+      # hooks are ever introduced. This gate is a permanent regression guard.
+      - name: Distribution gate
+        run: bash scripts/verify-distribution.sh
+
       - name: Tests (race detector)
         run: go test ./... -race
 
