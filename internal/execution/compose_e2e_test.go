@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -16,6 +17,17 @@ import (
 	"github.com/HectorCortes/haro/internal/worktree"
 )
 
+// repoRoot returns the repository root anchored on this test file's location,
+// keeping tests hermetic on any machine or checkout path.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
 // TestCompose_F verifies composed workflow flattened IDs and steps next with namespaced steps (F-07 alias for validator).
 func TestCompose_F(t *testing.T) {
 	TestCompose_F_StepsNext(t)
@@ -25,7 +37,7 @@ func TestCompose_F(t *testing.T) {
 // and artifacts are not scheduling edges. Uses real reuse-twice fixture via engine.
 func TestCompose_F_StepsNext(t *testing.T) {
 	// Use temp repo copied from reuse-twice fixture to exercise engine.CreateExecution + steps next
-	srcRoot := "/home/dev/repos/personal/haro/testdata/compose/reuse-twice"
+	srcRoot := filepath.Join(repoRoot(t), "testdata", "compose", "reuse-twice")
 	root := t.TempDir()
 	// copy fixture's .haro directory
 	copyDir(t, filepath.Join(srcRoot, ".haro"), filepath.Join(root, ".haro"))
@@ -254,7 +266,7 @@ func TestResolveWorkspaceForFlat_RootGoverns(t *testing.T) {
 
 // TestCompose_CascadeLink verifies compose→cascade end-to-end: compose namespaced fixture then reopen asserts only real feeder invalidates
 func TestCompose_CascadeLink(t *testing.T) {
-	srcRoot := "/home/dev/repos/personal/haro/testdata/compose/bindings"
+	srcRoot := filepath.Join(repoRoot(t), "testdata", "compose", "bindings")
 	root := t.TempDir()
 	copyDir(t, filepath.Join(srcRoot, ".haro"), filepath.Join(root, ".haro"))
 	_ = project.Init(root)

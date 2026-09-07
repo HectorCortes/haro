@@ -3,6 +3,7 @@ package workflow
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -223,21 +224,20 @@ func TestCompose_Fixtures(t *testing.T) {
 
 func findRepoRoot(t *testing.T) string {
 	t.Helper()
-	// Try git root or known absolute
-	if _, err := os.Stat("/home/dev/repos/personal/haro/testdata/compose"); err == nil {
-		return "/home/dev/repos/personal/haro"
+	// Anchor on this file's location so tests stay hermetic regardless of the
+	// machine or checkout path, then walk up to the go.mod directory.
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
 	}
-	dir, _ := os.Getwd()
+	dir := filepath.Dir(file)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return dir
+			t.Fatal("could not locate repository root (go.mod) from test file")
 		}
 		dir = parent
 	}
