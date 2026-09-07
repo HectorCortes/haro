@@ -411,27 +411,27 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 
 # Spec: v2-store — Persistence behind a repository interface
 
-### F-01 — No direct access outside the store [INT] · P0 · [ ]
+### F-01 — No direct access outside the store [INT] · P0 · [x]
 **Criterion**: no layer outside the store accesses SQLite directly; all access goes through the repository interfaces.
 **Verification**: dependency verification script (import graph / packages) that fails if a domain or CLI module imports the persistence driver.
 
-### F-02 — Complete v2 DDL [INT] · P0 · [ ]
+### F-02 — Complete v2 DDL [INT] · P0 · [x]
 **Criterion**: the schema implements the reference tables: `projects`, `executions`, `execution_steps`, `generations`, `attempts`, `attempt_transport`, `leases`, `step_transition_events`, `attempt_events`, `interactions`, `path_claims` — with their constraints and enum CHECKs.
 **Verification**: inspection of the schema created by the system (without manual migrations) against the reference DDL.
 
-### F-03 — WAL and timestamps [INT] · P1 · [ ]
+### F-03 — WAL and timestamps [INT] · P1 · [x]
 **Criterion**: `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`; all time columns are ISO 8601 UTC.
 **Verification**: pragma query and sampling of time values in created records.
 
-### U-01 — Interchangeable backend [UNIT] · P0 · [ ]
+### U-01 — Interchangeable backend [UNIT] · P0 · [x]
 **Criterion**: the domain suite (state machine, leases, claims, events) runs against an alternative backend (in-memory/fake) implementing the same interfaces, without changes to the domain code (door open to future concurrency).
 **Verification**: the full suite passes against the fake backend and against SQLite with the same tests.
 
-### U-02 — Idempotent schema [UNIT] · P1 · [ ]
+### U-02 — Idempotent schema [UNIT] · P1 · [x]
 **Criterion**: schema creation/migration is idempotent and transactional (re-running does not break, mid-way failure leaves no partial state).
 **Verification**: create twice + simulate mid-migration failure → consistent state.
 
-### U-03 — Enum CHECKs [UNIT] · P1 · [ ]
+### U-03 — Enum CHECKs [UNIT] · P1 · [x]
 **Criterion**: the enums (`status` of executions/steps/attempts, `type` of steps, workspace modes) reject invalid values at the database level.
 **Verification**: INSERT with invalid value → constraint error.
 
@@ -487,12 +487,12 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 | `v2-path-claims` | path_claims and workspace isolation | 10 | 5 | pending |
 | `v2-composicion` | Workflow composition | 11 | 6 | **complete** |
 | `v2-reporte` | Change reporting | 4 | 1 | **complete** |
-| `v2-store` | Persistence behind a repository interface | 6 | 3 | pending |
+| `v2-store` | Persistence behind a repository interface | 6 | 3 | **complete** |
 | `v2-distribucion` | Distribution | 3 | 1 | pending |
 | `v2-flujo-gentle-ai` | Development flow with gentle-ai | 4 | 3 | pending |
 | **Total** | | **92** | **52** | |
 
-Last updated: 2026-09-07 — `v2-reporte` **complete** (4/4 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-07-v2-reporte/`).
+Last updated: 2026-09-07 — `v2-store` **complete** (6/6 criteria, verify PASS, archived in `openspec/changes/archive/2026-09-07-v2-store/`).
 
 ## Out of scope (explicitly not covered)
 
