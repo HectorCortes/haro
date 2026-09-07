@@ -1,0 +1,90 @@
+name: Release
+
+# D08 F-01: tagged source is the published Go module; this workflow proves a
+# clean-environment install of the exact tag and publishes one self-contained
+# static `haro` binary plus its SHA-256 checksum as release assets.
+#
+# Networked installation is intentionally NOT exercised in ordinary CI
+# (ci.yml): `go install ...@latest` is fragile against proxy/tag timing and
+# would couple every PR to registry state. This workflow is the only place
+# that runs a networked install, pinned to the exact pushed tag with
+# GOPROXY=direct. Post-release `@latest` resolution remains a documented
+# manual check (see README).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (gate, tests, clean install)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache: true
+
+      - name: Distribution gate
+        run: bash scripts/verify-distribution.sh
+
+      - name: Tests (race detector)
+        run: go test ./... -race -count=1
+
+      # F-01 clean-environment proof: empty GOBIN, module proxy hit directly,
+      # exact pushed tag (never @latest), executed from an empty directory.
+      - name: Clean-environment install of the exact tag
+        run: |
+          GOBIN="$(mktemp -d)"
+          export GOBIN
+          GOPROXY=direct go install "github.com/HectorCortes/haro@${GITHUB_REF_NAME}"
+          cd "$(mktemp -d)"
+          "$GOBIN/haro" init
+          test -f .haro/config.yaml
+
+  release:
+    name: Publish static binary
+    needs: verify
+    runs-on: ubuntu-latest
+    # Sole contents:write grant in the repository: only this job, only on v* tags.
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache: true
+
+      # Pure Go / no cgo (AGENTS.md stack): build the root main.go entry point
+      # as one stripped, reproducible static binary.
+      - name: Build static binary
+        run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/haro .
+
+      - name: Verify static linkage
+        run: |
+          file dist/haro
+          file dist/haro | grep -q 'statically linked'
+
+      - name: Checksum
+        run: sha256sum dist/haro > dist/haro.sha256
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/haro dist/haro.sha256 --clobber
