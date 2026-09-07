@@ -439,15 +439,15 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 
 # Spec: v2-distribucion — Distribution
 
-### F-01 — End-to-end installation [E2E] · P0 · [ ]
+### F-01 — End-to-end installation [E2E] · P0 · [x]
 **Criterion**: the distribution mechanism is the current one — global npm package (`pnpm add -g shardeo`), bin `dist/index.js`, `files: ["dist"]`, `prepublishOnly` with build — and installation works in a clean project without additional manual steps.
 **Verification**: installation in a clean environment → `shardeo` resolvable and executable; `npm run build` produces a complete `dist/`.
 
-### F-02 — No post-install scripts [E2E] · P1 · [ ]
+### F-02 — No post-install scripts [E2E] · P1 · [x]
 **Criterion**: installation does not run post-install scripts that execute code (known attack vector; pnpm disables them by default).
 **Verification**: review of the distribution package/artifact → no executable install hooks.
 
-### F-03 — init without additional dependencies [E2E] · P1 · [ ]
+### F-03 — init without additional dependencies [E2E] · P1 · [x]
 **Criterion**: `shardeo init` works in a project without any previously installed dependency (single-checkout local tool, no network infrastructure).
 **Verification**: empty project → complete init; no network call required (verifiable with network disabled).
 
@@ -488,11 +488,11 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 | `v2-composicion` | Workflow composition | 11 | 6 | **complete** |
 | `v2-reporte` | Change reporting | 4 | 1 | **complete** |
 | `v2-store` | Persistence behind a repository interface | 6 | 3 | **complete** |
-| `v2-distribucion` | Distribution | 3 | 1 | pending |
+| `v2-distribucion` | Distribution | 3 | 1 | **complete** |
 | `v2-flujo-gentle-ai` | Development flow with gentle-ai | 4 | 3 | pending |
 | **Total** | | **92** | **52** | |
 
-Last updated: 2026-09-07 — `v2-store` **complete** (6/6 criteria, verify PASS, archived in `openspec/changes/archive/2026-09-07-v2-store/`).
+Last updated: 2026-09-07 — `v2-distribucion` **complete** (3/3 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-07-v2-distribucion/`).
 
 ## Out of scope (explicitly not covered)
 
