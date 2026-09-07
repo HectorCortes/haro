@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -107,6 +108,17 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 	if wf.Workspace != nil && wf.Workspace.Mode != nil {
 		execMode = *wf.Workspace.Mode
 	}
+	// Capture committed HEAD in resolvedRoot BEFORE worktree.Create; dirty ignored
+	var resolvedRoot string
+	if eval, err := filepath.EvalSymlinks(e.root); err == nil {
+		resolvedRoot = filepath.Clean(eval)
+	} else {
+		resolvedRoot = filepath.Clean(e.root)
+	}
+	baseCommit, capErr := captureBaseCommit(ctx, resolvedRoot)
+	if capErr != nil {
+		return "", capErr
+	}
 	workspaceRoot := e.root
 	if execMode == "isolated" && e.worktreeMgr != nil {
 		wt, err := e.worktreeMgr.Create(ctx, execID, e.root)
@@ -131,6 +143,7 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 		WorkspaceRoot:   workspaceRoot,
 		StartedAt:       startedAt,
 		DagHash:         &hashCopy,
+		BaseCommit:      baseCommit,
 	}
 	err = e.store.WithTx(ctx, func(tx store.Store) error {
 		if err := tx.Executions().Create(ctx, exec); err != nil {
@@ -193,6 +206,34 @@ func resolveWorkspaceForFlat(rootWf *workflow.Workflow, flat *workflow.FlatStep)
 // It mirrors resolveWorkspaceForFlat without behavior change.
 func ResolveWorkspaceForFlat(rootWf *workflow.Workflow, flat *workflow.FlatStep) string {
 	return resolveWorkspaceForFlat(rootWf, flat)
+}
+
+// captureBaseCommit runs `git rev-parse HEAD` in resolvedRoot with fixed argv.
+// On success returns *string of trimmed HEAD. If not a git repo, returns nil, nil (legacy nullable).
+// Other failures return error and caller must not create execution/worktree.
+func captureBaseCommit(ctx context.Context, resolvedRoot string) (*string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	cmd.Dir = resolvedRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.ToLower(string(out))
+		// Not a git repo -> treat as nullable legacy, not fatal (allows non-git temp dirs in unit tests)
+		if strings.Contains(msg, "not a git repository") || strings.Contains(msg, "not a git repo") {
+			return nil, nil
+		}
+		// If root missing or no git binary, also treat missing repo as nil? But missing dir/gene should be fatal.
+		// For safety, if resolvedRoot does not contain .git and error indicates fatal, treat as nil to preserve existing non-git tests.
+		// Check for explicit git not found case.
+		if strings.Contains(err.Error(), "executable file not found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("git rev-parse HEAD: %w output: %s", err, string(out))
+	}
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return nil, fmt.Errorf("git rev-parse HEAD empty")
+	}
+	return &trimmed, nil
 }
 
 func (e *Engine) effectiveWorktreeRoot(ctx context.Context, executionID string) string {

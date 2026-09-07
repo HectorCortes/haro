@@ -24,24 +24,59 @@ func (r *executionsRepo) Create(ctx context.Context, e *Execution) error {
 	if e.StartedAt == "" {
 		e.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	// Try with dag_hash if column exists, fallback to without for legacy
-	_, err := r.store.exec(ctx, `INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.ProjectID, e.WorkflowSource, e.Status, e.WorkspaceMode, e.WorkspaceRoot, e.StartedAt, e.EndedAt, e.DagHash)
-	if err != nil && isMissingDagHashColumn(err) {
+	// Try with dag_hash and base_commit if columns exist, fallback for legacy DBs
+	_, err := r.store.exec(ctx, `INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash, base_commit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.ProjectID, e.WorkflowSource, e.Status, e.WorkspaceMode, e.WorkspaceRoot, e.StartedAt, e.EndedAt, e.DagHash, e.BaseCommit)
+	if err != nil && isMissingColumn(err, "base_commit") {
+		_, err = r.store.exec(ctx, `INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.ID, e.ProjectID, e.WorkflowSource, e.Status, e.WorkspaceMode, e.WorkspaceRoot, e.StartedAt, e.EndedAt, e.DagHash)
+	}
+	if err != nil && isMissingColumn(err, "dag_hash") {
 		_, err = r.store.exec(ctx, `INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.ID, e.ProjectID, e.WorkflowSource, e.Status, e.WorkspaceMode, e.WorkspaceRoot, e.StartedAt, e.EndedAt)
 	}
+	// Also handle base_commit-only missing when dag_hash present but base missing already handled; handle case where both missing already covered.
+	// If err was missing base_commit and we fell back to dag-only but base_commit was the only missing, it's now handled; likewise dag missing.
 	return err
 }
 
 func (r *executionsRepo) Get(ctx context.Context, id string) (*Execution, error) {
-	row := r.store.queryRow(ctx, `SELECT id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash FROM executions WHERE id = ?`, id)
+	row := r.store.queryRow(ctx, `SELECT id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash, base_commit FROM executions WHERE id = ?`, id)
 	var e Execution
 	var endedAt sql.NullString
 	var dagHash sql.NullString
-	if err := row.Scan(&e.ID, &e.ProjectID, &e.WorkflowSource, &e.Status, &e.WorkspaceMode, &e.WorkspaceRoot, &e.StartedAt, &endedAt, &dagHash); err != nil {
-		// Fallback if dag_hash column not present
-		if isMissingDagHashColumn(err) {
+	var baseCommit sql.NullString
+	if err := row.Scan(&e.ID, &e.ProjectID, &e.WorkflowSource, &e.Status, &e.WorkspaceMode, &e.WorkspaceRoot, &e.StartedAt, &endedAt, &dagHash, &baseCommit); err != nil {
+		// Fallbacks for missing columns
+		if isMissingColumn(err, "base_commit") {
+			row2 := r.store.queryRow(ctx, `SELECT id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash FROM executions WHERE id = ?`, id)
+			var e2 Execution
+			var ended2 sql.NullString
+			var dag2 sql.NullString
+			if err2 := row2.Scan(&e2.ID, &e2.ProjectID, &e2.WorkflowSource, &e2.Status, &e2.WorkspaceMode, &e2.WorkspaceRoot, &e2.StartedAt, &ended2, &dag2); err2 != nil {
+				if isMissingColumn(err2, "dag_hash") {
+					row3 := r.store.queryRow(ctx, `SELECT id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at FROM executions WHERE id = ?`, id)
+					var e3 Execution
+					var ended3 sql.NullString
+					if err3 := row3.Scan(&e3.ID, &e3.ProjectID, &e3.WorkflowSource, &e3.Status, &e3.WorkspaceMode, &e3.WorkspaceRoot, &e3.StartedAt, &ended3); err3 != nil {
+						return nil, err3
+					}
+					if ended3.Valid {
+						e3.EndedAt = &ended3.String
+					}
+					return &e3, nil
+				}
+				return nil, err2
+			}
+			if ended2.Valid {
+				e2.EndedAt = &ended2.String
+			}
+			if dag2.Valid {
+				e2.DagHash = &dag2.String
+			}
+			return &e2, nil
+		}
+		if isMissingColumn(err, "dag_hash") {
 			row2 := r.store.queryRow(ctx, `SELECT id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at FROM executions WHERE id = ?`, id)
 			var e2 Execution
 			var ended2 sql.NullString
@@ -61,16 +96,22 @@ func (r *executionsRepo) Get(ctx context.Context, id string) (*Execution, error)
 	if dagHash.Valid {
 		e.DagHash = &dagHash.String
 	}
+	if baseCommit.Valid {
+		e.BaseCommit = &baseCommit.String
+	}
 	return &e, nil
 }
 
-func isMissingDagHashColumn(err error) bool {
+func isMissingColumn(err error, col string) bool {
 	if err == nil {
 		return false
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "no such column") && strings.Contains(msg, "dag_hash")
+	return strings.Contains(msg, "no such column") && strings.Contains(msg, col)
 }
+
+// isMissingDagHashColumn kept for linter compatibility (used via isMissingColumn)
+var _ = isMissingColumn
 
 func (r *executionsRepo) UpdateStatus(ctx context.Context, id, status string) error {
 	now := time.Now().UTC().Format(time.RFC3339)

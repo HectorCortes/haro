@@ -111,6 +111,9 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := ensureDagHashColumn(ctx, db); err != nil {
 		return err
 	}
+	if err := ensureBaseCommitColumn(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -140,6 +143,39 @@ func ensureDagHashColumn(ctx context.Context, db *sql.DB) error {
 	if !has {
 		if _, err := db.ExecContext(ctx, "ALTER TABLE executions ADD COLUMN dag_hash TEXT"); err != nil {
 			// If column already exists (race), ignore duplicate error
+			if !isDuplicateColumnError(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ensureBaseCommitColumn(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(executions)")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	has := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "base_commit" {
+			has = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.ExecContext(ctx, "ALTER TABLE executions ADD COLUMN base_commit TEXT"); err != nil {
 			if !isDuplicateColumnError(err) {
 				return err
 			}

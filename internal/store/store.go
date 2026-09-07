@@ -33,6 +33,7 @@ type Execution struct {
 	StartedAt       string
 	EndedAt         *string
 	DagHash         *string
+	BaseCommit      *string
 }
 
 // ExecutionStep is a stored step.
