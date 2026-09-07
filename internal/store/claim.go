@@ -39,12 +39,15 @@ func (r *pathClaimRepo) Acquire(ctx context.Context, c PathClaim) (bool, *PathCl
 	// Use a dedicated connection with BEGIN IMMEDIATE to serialize.
 	conn, err := r.store.db.Conn(ctx)
 	if err != nil {
-		return false, nil, fmt.Errorf("conn: %w", err)
+		return false, nil, normalizeSQLiteError(fmt.Errorf("conn: %w", err))
 	}
 	defer func() { _ = conn.Close() }()
 
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		return false, nil, normalizeSQLiteError(fmt.Errorf("pragma foreign_keys: %w", err))
+	}
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return false, nil, fmt.Errorf("begin immediate: %w", err)
+		return false, nil, normalizeSQLiteError(fmt.Errorf("begin immediate: %w", err))
 	}
 	// Ensure rollback on failure, commit on success.
 	committed := false
@@ -57,7 +60,7 @@ func (r *pathClaimRepo) Acquire(ctx context.Context, c PathClaim) (bool, *PathCl
 	// Scan active claims for this project.
 	rows, err := conn.QueryContext(ctx, `SELECT id, project_id, logical_path, mode, owner_execution_id, owner_step_id, acquired_at, released_at FROM path_claims WHERE project_id = ? AND released_at IS NULL`, c.ProjectID)
 	if err != nil {
-		return false, nil, fmt.Errorf("scan active: %w", err)
+		return false, nil, normalizeSQLiteError(fmt.Errorf("scan active: %w", err))
 	}
 	defer func() { _ = rows.Close() }()
 	var actives []PathClaim
@@ -65,7 +68,7 @@ func (r *pathClaimRepo) Acquire(ctx context.Context, c PathClaim) (bool, *PathCl
 		var pc PathClaim
 		var rel sql.NullString
 		if err := rows.Scan(&pc.ID, &pc.ProjectID, &pc.LogicalPath, &pc.Mode, &pc.OwnerExecutionID, &pc.OwnerStepID, &pc.AcquiredAt, &rel); err != nil {
-			return false, nil, fmt.Errorf("scan: %w", err)
+			return false, nil, normalizeSQLiteError(fmt.Errorf("scan: %w", err))
 		}
 		if rel.Valid {
 			pc.ReleasedAt = &rel.String
@@ -73,7 +76,7 @@ func (r *pathClaimRepo) Acquire(ctx context.Context, c PathClaim) (bool, *PathCl
 		actives = append(actives, pc)
 	}
 	if err := rows.Err(); err != nil {
-		return false, nil, err
+		return false, nil, normalizeSQLiteError(err)
 	}
 	// Check for conflicting active claim using prefix + policy.
 	for _, ex := range actives {
@@ -93,10 +96,10 @@ func (r *pathClaimRepo) Acquire(ctx context.Context, c PathClaim) (bool, *PathCl
 	_, err = conn.ExecContext(ctx, `INSERT INTO path_claims(project_id, logical_path, mode, owner_execution_id, owner_step_id, acquired_at, released_at) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
 		c.ProjectID, c.LogicalPath, c.Mode, c.OwnerExecutionID, c.OwnerStepID, now)
 	if err != nil {
-		return false, nil, fmt.Errorf("insert claim: %w", err)
+		return false, nil, normalizeSQLiteError(fmt.Errorf("insert claim: %w", err))
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return false, nil, fmt.Errorf("commit: %w", err)
+		return false, nil, normalizeSQLiteError(fmt.Errorf("commit: %w", err))
 	}
 	committed = true
 	return true, nil, nil
@@ -106,14 +109,14 @@ func (r *pathClaimRepo) Release(ctx context.Context, projectID, logicalPath, own
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := r.store.exec(ctx, `UPDATE path_claims SET released_at = ? WHERE project_id = ? AND logical_path = ? AND owner_execution_id = ? AND owner_step_id = ? AND released_at IS NULL`, now, projectID, logicalPath, ownerExecutionID, ownerStepID)
 	if err != nil {
-		return err
+		return normalizeSQLiteError(err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return normalizeSQLiteError(err)
 	}
 	if n == 0 {
-		return fmt.Errorf("release: no active claim owned by %s/%s for %q", ownerExecutionID, ownerStepID, logicalPath)
+		return normalizeSQLiteError(fmt.Errorf("release: no active claim owned by %s/%s for %q", ownerExecutionID, ownerStepID, logicalPath))
 	}
 	return nil
 }
@@ -121,7 +124,7 @@ func (r *pathClaimRepo) Release(ctx context.Context, projectID, logicalPath, own
 func (r *pathClaimRepo) ListActive(ctx context.Context, projectID string) ([]PathClaim, error) {
 	rows, err := r.store.query(ctx, `SELECT id, project_id, logical_path, mode, owner_execution_id, owner_step_id, acquired_at, released_at FROM path_claims WHERE project_id = ? AND released_at IS NULL ORDER BY logical_path`, projectID)
 	if err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []PathClaim
@@ -129,12 +132,15 @@ func (r *pathClaimRepo) ListActive(ctx context.Context, projectID string) ([]Pat
 		var pc PathClaim
 		var rel sql.NullString
 		if err := rows.Scan(&pc.ID, &pc.ProjectID, &pc.LogicalPath, &pc.Mode, &pc.OwnerExecutionID, &pc.OwnerStepID, &pc.AcquiredAt, &rel); err != nil {
-			return nil, err
+			return nil, normalizeSQLiteError(err)
 		}
 		if rel.Valid {
 			pc.ReleasedAt = &rel.String
 		}
 		out = append(out, pc)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	return out, nil
 }

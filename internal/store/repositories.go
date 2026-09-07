@@ -24,7 +24,6 @@ func (r *executionsRepo) Create(ctx context.Context, e *Execution) error {
 	if e.StartedAt == "" {
 		e.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	// Try with dag_hash and base_commit if columns exist, fallback for legacy DBs
 	_, err := r.store.exec(ctx, `INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash, base_commit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.ID, e.ProjectID, e.WorkflowSource, e.Status, e.WorkspaceMode, e.WorkspaceRoot, e.StartedAt, e.EndedAt, e.DagHash, e.BaseCommit)
 	if err != nil && isMissingColumn(err, "base_commit") {
@@ -35,9 +34,10 @@ func (r *executionsRepo) Create(ctx context.Context, e *Execution) error {
 		_, err = r.store.exec(ctx, `INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.ID, e.ProjectID, e.WorkflowSource, e.Status, e.WorkspaceMode, e.WorkspaceRoot, e.StartedAt, e.EndedAt)
 	}
-	// Also handle base_commit-only missing when dag_hash present but base missing already handled; handle case where both missing already covered.
-	// If err was missing base_commit and we fell back to dag-only but base_commit was the only missing, it's now handled; likewise dag missing.
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *executionsRepo) Get(ctx context.Context, id string) (*Execution, error) {
@@ -47,7 +47,6 @@ func (r *executionsRepo) Get(ctx context.Context, id string) (*Execution, error)
 	var dagHash sql.NullString
 	var baseCommit sql.NullString
 	if err := row.Scan(&e.ID, &e.ProjectID, &e.WorkflowSource, &e.Status, &e.WorkspaceMode, &e.WorkspaceRoot, &e.StartedAt, &endedAt, &dagHash, &baseCommit); err != nil {
-		// Fallbacks for missing columns
 		if isMissingColumn(err, "base_commit") {
 			row2 := r.store.queryRow(ctx, `SELECT id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at, ended_at, dag_hash FROM executions WHERE id = ?`, id)
 			var e2 Execution
@@ -59,14 +58,14 @@ func (r *executionsRepo) Get(ctx context.Context, id string) (*Execution, error)
 					var e3 Execution
 					var ended3 sql.NullString
 					if err3 := row3.Scan(&e3.ID, &e3.ProjectID, &e3.WorkflowSource, &e3.Status, &e3.WorkspaceMode, &e3.WorkspaceRoot, &e3.StartedAt, &ended3); err3 != nil {
-						return nil, err3
+						return nil, normalizeSQLiteError(err3)
 					}
 					if ended3.Valid {
 						e3.EndedAt = &ended3.String
 					}
 					return &e3, nil
 				}
-				return nil, err2
+				return nil, normalizeSQLiteError(err2)
 			}
 			if ended2.Valid {
 				e2.EndedAt = &ended2.String
@@ -81,14 +80,14 @@ func (r *executionsRepo) Get(ctx context.Context, id string) (*Execution, error)
 			var e2 Execution
 			var ended2 sql.NullString
 			if err2 := row2.Scan(&e2.ID, &e2.ProjectID, &e2.WorkflowSource, &e2.Status, &e2.WorkspaceMode, &e2.WorkspaceRoot, &e2.StartedAt, &ended2); err2 != nil {
-				return nil, err2
+				return nil, normalizeSQLiteError(err2)
 			}
 			if ended2.Valid {
 				e2.EndedAt = &ended2.String
 			}
 			return &e2, nil
 		}
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	if endedAt.Valid {
 		e.EndedAt = &endedAt.String
@@ -110,7 +109,6 @@ func isMissingColumn(err error, col string) bool {
 	return strings.Contains(msg, "no such column") && strings.Contains(msg, col)
 }
 
-// isMissingDagHashColumn kept for linter compatibility (used via isMissingColumn)
 var _ = isMissingColumn
 
 func (r *executionsRepo) UpdateStatus(ctx context.Context, id, status string) error {
@@ -120,7 +118,10 @@ func (r *executionsRepo) UpdateStatus(ctx context.Context, id, status string) er
 		endedAt = now
 	}
 	_, err := r.store.exec(ctx, `UPDATE executions SET status = ?, ended_at = COALESCE(?, ended_at) WHERE id = ?`, status, endedAt, id)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 // stepsRepo
@@ -130,14 +131,17 @@ type stepsRepo struct{ store *SQLiteStore }
 func (r *stepsRepo) Create(ctx context.Context, s *ExecutionStep) error {
 	_, err := r.store.exec(ctx, `INSERT INTO execution_steps(execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ExecutionID, s.StepID, s.Type, s.Status, s.DependsOn, s.Requires, s.Produces, s.WorkspaceMode, s.CurrentGeneration)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *stepsRepo) Get(ctx context.Context, executionID, stepID string) (*ExecutionStep, error) {
 	row := r.store.queryRow(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation FROM execution_steps WHERE execution_id = ? AND step_id = ?`, executionID, stepID)
 	var s ExecutionStep
 	if err := row.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration); err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	return &s, nil
 }
@@ -145,28 +149,37 @@ func (r *stepsRepo) Get(ctx context.Context, executionID, stepID string) (*Execu
 func (r *stepsRepo) List(ctx context.Context, executionID string) ([]*ExecutionStep, error) {
 	rows, err := r.store.query(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation FROM execution_steps WHERE execution_id = ? ORDER BY step_id`, executionID)
 	if err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []*ExecutionStep
 	for rows.Next() {
 		var s ExecutionStep
 		if err := rows.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration); err != nil {
-			return nil, err
+			return nil, normalizeSQLiteError(err)
 		}
 		out = append(out, &s)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	return out, nil
 }
 
 func (r *stepsRepo) UpdateStatus(ctx context.Context, executionID, stepID, status string) error {
 	_, err := r.store.exec(ctx, `UPDATE execution_steps SET status = ? WHERE execution_id = ? AND step_id = ?`, status, executionID, stepID)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *stepsRepo) UpdateGeneration(ctx context.Context, executionID, stepID string, gen int) error {
 	_, err := r.store.exec(ctx, `UPDATE execution_steps SET current_generation = ? WHERE execution_id = ? AND step_id = ?`, gen, executionID, stepID)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 // attemptsRepo
@@ -179,7 +192,10 @@ func (r *attemptsRepo) Create(ctx context.Context, a *Attempt) error {
 	}
 	_, err := r.store.exec(ctx, `INSERT INTO attempts(id, execution_id, step_id, generation_id, status, started_at, ended_at, termination_reason, result_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.ExecutionID, a.StepID, a.GenerationID, a.Status, a.StartedAt, a.EndedAt, a.TerminationReason, a.ResultDigest)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *attemptsRepo) Get(ctx context.Context, id string) (*Attempt, error) {
@@ -187,7 +203,7 @@ func (r *attemptsRepo) Get(ctx context.Context, id string) (*Attempt, error) {
 	var a Attempt
 	var endedAt, term, digest sql.NullString
 	if err := row.Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.GenerationID, &a.Status, &a.StartedAt, &endedAt, &term, &digest); err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	if endedAt.Valid {
 		a.EndedAt = &endedAt.String
@@ -207,14 +223,17 @@ func (r *attemptsRepo) UpdateStatus(ctx context.Context, id, status string, ende
 		endedAt = &now
 	}
 	_, err := r.store.exec(ctx, `UPDATE attempts SET status = ?, ended_at = ?, termination_reason = ?, result_digest = ? WHERE id = ?`, status, endedAt, terminationReason, resultDigest, id)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *attemptsRepo) CountByStep(ctx context.Context, executionID, stepID string) (int, error) {
 	row := r.store.queryRow(ctx, `SELECT COUNT(*) FROM attempts WHERE execution_id = ? AND step_id = ?`, executionID, stepID)
 	var n int
 	if err := row.Scan(&n); err != nil {
-		return 0, err
+		return 0, normalizeSQLiteError(err)
 	}
 	return n, nil
 }
@@ -229,7 +248,10 @@ func (r *generationsRepo) Create(ctx context.Context, g *Generation) error {
 	}
 	_, err := r.store.exec(ctx, `INSERT INTO generations(id, execution_id, step_id, number, created_at, invalidated_at, invalidated_by_step) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		g.ID, g.ExecutionID, g.StepID, g.Number, g.CreatedAt, g.InvalidatedAt, g.InvalidatedByStep)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *generationsRepo) Get(ctx context.Context, id string) (*Generation, error) {
@@ -237,7 +259,7 @@ func (r *generationsRepo) Get(ctx context.Context, id string) (*Generation, erro
 	var g Generation
 	var invAt, invBy sql.NullString
 	if err := row.Scan(&g.ID, &g.ExecutionID, &g.StepID, &g.Number, &g.CreatedAt, &invAt, &invBy); err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	if invAt.Valid {
 		g.InvalidatedAt = &invAt.String
@@ -253,7 +275,7 @@ func (r *generationsRepo) GetByNumber(ctx context.Context, executionID, stepID s
 	var g Generation
 	var invAt, invBy sql.NullString
 	if err := row.Scan(&g.ID, &g.ExecutionID, &g.StepID, &g.Number, &g.CreatedAt, &invAt, &invBy); err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	if invAt.Valid {
 		g.InvalidatedAt = &invAt.String
@@ -267,7 +289,7 @@ func (r *generationsRepo) GetByNumber(ctx context.Context, executionID, stepID s
 func (r *generationsRepo) ListByStep(ctx context.Context, executionID, stepID string) ([]*Generation, error) {
 	rows, err := r.store.query(ctx, `SELECT id, execution_id, step_id, number, created_at, invalidated_at, invalidated_by_step FROM generations WHERE execution_id = ? AND step_id = ? ORDER BY number`, executionID, stepID)
 	if err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []*Generation
@@ -275,7 +297,7 @@ func (r *generationsRepo) ListByStep(ctx context.Context, executionID, stepID st
 		var g Generation
 		var invAt, invBy sql.NullString
 		if err := rows.Scan(&g.ID, &g.ExecutionID, &g.StepID, &g.Number, &g.CreatedAt, &invAt, &invBy); err != nil {
-			return nil, err
+			return nil, normalizeSQLiteError(err)
 		}
 		if invAt.Valid {
 			g.InvalidatedAt = &invAt.String
@@ -285,13 +307,19 @@ func (r *generationsRepo) ListByStep(ctx context.Context, executionID, stepID st
 		}
 		out = append(out, &g)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	return out, nil
 }
 
 func (r *generationsRepo) InvalidateByStep(ctx context.Context, executionID, stepID, invalidatedBy string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.store.exec(ctx, `UPDATE generations SET invalidated_at = ?, invalidated_by_step = ? WHERE execution_id = ? AND step_id = ? AND invalidated_at IS NULL`, now, invalidatedBy, executionID, stepID)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 // eventsRepo
@@ -304,7 +332,10 @@ func (r *eventsRepo) CreateAttemptEvent(ctx context.Context, e *AttemptEvent) er
 	}
 	_, err := r.store.exec(ctx, `INSERT INTO attempt_events(attempt_id, cursor, event_type, payload_ref, occurred_at) VALUES (?, ?, ?, ?, ?)`,
 		e.AttemptID, e.Cursor, e.EventType, e.PayloadRef, e.OccurredAt)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *eventsRepo) CreateTransition(ctx context.Context, e *StepTransitionEvent) error {
@@ -313,13 +344,16 @@ func (r *eventsRepo) CreateTransition(ctx context.Context, e *StepTransitionEven
 	}
 	_, err := r.store.exec(ctx, `INSERT INTO step_transition_events(execution_id, step_id, cursor, from_status, to_status, occurred_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		e.ExecutionID, e.StepID, e.Cursor, e.FromStatus, e.ToStatus, e.OccurredAt)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *eventsRepo) ListTransitions(ctx context.Context, executionID, stepID string) ([]*StepTransitionEvent, error) {
 	rows, err := r.store.query(ctx, `SELECT id, execution_id, step_id, cursor, from_status, to_status, occurred_at FROM step_transition_events WHERE execution_id = ? AND step_id = ? ORDER BY cursor`, executionID, stepID)
 	if err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []*StepTransitionEvent
@@ -327,21 +361,24 @@ func (r *eventsRepo) ListTransitions(ctx context.Context, executionID, stepID st
 		var e StepTransitionEvent
 		var from sql.NullString
 		if err := rows.Scan(&e.ID, &e.ExecutionID, &e.StepID, &e.Cursor, &from, &e.ToStatus, &e.OccurredAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLiteError(err)
 		}
 		if from.Valid {
 			e.FromStatus = &from.String
 		}
 		out = append(out, &e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	return out, nil
 }
 
 func (r *eventsRepo) NextAttemptCursor(ctx context.Context, attemptID string) (int, error) {
 	row := r.store.queryRow(ctx, `SELECT COALESCE(MAX(cursor), -1) + 1 FROM attempt_events WHERE attempt_id = ?`, attemptID)
 	var n int
 	if err := row.Scan(&n); err != nil {
-		return 0, err
+		return 0, normalizeSQLiteError(err)
 	}
 	return n, nil
 }
@@ -350,7 +387,7 @@ func (r *eventsRepo) NextTransitionCursor(ctx context.Context, executionID, step
 	row := r.store.queryRow(ctx, `SELECT COALESCE(MAX(cursor), -1) + 1 FROM step_transition_events WHERE execution_id = ? AND step_id = ?`, executionID, stepID)
 	var n int
 	if err := row.Scan(&n); err != nil {
-		return 0, err
+		return 0, normalizeSQLiteError(err)
 	}
 	return n, nil
 }

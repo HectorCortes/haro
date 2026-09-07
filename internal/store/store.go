@@ -3,11 +3,61 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// Sentinels for normalized SQLite errors.
+var (
+	ErrNotFound             = errors.New("not found")
+	ErrCheckViolation       = errors.New("check violation")
+	ErrUniqueViolation      = errors.New("unique violation")
+	ErrForeignKeyViolation  = errors.New("foreign key violation")
+)
+
+// normalizeSQLiteError maps sqlite errors to typed sentinels.
+// Handles sql.ErrNoRows -> ErrNotFound, and constraint strings/codes.
+// Codes: 275=CHECK, 787=FK, 1555/2067=UNIQUE.
+func normalizeSQLiteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "check constraint failed") {
+		return fmt.Errorf("%w: %s", ErrCheckViolation, msg)
+	}
+	if strings.Contains(msg, "275") && strings.Contains(lower, "check") {
+		return fmt.Errorf("%w: %s", ErrCheckViolation, msg)
+	}
+	if strings.Contains(msg, "787") || strings.Contains(lower, "foreign key constraint failed") {
+		return fmt.Errorf("%w: %s", ErrForeignKeyViolation, msg)
+	}
+	if strings.Contains(msg, "1555") || strings.Contains(msg, "2067") || strings.Contains(lower, "unique constraint failed") {
+		return fmt.Errorf("%w: %s", ErrUniqueViolation, msg)
+	}
+	// Fallback string checks for modernc messages
+	if strings.Contains(lower, "foreign key") {
+		return fmt.Errorf("%w: %s", ErrForeignKeyViolation, msg)
+	}
+	if strings.Contains(lower, "unique") {
+		return fmt.Errorf("%w: %s", ErrUniqueViolation, msg)
+	}
+	if strings.Contains(lower, "check") && strings.Contains(lower, "constraint") {
+		return fmt.Errorf("%w: %s", ErrCheckViolation, msg)
+	}
+	if strings.Contains(lower, "no rows") || strings.Contains(lower, "no such") && strings.Contains(lower, "not found") {
+		return ErrNotFound
+	}
+	return err
+}
 
 // Project is a stored project.
 type Project struct {
@@ -151,6 +201,42 @@ type EventsRepository interface {
 	NextTransitionCursor(ctx context.Context, executionID, stepID string) (int, error)
 }
 
+// Lease is a fencing lease.
+type Lease struct {
+	ExecutionID  string
+	StepID       string
+	Holder       string
+	FencingToken int64
+	AcquiredAt   string
+	ExpiresAt    string
+}
+
+// LeaseRepository manages leases with fencing tokens.
+type LeaseRepository interface {
+	Acquire(ctx context.Context, executionID, stepID, holder string) (int64, error)
+	Renew(ctx context.Context, executionID, stepID, holder string, fencingToken int64) error
+	Release(ctx context.Context, executionID, stepID, holder string, fencingToken int64) error
+	Get(ctx context.Context, executionID, stepID string) (*Lease, error)
+}
+
+// Interaction is a human interaction.
+type Interaction struct {
+	ID              string
+	AttemptID       string
+	Type            string
+	Status          string
+	Decision        *string
+	IdempotencyKey  string
+	ResolvedAt      *string
+}
+
+// InteractionRepository manages interactions with CAS.
+type InteractionRepository interface {
+	Create(ctx context.Context, i *Interaction) error
+	Get(ctx context.Context, id string) (*Interaction, error)
+	Resolve(ctx context.Context, id, idempotencyKey, decision string) (*Interaction, error)
+}
+
 // Store is the repository facade. Only internal/store imports database/sql.
 type Store interface {
 	Projects() ProjectsRepository
@@ -161,6 +247,8 @@ type Store interface {
 	Events() EventsRepository
 	Transport() TransportRepository
 	PathClaims() PathClaimRepository
+	Leases() LeaseRepository
+	Interactions() InteractionRepository
 	WithTx(ctx context.Context, fn func(Store) error) error
 	Close() error
 }
@@ -174,7 +262,7 @@ type SQLiteStore struct {
 // Open opens a SQLite database at path, creates schema, and sets pragmas.
 // path may be a file path; for tests use t.TempDir() file.
 func Open(ctx context.Context, path string) (*SQLiteStore, error) {
-	dsn := fmt.Sprintf("file:%s?cache=shared", path)
+	dsn := fmt.Sprintf("file:%s?cache=shared&_pragma=foreign_keys(1)", path)
 	// modernc.org/sqlite uses URI; plain path also works but we use file: URI
 	// to ensure shared cache works.
 	db, err := sql.Open("sqlite", dsn)
@@ -229,6 +317,12 @@ func (s *SQLiteStore) Transport() TransportRepository { return &transportRepo{st
 
 // PathClaims returns path claims repo.
 func (s *SQLiteStore) PathClaims() PathClaimRepository { return &pathClaimRepo{store: s} }
+
+// Leases returns leases repo.
+func (s *SQLiteStore) Leases() LeaseRepository { return &leasesRepo{store: s} }
+
+// Interactions returns interactions repo.
+func (s *SQLiteStore) Interactions() InteractionRepository { return &interactionsRepo{store: s} }
 
 // WithTx executes fn in a transaction. Nested calls reuse the outer transaction.
 func (s *SQLiteStore) WithTx(ctx context.Context, fn func(Store) error) error {
@@ -287,14 +381,17 @@ type projectsRepo struct {
 func (r *projectsRepo) Create(ctx context.Context, id, rootPath string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.store.exec(ctx, "INSERT INTO projects(id, root_path, created_at) VALUES (?, ?, ?)", id, rootPath, now)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 func (r *projectsRepo) Get(ctx context.Context, id string) (*Project, error) {
 	row := r.store.queryRow(ctx, "SELECT id, root_path, created_at FROM projects WHERE id = ?", id)
 	var p Project
 	if err := row.Scan(&p.ID, &p.RootPath, &p.CreatedAt); err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	return &p, nil
 }

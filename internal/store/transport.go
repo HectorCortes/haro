@@ -17,7 +17,10 @@ func (r *transportRepo) Put(ctx context.Context, t *Transport) error {
 	}
 	_, err := r.store.exec(ctx, `INSERT OR REPLACE INTO attempt_transport(attempt_id, adapter_name, native_session_id, protocol_version, extra) VALUES (?, ?, ?, ?, ?)`,
 		t.AttemptID, t.AdapterName, t.NativeSessionID, t.ProtocolVersion, t.Extra)
-	return err
+	if err != nil {
+		return normalizeSQLiteError(err)
+	}
+	return nil
 }
 
 // Get retrieves transport for attemptID.
@@ -28,7 +31,7 @@ func (r *transportRepo) Get(ctx context.Context, attemptID string) (*Transport, 
 	var ver sql.NullInt64
 	var extra sql.NullString
 	if err := row.Scan(&tr.AttemptID, &tr.AdapterName, &native, &ver, &extra); err != nil {
-		return nil, err
+		return nil, normalizeSQLiteError(err)
 	}
 	if native.Valid {
 		tr.NativeSessionID = &native.String
