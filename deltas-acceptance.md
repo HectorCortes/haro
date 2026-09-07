@@ -391,19 +391,19 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 
 # Spec: v2-reporte — Change reporting
 
-### F-01 — Report at top-level execution completion [E2E] · P0 · [ ]
+### F-01 — Report at top-level execution completion [E2E] · P0 · [x]
 **Criterion**: when the top-level execution finishes, the system computes and shows which files changed relative to the starting point; `execution.report` returns `changed_files`.
 **Verification**: execution that creates/modifies/deletes files → the report lists exactly those changes.
 
-### F-02 — Computed once, only at top level [E2E] · P1 · [ ]
+### F-02 — Computed once, only at top level [E2E] · P1 · [x]
 **Criterion**: the report is computed once, at the top-level execution level — never per internally nested workflow.
 **Verification**: execution with nested workflow nodes → a single report at the end; no intermediate sub-reports.
 
-### F-03 — Accuracy against real git [INT] · P1 · [ ]
+### F-03 — Accuracy against real git [INT] · P1 · [x]
 **Criterion**: the report is accurate against the workspace's real state: new, modified, deleted files (and renamed if applicable), against the starting point.
 **Verification**: fixture with the four change types → the report matches `git status`/`git diff --name-status` of the workspace.
 
-### U-01 — Diff computation by table [UNIT] · P1 · [ ]
+### U-01 — Diff computation by table [UNIT] · P1 · [x]
 **Criterion**: the `changed_files` computation compares the starting point (base/commit) with the final state and covers new, modified, deleted and renamed.
 **Verification**: table tests with test repos (real git in memory or temporary directory).
 
@@ -486,13 +486,13 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 | `v2-adapter` | v2 adapter contract and multi-harness | 10 | 6 | pending |
 | `v2-path-claims` | path_claims and workspace isolation | 10 | 5 | pending |
 | `v2-composicion` | Workflow composition | 11 | 6 | **complete** |
-| `v2-reporte` | Change reporting | 4 | 1 | pending |
+| `v2-reporte` | Change reporting | 4 | 1 | **complete** |
 | `v2-store` | Persistence behind a repository interface | 6 | 3 | pending |
 | `v2-distribucion` | Distribution | 3 | 1 | pending |
 | `v2-flujo-gentle-ai` | Development flow with gentle-ai | 4 | 3 | pending |
 | **Total** | | **92** | **52** | |
 
-Last updated: 2026-09-06 — `v2-composicion` **complete** (11/11 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-06-v2-composicion/`).
+Last updated: 2026-09-07 — `v2-reporte` **complete** (4/4 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-07-v2-reporte/`).
 
 ## Out of scope (explicitly not covered)
 
