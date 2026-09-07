@@ -78,6 +78,8 @@ func Execute(ctx context.Context, args []string, cwd string, out, errOut io.Writ
 		return handleStep(ctx, rest, cwd, out, writeErr)
 	case "status":
 		return handleStatus(ctx, rest, cwd, out, writeErr)
+	case "report":
+		return handleReport(ctx, rest, cwd, out, writeErr)
 	default:
 		return writeErr(fmt.Sprintf("unknown command %q", cmd), "unknown_command")
 	}
@@ -651,6 +653,72 @@ func handleStatus(ctx context.Context, args []string, cwd string, out io.Writer,
 	}
 	if _, err := io.Copy(out, &buf); err != nil && !isEPIPE(err) {
 		return 1
+	}
+	return 0
+}
+
+func handleReport(ctx context.Context, args []string, cwd string, out io.Writer, writeErr func(string, string) int) int {
+	if len(args) == 0 {
+		return writeErr("missing execution id", "invalid_argument")
+	}
+	execID := args[0]
+	rest := args[1:]
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var jsonOut bool
+	fs.BoolVar(&jsonOut, "json", false, "")
+	if idx := indexOf(rest, "--"); idx != -1 {
+		if idx+1 < len(rest) {
+			return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(rest[idx+1:], " ")), "unexpected_argument")
+		}
+		rest = rest[:idx]
+	}
+	if err := fs.Parse(rest); err != nil {
+		return writeErr(err.Error(), "invalid_argument")
+	}
+	if fs.NArg() != 0 {
+		return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(fs.Args(), " ")), "unexpected_argument")
+	}
+	dbPath := filepath.Join(cwd, ".haro", "store.db")
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		return writeErr(err.Error(), "store_failed")
+	}
+	defer func() { _ = s.Close() }()
+	eng := execution.NewEngine(s, getRunner(), cwd)
+	rpt, err := eng.Report(ctx, execID)
+	if err != nil {
+		if re, ok := err.(*execution.ReportError); ok {
+			payload := map[string]string{"error": re.Message, "code": re.Code}
+			if re.Field != "" {
+				payload["field"] = re.Field
+			}
+			_ = writeJSON(out, payload)
+			return 1
+		}
+		return writeErr(err.Error(), "report_failed")
+	}
+	if jsonOut {
+		payload := map[string]any{"execution_id": rpt.ExecutionID, "base_commit": rpt.BaseCommit, "changed_files": rpt.ChangedFiles}
+		if rpt.ChangedFiles == nil {
+			payload["changed_files"] = []string{}
+		}
+		if err := writeJSON(out, payload); err != nil && !isEPIPE(err) {
+			return 1
+		}
+		if err != nil && isEPIPE(err) {
+			return 0
+		}
+		return 0
+	}
+	// plain: one path per line, EPIPE-safe
+	for _, f := range rpt.ChangedFiles {
+		if _, err := fmt.Fprintln(out, f); err != nil {
+			if isEPIPE(err) {
+				return 0
+			}
+			return 1
+		}
 	}
 	return 0
 }
