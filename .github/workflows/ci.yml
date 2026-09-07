@@ -50,7 +50,7 @@ jobs:
       # es compatible con la configuración v2 de .golangci.yml (version: "2").
       # Sin `version:` explícito resuelve la última release de golangci-lint v2.
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
 
   vulncheck:
     name: Govulncheck
