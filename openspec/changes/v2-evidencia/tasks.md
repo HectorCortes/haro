@@ -44,7 +44,7 @@ Chain strategy: size-exception
 
 ## Phase U3: Recovery + gate
 
-- [ ] U3.1 RED `internal/execution/state_test.go`: `TestReopenRequiresCurrentGenerationRecovery` (F-07) — reopen cascade -> producer rerun (valid gen N+1) -> downstream succeeds; negative tests stay green.
-- [ ] U3.2 GREEN `engine.go`: shared latest-generation predicate (explicit max `Number`) in command (~L423-454) and agent (~L700-729) `requires`.
-- [ ] U3.3 Update `feedback_test.go` and tests asserting evidence files: assert `payload` content, null `payload_ref`, no `evidence/` dir; snapshots retained.
-- [ ] U3.4 `go build ./...`, `go vet ./...`, `go test ./... -race`, `golangci-lint run`; all 8 named tests green.
+- [x] U3.1 RED `internal/execution/state_test.go`: `TestReopenRequiresCurrentGenerationRecovery` (F-07) — reopen cascade -> producer rerun (valid gen N+1) -> downstream succeeds; negative tests stay green.
+- [x] U3.2 GREEN `engine.go`: shared latest-generation predicate (explicit max `Number`) in command (~L423-454) and agent (~L700-729) `requires`.
+- [x] U3.3 Update `feedback_test.go` and tests asserting evidence files: assert `payload` content, null `payload_ref`, no `evidence/` dir; snapshots retained.
+- [x] U3.4 `go build ./...`, `go vet ./...`, `go test ./... -race`, `golangci-lint run`; all 8 named tests green.
