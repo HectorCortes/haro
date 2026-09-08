@@ -2,9 +2,9 @@
 
 > Purpose: **verifiable** acceptance criteria for the deltas between Shardeo v1 (Specs 1–9 delivered on `main`) and the project's v2 normative proposal. This document is **self-contained**: it does not depend on external documents or their sections; each criterion fully states the expected behavior.
 >
-> **Stack decision (locked): TypeScript is kept** on the current codebase — no rewrite. The contracts proposed in the design reference (Go interfaces, JSON Schema) are conceptual: they are re-expressed in TypeScript with strict types, with **ACP — Agent Client Protocol (Zed's standard) — as the standard for the adapter protocol** (see Conventions).
+> **Stack decision (locked): Pure Go, no cgo.** SQLite uses modernc.org/sqlite; YAML uses gopkg.in/yaml.v3; ACP remains the adapter protocol standard (see Conventions).
 >
-> Each criterion is testable at the functional level (real command or integration) or at the unit level. A criterion is **met** only when its described verification passes reproducibly in the gentle-ai flow (see §Usage with gentle-ai).
+> Each criterion is testable at the functional level (real command or integration) or at the unit level. A criterion is **met** only when its described verification passes reproducibly in the SDD flow (see §Usage).
 
 ---
 
@@ -16,13 +16,13 @@
   id-spec > id-local
   ```
 
-  - `id-spec` identifies the **spec** (a complete delta; it matches the SDD change name in gentle-ai). Example: `v2-broker`.
+  - `id-spec` identifies the **spec** (a complete delta; it matches the SDD change name). Example: `v2-broker`.
   - `id-local` identifies the criterion **within** that spec: `F-<n>` for **functional** criteria (E2E or integration) and `U-<n>` for **unit tests**. Numbering restarts in each spec.
   - Full reference: `v2-broker/F-01` (spec `v2-broker`, functional criterion 1).
 
 - **Verification types**: `[E2E]` real end-to-end command · `[INT]` integration with controlled fixtures/subprocesses · `[UNIT]` unit test · `[REV]` document review · `[PROC]` process criterion.
 - **Priority**: `P0` blocking (without it the delta does not exist) · `P1` important · `P2` desirable.
-- **Decided stack — TypeScript** (evolution of the current codebase, no rewrite): Node ≥ 20, ESM, `strict`. Test runner: `node --test` (explicit suite in `npm test`, ~550 cases). Typecheck: `tsc --noEmit`.
+- **Decided stack — Pure Go, no cgo**: tests: `go test ./...` (`go test ./... -race` in CI); gates: `go build ./...`, `go vet ./...`, golangci-lint, govulncheck.
 - **ACP as the Broker↔Adapter protocol standard (explicit requirement)**: the protocol between broker and adapters/harnesses is based on **Agent Client Protocol** (open standard driven by Zed) — JSON-RPC 2.0 over stdio, capability negotiation in `initialize`, and the methods `initialize`, `session/new`, `session/prompt`, `session/update`, `session/cancel` and `session/request_permission` (`terminal/*` deferred). Adapters translate each harness's native protocol to this contract; the generic `acp-generic` adapter implements it directly when the harness already speaks ACP (see `v2-adapter/U-03`).
 - **Runtime validation — current repo practice**: schema validation (workflows, config, internal payloads) keeps using **zod** (lowercase, the library), already established in v1 (`src/schema/*`); no JSON Schema or ad-hoc validators are introduced. This is repo practice, independent of the ACP standard.
 - **Maintainability**: the resulting code must preserve the v2 proposal rules adapted to TS: core without provider literals, fail-closed, evidence budgets, idempotent migrations, and an ACP-based adapter protocol.
@@ -42,16 +42,16 @@
 | `v2-reporte` | D06 | Change reporting |
 | `v2-store` | D07 | Persistence behind a repository interface |
 | `v2-distribucion` | D08 | Distribution |
-| `v2-flujo-gentle-ai` | D09 | Development flow with gentle-ai |
+| `v2-flujo-sdd` | D09 | Development flow |
 
 ---
 
-## Usage with gentle-ai
+## Usage — SDD flow
 
-The development flow **no longer** uses the initiatives pipeline (`.docs/initiatives/`, `tools/scripts/initiative/`). Each spec in this file is implemented as an **SDD change** (or the gentle-ai equivalent) with the proposal → spec → design → tasks → apply → verify → archive cycle. The change name is the `id-spec`.
+The development flow **no longer** uses the initiatives pipeline (`.docs/initiatives/`, `tools/scripts/initiative/`). Each spec in this file is implemented as an **SDD change** in the SDD flow with the proposal → spec → design → tasks → apply → verify → archive cycle. The change name is the `id-spec`.
 
 - The criteria in this file are the **source of the acceptance criteria** for each change spec.
-- `sdd-verify` (or the equivalent verification) runs the verifications described here with `node --test` (`npm test`); the `[E2E]` ones are public boundary, the `[UNIT]`/`[INT]` ones are package/module tests.
+- `sdd-verify` (or the equivalent verification) runs the verifications described here with `go test ./...` (`go test ./... -race` in CI); the `[E2E]` ones are public boundary, the `[UNIT]`/`[INT]` ones are package/module tests. Delivery gates: `go build ./...`, `go vet ./...`, golangci-lint, govulncheck.
 - A delta is complete only when all its P0 and P1 criteria pass and the change is archived.
 - No new initiatives are created; existing ones (e.g. 008) are migrated or explicitly closed.
 
@@ -453,18 +453,18 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 
 ---
 
-# Spec: v2-flujo-gentle-ai — Development flow with gentle-ai
+# Spec: v2-flujo-sdd — Development flow (previously v2-flujo-gentle-ai (D09))
 
 ### F-01 — Each spec as an SDD change [PROC] · P0 · [ ]
 **Criterion**: each spec in this file (v2-reconciliacion, v2-no-regresion, v2-broker…v2-distribucion) is developed as an SDD change with proposal → spec → design → tasks → apply → verify → archive; the criteria in this file are the source of each spec's acceptance criteria.
 **Verification**: one change per spec with criterion → spec → tests traceability.
 
 ### F-02 — Verification via sdd-verify [PROC] · P0 · [ ]
-**Criterion**: `sdd-verify` (or the equivalent verification of the gentle-ai flow) runs the described verifications: the `[E2E]` ones as public boundary, the `[UNIT]`/`[INT]` ones as module tests.
+**Criterion**: `sdd-verify` (or the equivalent verification of the SDD flow) runs the described verifications: the `[E2E]` ones as public boundary, the `[UNIT]`/`[INT]` ones as module tests.
 **Verification**: each change's verification report lists the covered criteria with their evidence.
 
-### F-03 — Delivery through the gentle-ai flow [PROC] · P0 · [ ]
-**Criterion**: each delta's delivery goes through the gentle-ai flow gates (review receipts, delivery gates), not through the initiatives pipeline; no new initiatives are created.
+### F-03 — Delivery through the SDD flow [PROC] · P0 · [ ]
+**Criterion**: each delta's delivery goes through the SDD flow gates (review receipts, delivery gates), not through the initiatives pipeline; no new initiatives are created.
 **Verification**: delivery history with receipts; absence of new `.docs/initiatives/`.
 
 ### U-01 — Criterion→test traceability [UNIT] · P1 · [ ]
@@ -489,7 +489,7 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 | `v2-reporte` | Change reporting | 4 | 1 | **complete** |
 | `v2-store` | Persistence behind a repository interface | 6 | 3 | **complete** |
 | `v2-distribucion` | Distribution | 3 | 1 | **complete** |
-| `v2-flujo-gentle-ai` | Development flow with gentle-ai | 4 | 3 | pending |
+| `v2-flujo-sdd` | Development flow | 4 | 3 | pending |
 | **Total** | | **92** | **52** | |
 
 Last updated: 2026-09-07 — `v2-distribucion` **complete** (3/3 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-07-v2-distribucion/`).
