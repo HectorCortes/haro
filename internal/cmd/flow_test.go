@@ -83,7 +83,7 @@ func TestFlowEachSpecIsSDDChange(t *testing.T) {
 	if !strings.Contains(d09, cycle) {
 		t.Fatalf("D09 F-01 criterion does not document the seven-phase SDD cycle %q", cycle)
 	}
-	const trackingRow = "| `v2-flujo-sdd` | Development flow | 4 | 3 | pending |"
+	const trackingRow = "| `v2-flujo-sdd` | Development flow | 4 | 3 | **complete** |"
 	if !strings.Contains(deltas, trackingRow) {
 		t.Fatalf("tracking table row %q not found", trackingRow)
 	}
