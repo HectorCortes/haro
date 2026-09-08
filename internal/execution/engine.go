@@ -364,6 +364,45 @@ func (e *Engine) verifyDAGHash(ctx context.Context, executionID string) error {
 	return nil
 }
 
+// latestInvalidGeneration reports whether a producer step's latest current
+// generation is invalidated. Only the maximum-number generation gates the
+// check: an older invalidated generation does not block once a newer valid
+// generation exists. The explicit max keeps the result robust to backend
+// ListByStep ordering.
+func latestInvalidGeneration(gens []*store.Generation) (*store.Generation, bool) {
+	var latest *store.Generation
+	for _, g := range gens {
+		if latest == nil || g.Number > latest.Number {
+			latest = g
+		}
+	}
+	if latest == nil || latest.InvalidatedAt == nil {
+		return nil, false
+	}
+	return latest, true
+}
+
+// requiresStale reports whether any producer of req has an invalid latest
+// generation, i.e. the artifact was invalidated by a reopen that no
+// producer rerun has yet recovered.
+func (e *Engine) requiresStale(ctx context.Context, executionID, req string) (int, bool) {
+	steps, _ := e.store.Steps().List(ctx, executionID)
+	for _, s := range steps {
+		var prods []string
+		_ = json.Unmarshal([]byte(s.Produces), &prods)
+		for _, p := range prods {
+			if p != req {
+				continue
+			}
+			gens, _ := e.store.Generations().ListByStep(ctx, executionID, s.StepID)
+			if latest, invalid := latestInvalidGeneration(gens); invalid {
+				return latest.Number, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // RunStep executes a step with the 4 command-cycle cases, and agent fallback.
 func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback string) error {
 	// Runtime re-flatten + hash verification on rehydrate
@@ -429,28 +468,12 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 		if _, err := os.Stat(abs); err != nil {
 			return fmt.Errorf("requires %q missing: %w", req, err)
 		}
-		// Check generation invalidated? For requires, we need to ensure that the step that produces this file has a valid generation.
-		// Simplify: if any generation for any step is invalidated, and that step produces this file, then requires is invalid.
-		// We check all steps that produce this file and ensure their current generation is not invalidated.
-		steps, _ := e.store.Steps().List(ctx, executionID)
-		for _, s := range steps {
-			var prods []string
-			_ = json.Unmarshal([]byte(s.Produces), &prods)
-			for _, p := range prods {
-				if p == req {
-					// Check generations for that step: if any invalidated, then file is stale
-					gens, _ := e.store.Generations().ListByStep(ctx, executionID, s.StepID)
-					for _, g := range gens {
-						if g.InvalidatedAt != nil {
-							// If the file's generation is invalidated, then requires fails
-							// For simplicity, if any generation invalidated, treat requires as missing
-							// But we need to know which generation the file belongs to. For now, if step has any invalidated generation, requires fails.
-							// This will make stale produces invalid after reopen.
-							return fmt.Errorf("requires %q invalidated (generation %d)", req, g.Number)
-						}
-					}
-				}
-			}
+		// Check generation invalidated? For requires, only the producer's
+		// latest current generation gates the check: an invalidated latest
+		// generation blocks downstream work, while older invalidated
+		// generations must not block once a newer valid generation exists.
+		if genNum, stale := e.requiresStale(ctx, executionID, req); stale {
+			return fmt.Errorf("requires %q invalidated (generation %d)", req, genNum)
 		}
 	}
 	// Decode produces
@@ -708,6 +731,11 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		}
 		if _, err := os.Stat(filepath.Join(artifactsRoot, req)); err != nil {
 			return fmt.Errorf("requires %q missing: %w", req, err)
+		}
+		// Same latest-generation predicate as the command path: only the
+		// producer's latest current generation gates the check.
+		if genNum, stale := e.requiresStale(ctx, executionID, req); stale {
+			return fmt.Errorf("requires %q invalidated (generation %d)", req, genNum)
 		}
 	}
 	// Acquire claims for agent step as well

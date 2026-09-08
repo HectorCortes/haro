@@ -79,11 +79,9 @@ steps:
 	if cnt2 != 2 {
 		t.Fatalf("attempt count after feedback = %d, want 2 (history preserved)", cnt2)
 	}
-	// Verify feedback was stored delimited + bounded prior
-	// We expect attempt event with feedback delimited
-	// For this test, we check that visible evidence for second attempt is bounded and contains feedback
-	// Our engine writes evidence to .haro/artifacts/evidence/<attemptID>.txt; we can find latest attempt
-	// Let's list attempts via store directly: query attempts table for this step
+	// Verify feedback was stored delimited + bounded prior from the inline
+	// DB payload. New runs never create evidence files or directories; the
+	// output_delta payload is inline with a null payload_ref.
 	rows, _ := s.QueryForTest(ctx, "SELECT id FROM attempts WHERE execution_id = ? AND step_id = ? ORDER BY started_at", execID, "s1")
 	var ids []string
 	for rows.Next() {
@@ -96,26 +94,47 @@ steps:
 		t.Fatalf("ids len = %d", len(ids))
 	}
 	secondID := ids[1]
-	// Check attempt_events for feedback
-	evRows, _ := s.QueryForTest(ctx, "SELECT event_type, payload_ref FROM attempt_events WHERE attempt_id = ?", secondID)
-	foundFeedback := false
-	for evRows.Next() {
+	root3 := filepath.Join(root, ".haro", "artifacts")
+	if _, err := os.Stat(filepath.Join(root3, "evidence")); !os.IsNotExist(err) {
+		t.Fatalf("evidence directory must not be created, stat err = %v", err)
+	}
+	var inlinePayload *string
+	var inlineRef *string
+	evRows2, _ := s.QueryForTest(ctx, "SELECT event_type, payload_ref, payload FROM attempt_events WHERE attempt_id = ? AND event_type = 'output_delta'", secondID)
+	for evRows2.Next() {
 		var typ string
-		var ref *string
-		_ = evRows.Scan(&typ, &ref)
-		if typ == "feedback" && ref != nil && strings.Contains(*ref, feedback) {
-			foundFeedback = true
-			// Check delimited: should contain ---FEEDBACK---
-			// Our engine stores raw feedback, but should be delimited in evidence file
+		var r, p sql.NullString
+		_ = evRows2.Scan(&typ, &r, &p)
+		if r.Valid {
+			refCopy := r.String
+			inlineRef = &refCopy
+		}
+		if p.Valid {
+			pCopy := p.String
+			inlinePayload = &pCopy
 		}
 	}
-	_ = evRows.Close()
-	if !foundFeedback {
-		t.Fatalf("feedback event not found for second attempt")
+	_ = evRows2.Close()
+	if inlinePayload == nil || !strings.HasPrefix(*inlinePayload, "$ echo hello") {
+		t.Fatalf("output_delta must persist inline evidence with the argv header, got %v", inlinePayload)
 	}
-	// Check that prior context bounded to 2MiB: second attempt's evidence should be <=2MiB (fallback) if we combine prior
-	// For this test, we just verify that oversized prior (3MiB) was truncated when stored as visible? Actually visible is 16KiB, fallback is 2MiB for reconstruction.
-	// We can check that attempt_events payload_ref files are within budgets
+	if inlineRef != nil {
+		t.Fatalf("output_delta payload_ref must be null for inline evidence, got %q", *inlineRef)
+	}
+	// Snapshots are retained while evidence files are not.
+	snapFound := false
+	_ = filepath.Walk(filepath.Join(root, ".haro", "artifacts", "snapshots"), func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(path, "out.txt") {
+			snapFound = true
+		}
+		return nil
+	})
+	if !snapFound {
+		t.Fatalf("snapshots must remain after inline evidence runs")
+	}
+	// Check that prior context bounded to 2MiB: the reconstruction context is
+	// bounded by FallbackEvidence and covered by
+	// TestFeedbackReconstructionPrefersPayloadAndFallsBackToLegacyReference.
 	// Triangulation: small feedback should still be delimited
 	smallFeedback := "hi"
 	// For triangulation we will use a fresh execution with pending step and small feedback

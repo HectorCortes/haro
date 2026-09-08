@@ -209,6 +209,139 @@ steps:
 	})
 }
 
+// TestReopenRequiresCurrentGenerationRecovery proves v2-no-regresion/F-07:
+// a requires check considers only each producer step's latest current
+// generation. Right after reopen (before the producer reruns) the
+// downstream step stays blocked; once the producer reruns and its latest
+// generation is valid, the older invalidated generation no longer blocks
+// and the downstream step succeeds. The agent path uses the same predicate.
+func TestReopenRequiresCurrentGenerationRecovery(t *testing.T) {
+	root := t.TempDir()
+	_ = project.Init(root)
+	wfDir := filepath.Join(root, ".haro", "workflows", "recovery")
+	_ = os.MkdirAll(wfDir, 0o755)
+	wfYAML := `version: 2
+name: recovery
+steps:
+  - id: s1
+    type: command
+    run: echo s1
+    produces: [s1.txt]
+  - id: s2
+    type: command
+    run: echo s2
+    depends_on: [s1]
+    requires: [s1.txt]
+    produces: [s2.txt]
+  - id: s3
+    type: command
+    run: echo s3
+    depends_on: [s2]
+    requires: [s2.txt]
+    produces: [s3.txt]
+`
+	_ = os.WriteFile(filepath.Join(wfDir, "workflow.yaml"), []byte(wfYAML), 0o600)
+	ctx := context.Background()
+	s, _ := store.Open(ctx, filepath.Join(root, ".haro", "store.db"))
+	defer func() { _ = s.Close() }()
+	artifacts := filepath.Join(root, ".haro", "artifacts")
+	eng := NewEngine(s, &FakeRunner{Handler: func(ctx context.Context, cwd string, argv []string, env map[string]string) (int, string, string, error) {
+		_ = os.MkdirAll(artifacts, 0o755)
+		if len(argv) > 1 {
+			_ = os.WriteFile(filepath.Join(artifacts, argv[1]+".txt"), []byte(argv[1]), 0o600)
+		}
+		return 0, "", "", nil
+	}}, root)
+	execID, _ := eng.CreateExecution(ctx, "recovery")
+	for _, sid := range []string{"s1", "s2", "s3"} {
+		if err := eng.RunStep(ctx, execID, sid, ""); err != nil {
+			t.Fatalf("run %s: %v", sid, err)
+		}
+	}
+	// Reopen the producer with cascade: generations invalidated, descendants pending.
+	if err := eng.ReopenStep(ctx, execID, "s1", true, ""); err != nil {
+		t.Fatalf("reopen s1: %v", err)
+	}
+	// Negative path: right after reopen, before the producer reruns, the
+	// downstream step must stay blocked.
+	if err := eng.RunStep(ctx, execID, "s2", ""); err == nil {
+		t.Fatalf("downstream must stay blocked right after reopen (before producer rerun)")
+	}
+	// Producer rerun: creates a new valid generation (N+1); the old one stays
+	// invalidated in history.
+	if err := eng.RunStep(ctx, execID, "s1", ""); err != nil {
+		t.Fatalf("producer rerun: %v", err)
+	}
+	gens, _ := s.Generations().ListByStep(ctx, execID, "s1")
+	if len(gens) != 2 {
+		t.Fatalf("producer generations = %d, want 2", len(gens))
+	}
+	if gens[0].InvalidatedAt == nil || gens[1].InvalidatedAt != nil {
+		t.Fatalf("latest generation must be valid with old one invalidated: %+v", gens)
+	}
+	// Downstream must now run: only the latest valid generation gates requires.
+	if err := eng.RunStep(ctx, execID, "s2", ""); err != nil {
+		t.Fatalf("downstream must succeed after producer rerun, got: %v", err)
+	}
+	if err := eng.RunStep(ctx, execID, "s3", ""); err != nil {
+		t.Fatalf("transitive downstream must succeed, got: %v", err)
+	}
+
+	t.Run("agent requires uses the same latest-generation predicate", func(t *testing.T) {
+		root2 := t.TempDir()
+		_ = project.Init(root2)
+		wfDir2 := filepath.Join(root2, ".haro", "workflows", "agentrec")
+		_ = os.MkdirAll(wfDir2, 0o755)
+		wfYAML2 := `version: 2
+name: agentrec
+steps:
+  - id: p
+    type: command
+    run: echo p
+    produces: [p.txt]
+  - id: a
+    type: agent
+    harness: [opencode, claudecode]
+    instructions: consume
+    mode: headless
+    requires: [p.txt]
+`
+		_ = os.WriteFile(filepath.Join(wfDir2, "workflow.yaml"), []byte(wfYAML2), 0o600)
+		s2, _ := store.Open(ctx, filepath.Join(root2, ".haro", "store.db"))
+		defer func() { _ = s2.Close() }()
+		artifacts2 := filepath.Join(root2, ".haro", "artifacts")
+		eng2 := NewEngine(s2, &FakeRunner{Handler: func(ctx context.Context, cwd string, argv []string, env map[string]string) (int, string, string, error) {
+			_ = os.MkdirAll(artifacts2, 0o755)
+			_ = os.WriteFile(filepath.Join(artifacts2, "p.txt"), []byte("p"), 0o600)
+			return 0, "", "", nil
+		}}, root2)
+		execID2, _ := eng2.CreateExecution(ctx, "agentrec")
+		if err := eng2.RunStep(ctx, execID2, "p", ""); err != nil {
+			t.Fatalf("run producer: %v", err)
+		}
+		if err := eng2.RunStep(ctx, execID2, "a", ""); err != nil {
+			t.Fatalf("run agent: %v", err)
+		}
+		// Reopen the producer without cascade: its latest generation becomes
+		// invalid while the agent step is completed.
+		if err := eng2.ReopenStep(ctx, execID2, "p", false, ""); err != nil {
+			t.Fatalf("reopen producer: %v", err)
+		}
+		// Agent feedback reconstruction must be blocked while the producer's
+		// latest generation is invalid.
+		if err := eng2.RunStep(ctx, execID2, "a", "retry"); err == nil {
+			t.Fatalf("agent requires must block while producer latest generation is invalid")
+		}
+		// Producer rerun recovers: latest generation valid.
+		if err := eng2.RunStep(ctx, execID2, "p", ""); err != nil {
+			t.Fatalf("producer rerun: %v", err)
+		}
+		if err := eng2.RunStep(ctx, execID2, "a", "retry"); err != nil {
+			t.Fatalf("agent must succeed after producer rerun, got: %v", err)
+		}
+	})
+}
+
 func TestStateMachine(t *testing.T) {
 	root := t.TempDir()
 	_ = project.Init(root)
