@@ -455,19 +455,19 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 
 # Spec: v2-flujo-sdd — Development flow (previously v2-flujo-gentle-ai (D09))
 
-### F-01 — Each spec as an SDD change [PROC] · P0 · [ ]
+### F-01 — Each spec as an SDD change [PROC] · P0 · [x]
 **Criterion**: each spec in this file (v2-reconciliacion, v2-no-regresion, v2-broker…v2-distribucion) is developed as an SDD change with proposal → spec → design → tasks → apply → verify → archive; the criteria in this file are the source of each spec's acceptance criteria.
 **Verification**: one change per spec with criterion → spec → tests traceability.
 
-### F-02 — Verification via sdd-verify [PROC] · P0 · [ ]
+### F-02 — Verification via sdd-verify [PROC] · P0 · [x]
 **Criterion**: `sdd-verify` (or the equivalent verification of the SDD flow) runs the described verifications: the `[E2E]` ones as public boundary, the `[UNIT]`/`[INT]` ones as module tests.
 **Verification**: each change's verification report lists the covered criteria with their evidence.
 
-### F-03 — Delivery through the SDD flow [PROC] · P0 · [ ]
+### F-03 — Delivery through the SDD flow [PROC] · P0 · [x]
 **Criterion**: each delta's delivery goes through the SDD flow gates (review receipts, delivery gates), not through the initiatives pipeline; no new initiatives are created.
 **Verification**: delivery history with receipts; absence of new `.docs/initiatives/`.
 
-### U-01 — Criterion→test traceability [UNIT] · P1 · [ ]
+### U-01 — Criterion→test traceability [UNIT] · P1 · [x]
 **Criterion**: each criterion in this file has at least one named test verifying it (explicit mapping, e.g. table in the change's spec).
 **Verification**: audit script that walks the criterion IDs and confirms their corresponding test exists and passes.
 
@@ -489,10 +489,10 @@ Without a rewrite, these criteria safeguard that the v2 specs do not break teste
 | `v2-reporte` | Change reporting | 4 | 1 | **complete** |
 | `v2-store` | Persistence behind a repository interface | 6 | 3 | **complete** |
 | `v2-distribucion` | Distribution | 3 | 1 | **complete** |
-| `v2-flujo-sdd` | Development flow | 4 | 3 | pending |
+| `v2-flujo-sdd` | Development flow | 4 | 3 | **complete** |
 | **Total** | | **92** | **52** | |
 
-Last updated: 2026-09-07 — `v2-distribucion` **complete** (3/3 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-07-v2-distribucion/`).
+Last updated: 2026-09-08 — `v2-flujo-sdd` **complete** (4/4 criteria, verify PASS WITH WARNINGS, archived in `openspec/changes/archive/2026-09-08-v2-flujo-sdd/`).
 
 ## Out of scope (explicitly not covered)
 
