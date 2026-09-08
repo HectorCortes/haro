@@ -226,6 +226,7 @@ CREATE TABLE attempt_events (
     cursor                    INTEGER NOT NULL,    -- monotonic per attempt_id
     event_type                TEXT NOT NULL,       -- "output_delta","permission_requested","interaction_resolved",...
     payload_ref                TEXT,                -- reference to sanitized evidence, never the full raw payload
+    payload                    TEXT,                -- sanitized bounded evidence delta; never raw/full output
     occurred_at                TEXT NOT NULL
 );
 
@@ -260,7 +261,7 @@ CREATE INDEX idx_path_claims_active ON path_claims(project_id, logical_path) WHE
 ### 2.1 Notes
 
 - All time columns are `TEXT` in ISO 8601 UTC format — SQLite has no native temporal type, and any timezone ambiguity in the store is avoided.
-- `attempt_events.payload_ref` never contains the full raw output — it points to a sanitized blob/file managed outside the table (VIII.2 of the constitution).
+- `attempt_events.payload` may hold only a sanitized bounded delta (redacted, bounded to 16 KiB after composition) and never raw/full harness output; `attempt_events.payload_ref` remains an external/legacy sanitized blob/file reference and is never inline evidence (VIII.2 of the constitution).
 - `path_claims` has no `FOREIGN KEY` to `executions` because a claim can survive at the project level even between different brokers sharing the same `project_id`; it is validated at the application level, not the schema level.
 
 ---

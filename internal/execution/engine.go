@@ -554,41 +554,32 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 		_ = e.failAttempt(ctx, attemptID, executionID, stepID, fmt.Sprintf("parse argv: %v", err))
 		return fmt.Errorf("parse argv: %w", err)
 	}
-	// Feedback handling: delimited feedback + bounded prior context
+	// Feedback handling: delimited feedback + bounded prior context.
+	// DB-first: prior evidence comes from the prior attempt's inline payload;
+	// the legacy payload_ref file is read only when the payload is absent
+	// (a non-nil payload wins even when empty).
 	if feedback != "" {
-		// Fetch prior visible evidence for this step (last attempt's evidence, excluding current)
 		var prior string
-		if sqliteStore, ok := e.store.(*store.SQLiteStore); ok {
-			rows, _ := sqliteStore.QueryForTest(ctx, "SELECT id FROM attempts WHERE execution_id = ? AND step_id = ? AND id != ? ORDER BY started_at DESC LIMIT 1", executionID, stepID, attemptID)
-			if rows != nil {
-				var priorID string
-				if rows.Next() {
-					_ = rows.Scan(&priorID)
-					evPath := filepath.Join(artifactsRoot, "evidence", priorID+".txt")
-					if data, err := os.ReadFile(evPath); err == nil {
-						prior = string(data)
-					}
+		if ev, err := e.store.Events().PriorOutputDelta(ctx, attemptID); err == nil && ev != nil {
+			if ev.Payload != nil {
+				prior = *ev.Payload
+			} else if ev.PayloadRef != nil {
+				if data, rerr := os.ReadFile(*ev.PayloadRef); rerr == nil {
+					prior = string(data)
 				}
-				_ = rows.Close()
 			}
 		}
-		// Bound prior to FallbackLimit
 		delimited := fmt.Sprintf("---FEEDBACK---\n%s\n---END---", feedback)
-		// Keep total within FallbackLimit: prior truncated + delimited
+		// Keep total within FallbackLimit: prior truncated + delimited.
 		available := FallbackLimit - len(delimited)
 		if available < 0 {
 			available = 0
 		}
 		if len(prior) > available {
-			prior = FallbackEvidence(prior) // ensures <=2MiB
-			if len(prior) > available {
-				prior = prior[:available]
-			}
+			prior = prior[:available]
 		}
-		combined := prior + delimited
 		// Ensure combined within fallback limit
-		combined = FallbackEvidence(combined)
-		_ = combined
+		combined := FallbackEvidence(prior + delimited)
 		// Store feedback delimited
 		cursor, _ := e.store.Events().NextAttemptCursor(ctx, attemptID)
 		delimitedCopy := delimited
@@ -617,17 +608,16 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 		_ = e.failAttempt(ctx, attemptID, executionID, stepID, runErr.Error())
 		return fmt.Errorf("runner: %w", runErr)
 	}
-	visible := VisibleEvidence(stdout + stderr)
-	// Store visible evidence as attempt event (payload_ref points to file)
-	evidencePath := filepath.Join(artifactsRoot, "evidence", attemptID+".txt")
-	_ = os.MkdirAll(filepath.Dir(evidencePath), 0o755)
-	_ = os.WriteFile(evidencePath, []byte(visible), 0o600)
+	// Compose execution-identifying evidence, then redact and bound once.
+	// Persisted inline; no evidence files are written (snapshots unchanged).
+	visible := CommandEvidence(argv, stdout, stderr)
 	cursor, _ := e.store.Events().NextAttemptCursor(ctx, attemptID)
 	_ = e.store.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{
 		AttemptID:  attemptID,
 		Cursor:     cursor,
 		EventType:  "output_delta",
-		PayloadRef: &evidencePath,
+		Payload:    &visible,
+		PayloadRef: nil,
 	})
 	// Snapshot produces files (bounded to 1 MiB) and compute digest
 	hasMissing := false
@@ -896,18 +886,17 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 				output = fmt.Sprintf("success from %s", harness)
 			}
 		}
-		visible := VisibleEvidence(output)
+		// Compose execution-identifying agent evidence, then redact and bound
+		// once. Persisted inline; no evidence files are written.
+		visible := AgentEvidence(harness, idx+1, len(harnessCandidates), mode, instructions, output)
 		evidences = append(evidences, visible)
-		// Write evidence file
-		evidencePath := filepath.Join(artifactsRoot, "evidence", attemptID+".txt")
-		_ = os.MkdirAll(filepath.Dir(evidencePath), 0o755)
-		_ = os.WriteFile(evidencePath, []byte(visible), 0o600)
 		cursor, _ := e.store.Events().NextAttemptCursor(ctx, attemptID)
 		_ = e.store.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{
 			AttemptID:  attemptID,
 			Cursor:     cursor,
 			EventType:  "output_delta",
-			PayloadRef: &evidencePath,
+			Payload:    &visible,
+			PayloadRef: nil,
 		})
 		if runErr == nil {
 			// success

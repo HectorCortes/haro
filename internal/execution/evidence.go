@@ -2,6 +2,7 @@ package execution
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -9,6 +10,9 @@ const (
 	VisibleLimit  = 16 * 1024
 	SnapshotLimit = 1 * 1024 * 1024
 	FallbackLimit = 2 * 1024 * 1024
+	// AgentInstructionsLimit bounds agent instructions inside the composed
+	// agent evidence before the shared 16 KiB visible budget applies.
+	AgentInstructionsLimit = 4 * 1024
 )
 
 var (
@@ -50,6 +54,36 @@ func VisibleEvidence(s string) string {
 		return s[:VisibleLimit]
 	}
 	return s
+}
+
+// BoundAgentInstructions limits agent instructions to 4 KiB.
+func BoundAgentInstructions(s string) string {
+	if len(s) > AgentInstructionsLimit {
+		return s[:AgentInstructionsLimit]
+	}
+	return s
+}
+
+// CommandEvidence composes the execution-identifying command header with the
+// visible output, then redacts and bounds the complete composition to 16 KiB
+// exactly once.
+func CommandEvidence(argv []string, stdout, stderr string) string {
+	composed := "$ " + strings.Join(argv, " ") + "\n" + stdout + stderr
+	return VisibleEvidence(composed)
+}
+
+// AgentEvidence composes the execution-identifying agent header (harness,
+// one-based attempt index of the total, mode), the 4 KiB-bounded
+// instructions, and the session output, then redacts and bounds the complete
+// composition to 16 KiB exactly once.
+func AgentEvidence(harness string, index, total int, mode, instructions, output string) string {
+	composed := "harness: " + harness + " (" + strconv.Itoa(index) + "/" + strconv.Itoa(total) + ")\n" +
+		"mode: " + mode + "\n" +
+		"instructions:\n" +
+		BoundAgentInstructions(instructions) + "\n" +
+		"--- output ---\n" +
+		output
+	return VisibleEvidence(composed)
 }
 
 // SnapshotEvidence bounds to 1 MiB (snapshot of produces).
