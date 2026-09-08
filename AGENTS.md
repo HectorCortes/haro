@@ -4,7 +4,7 @@ This repository is about AI coding agents and is worked on with agents. These co
 
 ## Language
 
-- The repository's written language is **English**: documentation, technical artifacts (including gentle-ai/openspec/SDD artifacts), commit messages, PRs and issues are written in English.
+- The repository's written language is **English**: documentation, technical artifacts (including openspec/SDD artifacts), commit messages, PRs and issues are written in English.
 - Conversation with the user may be in any language.
 - Follow the existing document convention: professional tone, no emojis, no filler.
 
