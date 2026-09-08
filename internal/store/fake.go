@@ -112,6 +112,10 @@ func (s *FakeStore) clone() *FakeStore {
 				pr := *ev.PayloadRef
 				cp.PayloadRef = &pr
 			}
+			if ev.Payload != nil {
+				pl := *ev.Payload
+				cp.Payload = &pl
+			}
 			nm[ck] = &cp
 		}
 		c.attemptEvents[k] = nm
@@ -633,8 +637,57 @@ func (r *fakeEventsRepo) CreateAttemptEvent(ctx context.Context, e *AttemptEvent
 		pr := *e.PayloadRef
 		cp.PayloadRef = &pr
 	}
+	if e.Payload != nil {
+		pl := *e.Payload
+		cp.Payload = &pl
+	}
 	r.s.attemptEvents[e.AttemptID][e.Cursor] = &cp
 	return nil
+}
+
+// PriorOutputDelta returns the latest output_delta from a prior attempt of
+// the same execution/step as attemptID, mirroring the SQLite ordering.
+func (r *fakeEventsRepo) PriorOutputDelta(ctx context.Context, attemptID string) (*AttemptEvent, error) {
+	r.s.mu.Lock()
+	defer r.s.mu.Unlock()
+	cur, ok := r.s.attempts[attemptID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	var latestAtt *Attempt
+	for _, a := range r.s.attempts {
+		if a.ExecutionID != cur.ExecutionID || a.StepID != cur.StepID || a.ID == attemptID {
+			continue
+		}
+		if latestAtt == nil || a.StartedAt > latestAtt.StartedAt || (a.StartedAt == latestAtt.StartedAt && a.ID > latestAtt.ID) {
+			latestAtt = a
+		}
+	}
+	if latestAtt == nil {
+		return nil, ErrNotFound
+	}
+	var latestEv *AttemptEvent
+	for _, ev := range r.s.attemptEvents[latestAtt.ID] {
+		if ev.EventType != "output_delta" {
+			continue
+		}
+		if latestEv == nil || ev.Cursor > latestEv.Cursor {
+			latestEv = ev
+		}
+	}
+	if latestEv == nil {
+		return nil, ErrNotFound
+	}
+	cp := *latestEv
+	if latestEv.PayloadRef != nil {
+		pr := *latestEv.PayloadRef
+		cp.PayloadRef = &pr
+	}
+	if latestEv.Payload != nil {
+		pl := *latestEv.Payload
+		cp.Payload = &pl
+	}
+	return &cp, nil
 }
 func (r *fakeEventsRepo) CreateTransition(ctx context.Context, e *StepTransitionEvent) error {
 	r.s.mu.Lock()

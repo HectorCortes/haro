@@ -330,12 +330,40 @@ func (r *eventsRepo) CreateAttemptEvent(ctx context.Context, e *AttemptEvent) er
 	if e.OccurredAt == "" {
 		e.OccurredAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	_, err := r.store.exec(ctx, `INSERT INTO attempt_events(attempt_id, cursor, event_type, payload_ref, occurred_at) VALUES (?, ?, ?, ?, ?)`,
-		e.AttemptID, e.Cursor, e.EventType, e.PayloadRef, e.OccurredAt)
+	_, err := r.store.exec(ctx, `INSERT INTO attempt_events(attempt_id, cursor, event_type, payload_ref, payload, occurred_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		e.AttemptID, e.Cursor, e.EventType, e.PayloadRef, e.Payload, e.OccurredAt)
 	if err != nil {
 		return normalizeSQLiteError(err)
 	}
 	return nil
+}
+
+// PriorOutputDelta returns the latest output_delta from a prior attempt of
+// the same execution/step as attemptID. Ordering: attempt start, then event
+// cursor/id, so the result is robust to ListByStep-style ordering changes.
+func (r *eventsRepo) PriorOutputDelta(ctx context.Context, attemptID string) (*AttemptEvent, error) {
+	row := r.store.queryRow(ctx, `SELECT e.id, e.attempt_id, e.cursor, e.event_type, e.payload_ref, e.payload, e.occurred_at
+		FROM attempt_events e
+		JOIN attempts a ON a.id = e.attempt_id
+		JOIN attempts cur ON cur.id = ?
+		WHERE a.execution_id = cur.execution_id
+		  AND a.step_id = cur.step_id
+		  AND a.id != cur.id
+		  AND e.event_type = 'output_delta'
+		ORDER BY a.started_at DESC, a.id DESC, e.cursor DESC, e.id DESC
+		LIMIT 1`, attemptID)
+	var e AttemptEvent
+	var ref, payload sql.NullString
+	if err := row.Scan(&e.ID, &e.AttemptID, &e.Cursor, &e.EventType, &ref, &payload, &e.OccurredAt); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	if ref.Valid {
+		e.PayloadRef = &ref.String
+	}
+	if payload.Valid {
+		e.Payload = &payload.String
+	}
+	return &e, nil
 }
 
 func (r *eventsRepo) CreateTransition(ctx context.Context, e *StepTransitionEvent) error {

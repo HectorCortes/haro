@@ -18,6 +18,7 @@ func Run(t *testing.T, factory Factory) {
 	t.Run("Leases", func(t *testing.T) { testLeases(t, factory) })
 	t.Run("Claims", func(t *testing.T) { testClaims(t, factory) })
 	t.Run("EventsAndCursors", func(t *testing.T) { testEventsAndCursors(t, factory) })
+	t.Run("EventsPayload", func(t *testing.T) { testEventsPayload(t, factory) })
 	t.Run("Interactions", func(t *testing.T) { testInteractions(t, factory) })
 	t.Run("Constraints", func(t *testing.T) { testConstraints(t, factory) })
 }
@@ -223,6 +224,95 @@ func testEventsAndCursors(t *testing.T, factory Factory) {
 	dup2 := &store.AttemptEvent{AttemptID: "att-evt", Cursor: 0, EventType: "log", OccurredAt: "2025-01-01T00:00:01Z"}
 	if err := s.Events().CreateAttemptEvent(ctx, dup2); !errors.Is(err, store.ErrUniqueViolation) {
 		t.Fatalf("duplicate cursor expected ErrUniqueViolation got %v", err)
+	}
+}
+
+// testEventsPayload proves nullable attempt_events payload behavior on both
+// backends: null and non-null payloads round-trip, and PriorOutputDelta picks
+// the latest prior attempt's output_delta with non-nil payload winning over
+// the legacy payload_ref even when empty.
+func testEventsPayload(t *testing.T, factory Factory) {
+	ctx := context.Background()
+	s := factory(t)
+	defer func() { _ = s.Close() }()
+	if err := s.Projects().Create(ctx, "proj-evt-payload", "/tmp/proj"); err != nil {
+		t.Fatalf("create proj: %v", err)
+	}
+	exec := &store.Execution{ID: "exec-evt-payload", ProjectID: "proj-evt-payload", WorkflowSource: "wf.yaml", Status: "pending", WorkspaceMode: "isolated", WorkspaceRoot: "/tmp/ws", StartedAt: "2025-01-01T00:00:00Z"}
+	if err := s.Executions().Create(ctx, exec); err != nil {
+		t.Fatalf("create exec: %v", err)
+	}
+	step := &store.ExecutionStep{ExecutionID: "exec-evt-payload", StepID: "step-payload", Type: "command", Status: "pending", DependsOn: "[]", Requires: "[]", Produces: "[]", WorkspaceMode: "isolated", CurrentGeneration: 0}
+	if err := s.Steps().Create(ctx, step); err != nil {
+		t.Fatalf("create step: %v", err)
+	}
+	gen := &store.Generation{ID: "gen-evt-payload-1", ExecutionID: "exec-evt-payload", StepID: "step-payload", Number: 1, CreatedAt: "2025-01-01T00:00:00Z"}
+	if err := s.Generations().Create(ctx, gen); err != nil {
+		t.Fatalf("create gen: %v", err)
+	}
+	gen2 := &store.Generation{ID: "gen-evt-payload-2", ExecutionID: "exec-evt-payload", StepID: "step-payload", Number: 2, CreatedAt: "2025-01-01T00:01:00Z"}
+	if err := s.Generations().Create(ctx, gen2); err != nil {
+		t.Fatalf("create gen2: %v", err)
+	}
+	// Legacy prior attempt: payload NULL, payload_ref set.
+	if err := s.Attempts().Create(ctx, &store.Attempt{ID: "att-payload-legacy", ExecutionID: "exec-evt-payload", StepID: "step-payload", GenerationID: "gen-evt-payload-1", Status: "completed", StartedAt: "2025-01-01T00:00:00Z"}); err != nil {
+		t.Fatalf("create legacy attempt: %v", err)
+	}
+	legacyRef := "evidence/legacy.txt"
+	if err := s.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: "att-payload-legacy", Cursor: 0, EventType: "output_delta", PayloadRef: &legacyRef, OccurredAt: "2025-01-01T00:00:01Z"}); err != nil {
+		t.Fatalf("create legacy event: %v", err)
+	}
+	// Inline prior attempt: payload set, payload_ref NULL.
+	if err := s.Attempts().Create(ctx, &store.Attempt{ID: "att-payload-inline", ExecutionID: "exec-evt-payload", StepID: "step-payload", GenerationID: "gen-evt-payload-2", Status: "completed", StartedAt: "2025-01-01T00:01:00Z"}); err != nil {
+		t.Fatalf("create inline attempt: %v", err)
+	}
+	inline := "$ echo hi\nsanitized delta"
+	if err := s.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: "att-payload-inline", Cursor: 0, EventType: "output_delta", Payload: &inline, OccurredAt: "2025-01-01T00:01:01Z"}); err != nil {
+		t.Fatalf("create inline event: %v", err)
+	}
+	// Round-trip via the repository read: latest prior attempt wins.
+	ev, err := s.Events().PriorOutputDelta(ctx, "att-payload-inline")
+	if err != nil {
+		t.Fatalf("PriorOutputDelta: %v", err)
+	}
+	if ev.AttemptID != "att-payload-legacy" {
+		t.Fatalf("prior attempt = %q, want att-payload-legacy", ev.AttemptID)
+	}
+	if ev.Payload != nil || ev.PayloadRef == nil || *ev.PayloadRef != legacyRef {
+		t.Fatalf("legacy event = payload %v ref %v, want nil payload and %q ref", ev.Payload, ev.PayloadRef, legacyRef)
+	}
+	// From a fresh (no prior) attempt of another step there is nothing to read.
+	if err := s.Steps().Create(ctx, &store.ExecutionStep{ExecutionID: "exec-evt-payload", StepID: "step-payload-2", Type: "command", Status: "pending", DependsOn: "[]", Requires: "[]", Produces: "[]", WorkspaceMode: "isolated", CurrentGeneration: 0}); err != nil {
+		t.Fatalf("create step 2: %v", err)
+	}
+	genB := &store.Generation{ID: "gen-evt-payload-b", ExecutionID: "exec-evt-payload", StepID: "step-payload-2", Number: 1, CreatedAt: "2025-01-01T00:02:00Z"}
+	if err := s.Generations().Create(ctx, genB); err != nil {
+		t.Fatalf("create genB: %v", err)
+	}
+	if err := s.Attempts().Create(ctx, &store.Attempt{ID: "att-payload-other", ExecutionID: "exec-evt-payload", StepID: "step-payload-2", GenerationID: "gen-evt-payload-b", Status: "running", StartedAt: "2025-01-01T00:02:00Z"}); err != nil {
+		t.Fatalf("create other attempt: %v", err)
+	}
+	if _, err := s.Events().PriorOutputDelta(ctx, "att-payload-other"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("PriorOutputDelta cross-step = %v, want ErrNotFound", err)
+	}
+	// Non-nil empty payload wins over the legacy reference (never fall back).
+	empty := ""
+	if err := s.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: "att-payload-inline", Cursor: 1, EventType: "output_delta", Payload: &empty, OccurredAt: "2025-01-01T00:01:02Z"}); err != nil {
+		t.Fatalf("create empty event: %v", err)
+	}
+	gen3 := &store.Generation{ID: "gen-evt-payload-3", ExecutionID: "exec-evt-payload", StepID: "step-payload", Number: 3, CreatedAt: "2025-01-01T00:03:00Z"}
+	if err := s.Generations().Create(ctx, gen3); err != nil {
+		t.Fatalf("create gen3: %v", err)
+	}
+	if err := s.Attempts().Create(ctx, &store.Attempt{ID: "att-payload-cur", ExecutionID: "exec-evt-payload", StepID: "step-payload", GenerationID: "gen-evt-payload-3", Status: "running", StartedAt: "2025-01-01T00:03:00Z"}); err != nil {
+		t.Fatalf("create cur attempt: %v", err)
+	}
+	evEmpty, err := s.Events().PriorOutputDelta(ctx, "att-payload-cur")
+	if err != nil {
+		t.Fatalf("PriorOutputDelta cur: %v", err)
+	}
+	if evEmpty.Payload == nil || *evEmpty.Payload != "" {
+		t.Fatalf("empty payload = %+v, want non-nil empty", evEmpty.Payload)
 	}
 }
 

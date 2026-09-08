@@ -68,6 +68,7 @@ func migrationStatements() []string {
 			cursor INTEGER NOT NULL,
 			event_type TEXT NOT NULL,
 			payload_ref TEXT,
+			payload TEXT,
 			occurred_at TEXT NOT NULL,
 			UNIQUE (attempt_id, cursor)
 		);`,
@@ -142,6 +143,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := ensureBaseCommitColumn(ctx, db); err != nil {
+		return err
+	}
+	// Inline attempt evidence migration: payload on attempt_events (nullable, idempotent)
+	if err := ensurePayloadColumn(ctx, db); err != nil {
 		return err
 	}
 	return nil
@@ -220,4 +225,40 @@ func isDuplicateColumnError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists")
+}
+
+// ensurePayloadColumn additively adds attempt_events.payload (nullable,
+// sanitized bounded evidence delta) mirroring ensureDagHashColumn.
+func ensurePayloadColumn(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(attempt_events)")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	has := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "payload" {
+			has = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.ExecContext(ctx, "ALTER TABLE attempt_events ADD COLUMN payload TEXT"); err != nil {
+			// If column already exists (race), ignore duplicate error
+			if !isDuplicateColumnError(err) {
+				return err
+			}
+		}
+	}
+	return nil
 }

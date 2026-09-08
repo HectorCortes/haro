@@ -141,6 +141,10 @@ type AttemptEvent struct {
 	Cursor     int
 	EventType  string
 	PayloadRef *string
+	// Payload holds an inline, sanitized, bounded evidence delta for
+	// output_delta events. Non-nil wins over the legacy PayloadRef; it may
+	// be empty and is never raw/full output.
+	Payload    *string
 	OccurredAt string
 }
 
@@ -195,6 +199,10 @@ type TransportRepository interface {
 // EventsRepository manages attempt_events and step_transition_events.
 type EventsRepository interface {
 	CreateAttemptEvent(ctx context.Context, e *AttemptEvent) error
+	// PriorOutputDelta returns the latest output_delta event from a prior
+	// attempt of the same execution and step as attemptID, ordered by attempt
+	// start time, then event cursor/id. ErrNotFound when no prior exists.
+	PriorOutputDelta(ctx context.Context, attemptID string) (*AttemptEvent, error)
 	CreateTransition(ctx context.Context, e *StepTransitionEvent) error
 	ListTransitions(ctx context.Context, executionID, stepID string) ([]*StepTransitionEvent, error)
 	NextAttemptCursor(ctx context.Context, attemptID string) (int, error)

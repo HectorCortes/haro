@@ -9,6 +9,152 @@ import (
 	"time"
 )
 
+// TestAttemptEventPayloadBackendParity proves v2-store/U-01 for the inline
+// evidence delta: null and non-null attempt_events payloads round-trip
+// identically on SQLite and on the fake backend, through the same
+// PriorOutputDelta repository read used by feedback reconstruction.
+func TestAttemptEventPayloadBackendParity(t *testing.T) {
+	for _, name := range []string{"fake", "sqlite"} {
+		t.Run(name, func(t *testing.T) {
+			var s Store
+			var cleanup func()
+			if name == "fake" {
+				s = NewFakeStore()
+				cleanup = func() {}
+			} else {
+				dir := t.TempDir()
+				dbPath := filepath.Join(dir, "payload-parity.db")
+				sqlStore, err := Open(context.Background(), dbPath)
+				if err != nil {
+					t.Fatalf("Open: %v", err)
+				}
+				s = sqlStore
+				cleanup = func() { _ = sqlStore.Close() }
+			}
+			defer cleanup()
+			ctx := context.Background()
+			if err := s.Projects().Create(ctx, "proj-payload", "/tmp/proj"); err != nil {
+				t.Fatalf("create proj: %v", err)
+			}
+			if err := s.Executions().Create(ctx, &Execution{ID: "exec-payload", ProjectID: "proj-payload", WorkflowSource: "wf.yaml", Status: "pending", WorkspaceMode: "isolated", WorkspaceRoot: "/tmp/ws", StartedAt: "2025-01-01T00:00:00Z"}); err != nil {
+				t.Fatalf("create exec: %v", err)
+			}
+			if err := s.Steps().Create(ctx, &ExecutionStep{ExecutionID: "exec-payload", StepID: "s1", Type: "command", Status: "pending", DependsOn: "[]", Requires: "[]", Produces: "[]", WorkspaceMode: "isolated", CurrentGeneration: 0}); err != nil {
+				t.Fatalf("create step: %v", err)
+			}
+			if err := s.Generations().Create(ctx, &Generation{ID: "gen-payload-1", ExecutionID: "exec-payload", StepID: "s1", Number: 1, CreatedAt: "2025-01-01T00:00:00Z"}); err != nil {
+				t.Fatalf("create gen1: %v", err)
+			}
+			if err := s.Generations().Create(ctx, &Generation{ID: "gen-payload-2", ExecutionID: "exec-payload", StepID: "s1", Number: 2, CreatedAt: "2025-01-01T00:01:00Z"}); err != nil {
+				t.Fatalf("create gen2: %v", err)
+			}
+			if err := s.Generations().Create(ctx, &Generation{ID: "gen-payload-3", ExecutionID: "exec-payload", StepID: "s1", Number: 3, CreatedAt: "2025-01-01T00:02:00Z"}); err != nil {
+				t.Fatalf("create gen3: %v", err)
+			}
+			// att-a: legacy event (payload NULL, payload_ref set).
+			if err := s.Attempts().Create(ctx, &Attempt{ID: "att-a", ExecutionID: "exec-payload", StepID: "s1", GenerationID: "gen-payload-1", Status: "completed", StartedAt: "2025-01-01T00:00:00Z"}); err != nil {
+				t.Fatalf("create att-a: %v", err)
+			}
+			legacyRef := "evidence/att-a.txt"
+			if err := s.Events().CreateAttemptEvent(ctx, &AttemptEvent{AttemptID: "att-a", Cursor: 0, EventType: "output_delta", PayloadRef: &legacyRef, OccurredAt: "2025-01-01T00:00:01Z"}); err != nil {
+				t.Fatalf("create att-a event: %v", err)
+			}
+			// att-c: current attempt on s1 with its own inline event; its own
+			// event must not be returned as "prior".
+			if err := s.Attempts().Create(ctx, &Attempt{ID: "att-c", ExecutionID: "exec-payload", StepID: "s1", GenerationID: "gen-payload-3", Status: "running", StartedAt: "2025-01-01T00:02:00Z"}); err != nil {
+				t.Fatalf("create att-c: %v", err)
+			}
+			current := "current delta"
+			if err := s.Events().CreateAttemptEvent(ctx, &AttemptEvent{AttemptID: "att-c", Cursor: 0, EventType: "output_delta", Payload: &current, OccurredAt: "2025-01-01T00:02:01Z"}); err != nil {
+				t.Fatalf("create att-c event: %v", err)
+			}
+			// Inline composition used by the s2 scenario below.
+			inline := "$ echo hi\ninline visible delta"
+
+			// att-c is the current attempt on s1 whose only prior is the
+			// legacy att-a: null payload round-trips as nil with payload_ref kept.
+			evLegacy, err := s.Events().PriorOutputDelta(ctx, "att-c")
+			if err != nil {
+				t.Fatalf("PriorOutputDelta att-c: %v", err)
+			}
+			if evLegacy.AttemptID != "att-a" {
+				t.Fatalf("prior attempt = %q, want att-a", evLegacy.AttemptID)
+			}
+			if evLegacy.Payload != nil {
+				t.Fatalf("payload = %q, want nil for legacy event", *evLegacy.Payload)
+			}
+			if evLegacy.PayloadRef == nil || *evLegacy.PayloadRef != legacyRef {
+				t.Fatalf("payload_ref = %v, want %q", evLegacy.PayloadRef, legacyRef)
+			}
+
+			// Second step: inline prior round-trip (non-null payload, null ref).
+			if err := s.Steps().Create(ctx, &ExecutionStep{ExecutionID: "exec-payload", StepID: "s2", Type: "command", Status: "pending", DependsOn: "[]", Requires: "[]", Produces: "[]", WorkspaceMode: "isolated", CurrentGeneration: 0}); err != nil {
+				t.Fatalf("create step s2: %v", err)
+			}
+			if err := s.Generations().Create(ctx, &Generation{ID: "gen-payload-s2a", ExecutionID: "exec-payload", StepID: "s2", Number: 1, CreatedAt: "2025-01-01T00:03:00Z"}); err != nil {
+				t.Fatalf("create gen s2a: %v", err)
+			}
+			if err := s.Generations().Create(ctx, &Generation{ID: "gen-payload-s2b", ExecutionID: "exec-payload", StepID: "s2", Number: 2, CreatedAt: "2025-01-01T00:04:00Z"}); err != nil {
+				t.Fatalf("create gen s2b: %v", err)
+			}
+			if err := s.Attempts().Create(ctx, &Attempt{ID: "att-b", ExecutionID: "exec-payload", StepID: "s2", GenerationID: "gen-payload-s2a", Status: "completed", StartedAt: "2025-01-01T00:03:00Z"}); err != nil {
+				t.Fatalf("create att-b: %v", err)
+			}
+			if err := s.Events().CreateAttemptEvent(ctx, &AttemptEvent{AttemptID: "att-b", Cursor: 0, EventType: "output_delta", Payload: &inline, OccurredAt: "2025-01-01T00:03:01Z"}); err != nil {
+				t.Fatalf("create att-b event: %v", err)
+			}
+			if err := s.Attempts().Create(ctx, &Attempt{ID: "att-d", ExecutionID: "exec-payload", StepID: "s2", GenerationID: "gen-payload-s2b", Status: "running", StartedAt: "2025-01-01T00:04:00Z"}); err != nil {
+				t.Fatalf("create att-d: %v", err)
+			}
+			ev, err := s.Events().PriorOutputDelta(ctx, "att-d")
+			if err != nil {
+				t.Fatalf("PriorOutputDelta att-d: %v", err)
+			}
+			if ev.AttemptID != "att-b" {
+				t.Fatalf("prior attempt = %q, want att-b", ev.AttemptID)
+			}
+			if ev.Payload == nil || *ev.Payload != inline {
+				t.Fatalf("payload = %v, want %q", ev.Payload, inline)
+			}
+			if ev.PayloadRef != nil {
+				t.Fatalf("payload_ref = %q, want nil for inline event", *ev.PayloadRef)
+			}
+			if ev.EventType != "output_delta" {
+				t.Fatalf("event_type = %q, want output_delta", ev.EventType)
+			}
+
+			// Empty non-nil payload must survive the round trip (non-nil wins
+			// even when empty — the caller must not fall back to legacy).
+			empty := ""
+			if err := s.Events().CreateAttemptEvent(ctx, &AttemptEvent{AttemptID: "att-b", Cursor: 1, EventType: "output_delta", Payload: &empty, OccurredAt: "2025-01-01T00:03:02Z"}); err != nil {
+				t.Fatalf("create att-b empty event: %v", err)
+			}
+			evEmpty, err := s.Events().PriorOutputDelta(ctx, "att-d")
+			if err != nil {
+				t.Fatalf("PriorOutputDelta after empty event: %v", err)
+			}
+			if evEmpty.Payload == nil || *evEmpty.Payload != "" {
+				t.Fatalf("empty payload must round-trip as non-nil empty, got %+v", evEmpty.Payload)
+			}
+
+			// No prior attempt: typed not-found (att-a is s1's only attempt
+			// besides the current att-c; a third step has a lone attempt).
+			if err := s.Steps().Create(ctx, &ExecutionStep{ExecutionID: "exec-payload", StepID: "s3", Type: "command", Status: "pending", DependsOn: "[]", Requires: "[]", Produces: "[]", WorkspaceMode: "isolated", CurrentGeneration: 0}); err != nil {
+				t.Fatalf("create step s3: %v", err)
+			}
+			if err := s.Generations().Create(ctx, &Generation{ID: "gen-payload-s3", ExecutionID: "exec-payload", StepID: "s3", Number: 1, CreatedAt: "2025-01-01T00:05:00Z"}); err != nil {
+				t.Fatalf("create gen s3: %v", err)
+			}
+			if err := s.Attempts().Create(ctx, &Attempt{ID: "att-z", ExecutionID: "exec-payload", StepID: "s3", GenerationID: "gen-payload-s3", Status: "running", StartedAt: "2025-01-01T00:05:00Z"}); err != nil {
+				t.Fatalf("create att-z: %v", err)
+			}
+			if _, err := s.Events().PriorOutputDelta(ctx, "att-z"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("PriorOutputDelta without prior = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
+
 func TestStoredTimestampsUTC(t *testing.T) {
 	for _, name := range []string{"fake", "sqlite"} {
 		t.Run(name, func(t *testing.T) {
