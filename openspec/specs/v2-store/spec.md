@@ -21,12 +21,13 @@ All persistence access MUST cross repository interfaces, and the import gate MUS
 
 ### Requirement: Complete reference schema and repositories [F-02]
 
-Created databases MUST expose all 11 §2 tables and constraints. `Store` SHALL expose lease and interaction repositories. Acquisition MUST atomically issue retained per-step maximum fencing token plus one, initially one; renew and release MUST check holder and token.
+Created databases MUST expose all 11 §2 tables and constraints, including nullable `attempt_events.payload TEXT` alongside retained `payload_ref`. `Store` SHALL expose lease and interaction repositories. Acquisition MUST atomically issue retained per-step maximum fencing token plus one, initially one; renew and release MUST check holder and token.
 
 #### Scenario: Exact schema ownership
 - GIVEN a fresh database
 - WHEN schema creation completes
-- THEN all 11 reference tables match §2 and only `leases` and `interactions` are newly defined here
+- THEN all 11 reference tables match §2, including both attempt-event payload columns
+- AND only `leases` and `interactions` are newly defined by the original store change
 
 #### Scenario: Monotonic fencing
 - GIVEN repeated successful acquisitions for one execution step
@@ -49,21 +50,21 @@ Every SQLite connection MUST enforce foreign keys and file-backed databases MUST
 
 ### Requirement: Interchangeable repository backend [U-01]
 
-One unchanged shared contract suite MUST run state-machine, lease, claim, event, and interaction behavior against file-backed SQLite and a mutex-backed fake, including rollback and monotonic cursors.
+One unchanged shared contract suite MUST run state-machine, lease, claim, event, interaction, and nullable payload behavior against file-backed SQLite and a mutex-backed fake, including rollback and monotonic cursors.
 
 #### Scenario: Dual-backend parity
 - GIVEN factories for SQLite and fake stores
-- WHEN the same suite runs against each factory without domain changes
-- THEN both satisfy identical outcomes and error categories
+- WHEN the same suite writes and reads null and non-null payloads without domain changes
+- THEN both satisfy identical values, outcomes, and error categories
 
 ### Requirement: Atomic idempotent migration [U-02]
 
-Migration MUST be transactional and idempotent. A test-only seam MAY inject failure but MUST NOT alter production behavior.
+Migration MUST be transactional and idempotent. Existing databases MUST gain `attempt_events.payload TEXT` additively after a `PRAGMA table_info` probe; duplicate-column races MUST be accepted only through the duplicate-column error guard. A test-only seam MAY inject failure but MUST NOT alter production behavior.
 
 #### Scenario: Repeated migration
-- GIVEN an already migrated database containing records
-- WHEN schema creation runs twice
-- THEN both runs succeed and schema and records remain unchanged
+- GIVEN a pre-payload database containing records
+- WHEN schema creation runs repeatedly, including concurrent opens
+- THEN all runs succeed with one nullable payload column and unchanged records
 
 #### Scenario: Mid-migration rollback
 - GIVEN a fresh database and an injected failure after an earlier DDL statement
