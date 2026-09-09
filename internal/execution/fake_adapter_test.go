@@ -14,14 +14,15 @@ import (
 // is configurable, NewSession records the bundle, and Prompt emits a
 // configured outcome (completed or a clean failed event).
 type fakeHarnessAdapter struct {
-	mu        sync.Mutex
-	available bool
-	outcome   string // "completed" or "failed"
-	output    string
-	sessions  int
-	bundles   []adapter.SessionBundle
-	prompts   []string
-	nativeIDs []string
+	mu         sync.Mutex
+	available  bool
+	outcome    string // "completed" or "failed"
+	output     string
+	noIdentity bool // session captures no transport identity
+	sessions   int
+	bundles    []adapter.SessionBundle
+	prompts    []string
+	nativeIDs  []string
 }
 
 func newFakeHarnessAdapter(available bool, outcome, output string) *fakeHarnessAdapter {
@@ -57,7 +58,7 @@ func (f *fakeHarnessAdapter) NewSession(_ context.Context, bundle adapter.Sessio
 	f.bundles = append(f.bundles, bundle)
 	id := "fake-sess-" + strings.Repeat("x", f.sessions)
 	f.nativeIDs = append(f.nativeIDs, id)
-	return &fakeHarnessSession{adapter: f, nativeID: id}, nil
+	return &fakeHarnessSession{adapter: f, nativeID: id, noIdentity: f.noIdentity}, nil
 }
 
 func (f *fakeHarnessAdapter) NewSessionCount() int {
@@ -85,8 +86,9 @@ func (f *fakeHarnessAdapter) LastPrompt() string {
 }
 
 type fakeHarnessSession struct {
-	adapter  *fakeHarnessAdapter
-	nativeID string
+	adapter    *fakeHarnessAdapter
+	nativeID   string
+	noIdentity bool
 }
 
 func (s *fakeHarnessSession) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan adapter.SessionEvent, error) {
@@ -126,6 +128,9 @@ func (s *fakeHarnessSession) Terminal(context.Context) (adapter.TerminalHandle, 
 // SessionTransport exposes the fake real identity so the engine can persist
 // actual transport fields for the attempt.
 func (s *fakeHarnessSession) SessionTransport() (adapter.SessionTransport, bool) {
+	if s.noIdentity {
+		return adapter.SessionTransport{}, false
+	}
 	return adapter.SessionTransport{
 		NativeSessionID: s.nativeID,
 		ProtocolVersion: 1,
