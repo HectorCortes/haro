@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/HectorCortes/haro/internal/adapter"
 	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
 )
@@ -176,6 +177,18 @@ steps:
 			return 0, "", "", nil
 		}}
 		eng := NewEngine(s, fake, root)
+		// The harness configuration makes both candidates usable and the
+		// first one fails cleanly so the fallback records (1/2) then (2/2).
+		cfgYAML := "version: 2\nharnesses:\n  opencode:\n    binary: /nonexistent/first\n  claudecode:\n    binary: /nonexistent/second\n"
+		if err := os.WriteFile(filepath.Join(root, ".haro", "config.yaml"), []byte(cfgYAML), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		first := newFakeHarnessAdapter(true, "failed", "first tried and failed")
+		second := newFakeHarnessAdapter(true, "completed", "second output")
+		setupFakeManager(t, eng, map[string]adapter.Adapter{
+			"opencode":   first,
+			"claudecode": second,
+		})
 		execID, err := eng.CreateExecution(ctx, "inline")
 		if err != nil {
 			t.Fatalf("create exec: %v", err)
@@ -204,9 +217,9 @@ steps:
 		}
 		// First (failed) candidate identifies itself as (1/2); the successful
 		// last candidate as (2/2). Both carry the composed agent header.
-		first := payloads[0]
-		if first == nil || !strings.Contains(*first, "harness: opencode (1/2)") {
-			t.Fatalf("first agent evidence missing harness header: %v", first)
+		firstPayload := payloads[0]
+		if firstPayload == nil || !strings.Contains(*firstPayload, "harness: opencode (1/2)") {
+			t.Fatalf("first agent evidence missing harness header: %v", firstPayload)
 		}
 		// The last (successful) candidate carries the one-based (2/2) index.
 		last := payloads[len(payloads)-1]

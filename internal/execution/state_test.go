@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/HectorCortes/haro/internal/adapter"
 	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
 )
@@ -315,6 +316,15 @@ steps:
 			_ = os.WriteFile(filepath.Join(artifacts2, "p.txt"), []byte("p"), 0o600)
 			return 0, "", "", nil
 		}}, root2)
+		// Inject a fake manager: production no longer simulates agent runs.
+		cfgYAML2 := "version: 2\nharnesses:\n  opencode:\n    binary: /nonexistent/first\n  claudecode:\n    binary: /nonexistent/second\n"
+		if err := os.WriteFile(filepath.Join(root2, ".haro", "config.yaml"), []byte(cfgYAML2), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		setupFakeManager(t, eng2, map[string]adapter.Adapter{
+			"opencode":   newFakeHarnessAdapter(true, "completed", "consume output"),
+			"claudecode": newFakeHarnessAdapter(true, "completed", "consume output"),
+		})
 		execID2, _ := eng2.CreateExecution(ctx, "agentrec")
 		if err := eng2.RunStep(ctx, execID2, "p", ""); err != nil {
 			t.Fatalf("run producer: %v", err)

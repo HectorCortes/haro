@@ -790,11 +790,80 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		_ = e.failAttempt(ctx, "no-attempt", executionID, stepID, "terminal mode not supported")
 		return fmt.Errorf("terminal mode not supported")
 	}
-	// Fallback loop
+	// Load harness configuration. A malformed configuration fails closed
+	// before any attempt is created.
+	cfg, cfgErr := project.LoadConfig(e.root)
+	if cfgErr != nil {
+		_ = e.transitionStep(ctx, executionID, stepID, "running", "failed")
+		e.resyncExecution(ctx, executionID)
+		return fmt.Errorf("harness config: %w", cfgErr)
+	}
+	// Without an injected manager there is no usable candidate: production
+	// never synthesizes success, identity, or output.
+	var probes map[string]adapter.ProbeResult
+	if e.adapterMgr != nil {
+		pr, pErr := e.adapterMgr.Probe(ctx)
+		if pErr == nil {
+			probes = pr
+		}
+	}
+	// Ordered intersection (F-06): preserve the step's harness order and
+	// keep only configured, enabled, registered, successfully probed
+	// harnesses. Unknown, disabled, unregistered, and unavailable
+	// candidates fall through with sanitized skip diagnostics.
+	var candidates []string
+	var skipDiags []string
+	seen := make(map[string]bool)
+	for _, h := range harnessCandidates {
+		if seen[h] {
+			continue
+		}
+		seen[h] = true
+		hc, ok := cfg.Harnesses[h]
+		if !ok {
+			skipDiags = append(skipDiags, fmt.Sprintf("skipped %q: not configured", h))
+			continue
+		}
+		if !hc.IsEnabled() {
+			skipDiags = append(skipDiags, fmt.Sprintf("skipped %q: disabled", h))
+			continue
+		}
+		pr, ok := probes[h]
+		if !ok {
+			skipDiags = append(skipDiags, fmt.Sprintf("skipped %q: not registered", h))
+			continue
+		}
+		if !pr.Available {
+			skipDiags = append(skipDiags, fmt.Sprintf("skipped %q: unavailable", h))
+			continue
+		}
+		candidates = append(candidates, h)
+	}
+	// Seed the fallback context with sanitized skip diagnostics so the next
+	// usable candidate (and the exhaustion evidence) carries them, bounded
+	// to 2 MiB and redacted once.
 	var accumulated string
+	if len(skipDiags) > 0 {
+		accumulated = FallbackEvidence(VisibleEvidence(strings.Join(skipDiags, "\n")))
+	}
+	if len(candidates) == 0 {
+		diag := VisibleEvidence(strings.Join(skipDiags, "\n"))
+		_ = e.transitionStep(ctx, executionID, stepID, "running", "failed")
+		e.resyncExecution(ctx, executionID)
+		return fmt.Errorf("no usable harness for agent step %q: %s", stepID, diag)
+	}
+	// Resolved requirements passed to the session bundle; adapters map them
+	// to absolute .haro/artifacts paths.
+	reqMap := make(map[string]string, len(requires))
+	for _, r := range requires {
+		reqMap[r] = r
+	}
+	// Fallback loop over the intersected candidates only.
 	var evidences []string
-	for idx, harness := range harnessCandidates {
-		// Create generation and attempt + transport atomically
+	for idx, harness := range candidates {
+		// Create generation and attempt plus the identity-empty transport
+		// row atomically. Real identity replaces the row after the session
+		// settles (U-04); production never synthesizes identity.
 		step, _ := e.store.Steps().Get(ctx, executionID, stepID)
 		genNumber := step.CurrentGeneration + 1
 		genID := uuid.NewString()
@@ -814,14 +883,9 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 			Status:       "running",
 			StartedAt:    time.Now().UTC().Format(time.RFC3339),
 		}
-		native := harness + "-session"
-		ver := 1
 		transport := &store.Transport{
-			AttemptID:       attemptID,
-			AdapterName:     harness,
-			NativeSessionID: &native,
-			ProtocolVersion: &ver,
-			Extra:           "{}",
+			AttemptID:   attemptID,
+			AdapterName: harness,
 		}
 		// WithTx for attempt+transport
 		err = e.store.WithTx(ctx, func(tx store.Store) error {
@@ -847,7 +911,7 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 				e.resyncExecution(ctx, executionID)
 				return err
 			}
-			if idx == len(harnessCandidates)-1 {
+			if idx == len(candidates)-1 {
 				reason := VisibleEvidence(strings.Join(evidences, ""))
 				_ = e.completeAttempt(ctx, attemptID, "failed", &reason, &accumulated)
 				_ = e.transitionStep(ctx, executionID, stepID, "running", "failed")
@@ -856,67 +920,78 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 			}
 			continue
 		}
-		// Try to run via adapter manager if available
+		// Run the session through the adapter manager.
 		var output string
 		var runErr error
-		if e.adapterMgr != nil {
-			wtRoot := e.effectiveWorktreeRoot(ctx, executionID)
-			// Use manager to get session and prompt
-			bundle := adapter.SessionBundle{
-				Instructions:  instructions + "\n" + accumulated,
-				WorkspaceRoot: wtRoot,
-				Requires:      map[string]string{},
+		var sess adapter.Session
+		wtRoot := e.effectiveWorktreeRoot(ctx, executionID)
+		bundle := adapter.SessionBundle{
+			Instructions:  instructions,
+			WorkspaceRoot: wtRoot,
+			Requires:      reqMap,
+		}
+		// Host with fail-closed permission
+		host := &agentHost{store: e.store, attemptID: attemptID}
+		sess, sErr := e.adapterMgr.NewSession(ctx, harness, bundle, host)
+		if sErr != nil {
+			runErr = sErr
+			output = fmt.Sprintf("new session failed for %s: %v", harness, sErr)
+		} else {
+			// Carry the bounded sanitized fallback context plus instructions.
+			input := adapter.PromptInput{Text: instructions}
+			if accumulated != "" {
+				input.Text = accumulated + "\n" + instructions
 			}
-			// Host with fail-closed permission
-			host := &agentHost{store: e.store, attemptID: attemptID}
-			sess, sErr := e.adapterMgr.NewSession(ctx, harness, bundle, host)
-			if sErr != nil {
-				runErr = sErr
-				output = fmt.Sprintf("new session failed for %s: %v", harness, sErr)
+			ch, pErr := sess.Prompt(ctx, input)
+			if pErr != nil {
+				runErr = pErr
+				output = fmt.Sprintf("prompt failed %s: %v", harness, pErr)
 			} else {
-				// If harness instructions contain fallback context, pass accumulated
-				input := adapter.PromptInput{Text: instructions}
-				if accumulated != "" {
-					input.Text = accumulated + "\n" + instructions
+				// Collect events until completed or failed
+				var collected string
+				for ev := range ch {
+					if ev.Type == "output_delta" {
+						collected += string(ev.Payload)
+					} else if ev.Type == "completed" {
+						collected += string(ev.Payload)
+						break
+					} else if ev.Type == "failed" {
+						runErr = fmt.Errorf("harness %s failed: %s", harness, string(ev.Payload))
+						collected += string(ev.Payload)
+						break
+					}
 				}
-				ch, pErr := sess.Prompt(ctx, input)
-				if pErr != nil {
-					runErr = pErr
-					output = fmt.Sprintf("prompt failed %s: %v", harness, pErr)
-				} else {
-					// Collect events until completed or failed
-					var collected string
-					for ev := range ch {
-						if ev.Type == "output_delta" {
-							collected += string(ev.Payload)
-						} else if ev.Type == "completed" {
-							collected += string(ev.Payload)
-							break
-						} else if ev.Type == "failed" {
-							runErr = fmt.Errorf("harness %s failed: %s", harness, string(ev.Payload))
-							collected += string(ev.Payload)
-							break
+				output = collected
+			}
+			_ = sess.Cancel(ctx)
+			// Replace the identity-empty transport row with the real
+			// identity captured by the session (U-04).
+			if tp, ok := sess.(adapter.TransportProvider); ok {
+				if st, ok := tp.SessionTransport(); ok {
+					extra := "{}"
+					if st.Extra != nil {
+						if b, jErr := json.Marshal(st.Extra); jErr == nil {
+							extra = string(b)
 						}
 					}
-					output = collected
-					if runErr == nil && output == "" {
-						output = fmt.Sprintf("harness %s completed", harness)
+					ver := st.ProtocolVersion
+					native := st.NativeSessionID
+					if pErr := e.store.Transport().Put(ctx, &store.Transport{
+						AttemptID:       attemptID,
+						AdapterName:     harness,
+						NativeSessionID: &native,
+						ProtocolVersion: &ver,
+						Extra:           extra,
+					}); pErr != nil {
+						// Store errors are terminal.
+						runErr = fmt.Errorf("transport persist failed: %w", pErr)
 					}
 				}
-				_ = sess.Cancel(ctx)
-			}
-		} else {
-			// No manager: simulate clean failure for first N-1, success for last (for tests without manager, fallback still works)
-			if idx < len(harnessCandidates)-1 {
-				runErr = fmt.Errorf("clean failure for %s", harness)
-				output = fmt.Sprintf("output from %s Bearer secret123", harness)
-			} else {
-				output = fmt.Sprintf("success from %s", harness)
 			}
 		}
 		// Compose execution-identifying agent evidence, then redact and bound
 		// once. Persisted inline; no evidence files are written.
-		visible := AgentEvidence(harness, idx+1, len(harnessCandidates), mode, instructions, output)
+		visible := AgentEvidence(harness, idx+1, len(candidates), mode, instructions, output)
 		evidences = append(evidences, visible)
 		cursor, _ := e.store.Events().NextAttemptCursor(ctx, attemptID)
 		_ = e.store.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{
@@ -948,7 +1023,7 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		// Mark this attempt failed but continue
 		reason := VisibleEvidence(runErr.Error())
 		_ = e.completeAttempt(ctx, attemptID, "failed", &reason, &accumulated)
-		if idx == len(harnessCandidates)-1 {
+		if idx == len(candidates)-1 {
 			// Exhausted
 			_ = e.transitionStep(ctx, executionID, stepID, "running", "failed")
 			e.resyncExecution(ctx, executionID)

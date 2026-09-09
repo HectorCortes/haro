@@ -69,5 +69,14 @@ func isTerminal(err error) bool {
 		// But not all unsupported are terminal? For F-02, unsupported_capability is terminal (fail immediately)
 		return true
 	}
+	// Timeout is terminal (session deadline exceeded).
+	if strings.Contains(msg, "timeout") {
+		return true
+	}
+	// Contract violations (invalid session contract, e.g. requirement
+	// containment) are terminal.
+	if strings.Contains(msg, "contract") {
+		return true
+	}
 	return false
 }
