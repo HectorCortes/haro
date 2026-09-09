@@ -38,11 +38,15 @@ func (f *fakeSession) Terminal(_ context.Context) (TerminalHandle, error) {
 // fakeAdapter implements Adapter for tests.
 type fakeAdapter struct {
 	probeResult ProbeResult
+	probeErr    error
 	initCalled  int
 	sessions    int
 }
 
 func (f *fakeAdapter) Probe(_ context.Context) (ProbeResult, error) {
+	if f.probeErr != nil {
+		return ProbeResult{}, f.probeErr
+	}
 	return f.probeResult, nil
 }
 func (f *fakeAdapter) Initialize(_ context.Context, core Capabilities) (Capabilities, error) {

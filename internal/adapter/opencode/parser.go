@@ -10,12 +10,36 @@ import (
 	"github.com/HectorCortes/haro/internal/ipc/jsonrpc"
 )
 
-// Event is a parsed OpenCode JSONL event.
+// Part is an OpenCode message part; text parts carry the streamed text.
+type Part struct {
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
+// Event is a parsed OpenCode JSONL event. The envelope pins the documented
+// current CLI output: every frame may carry a common real sessionID and a
+// type; `part.text` translates to output_delta and `error` to failed.
 type Event struct {
-	Cursor  int             `json:"cursor"`
+	Cursor  int             `json:"cursor,omitempty"`
 	Delta   json.RawMessage `json:"delta,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
-	Raw     json.RawMessage
+	// Type is the envelope event type, e.g. "step_start", "part", "error".
+	Type string `json:"type,omitempty"`
+	// SessionID is the common real session id emitted by the CLI.
+	SessionID string `json:"sessionID,omitempty"`
+	// Part holds the message part, when present.
+	Part *Part `json:"part,omitempty"`
+	// Error holds the harness error message for `error` events.
+	Error string `json:"error,omitempty"`
+	Raw   json.RawMessage
+}
+
+// Text returns the text carried by a text part, if any.
+func (e Event) Text() string {
+	if e.Part == nil {
+		return ""
+	}
+	return e.Part.Text
 }
 
 // ParseJSONL parses newline-delimited JSON objects, rejecting frames over 10 MiB.

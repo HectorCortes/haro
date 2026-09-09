@@ -65,6 +65,23 @@ type Session interface {
 	Terminal(ctx context.Context) (TerminalHandle, error)
 }
 
+// SessionTransport carries the real transport identity of a settled session:
+// the actual native session id, the negotiated protocol version, and
+// transport-specific JSON metadata.
+type SessionTransport struct {
+	NativeSessionID string
+	ProtocolVersion int
+	Extra           map[string]any
+}
+
+// TransportProvider is an optional Session extension exposing the real
+// transport identity captured while the session ran. The engine
+// type-asserts it after the session settles so Transport.Put can replace
+// the identity-empty transport row with actual identity.
+type TransportProvider interface {
+	SessionTransport() (SessionTransport, bool)
+}
+
 // Adapter is implemented once per harness.
 type Adapter interface {
 	Probe(ctx context.Context) (ProbeResult, error)

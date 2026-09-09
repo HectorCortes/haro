@@ -26,17 +26,29 @@ func NewManager(adapters map[string]Adapter) *Manager {
 	}
 }
 
-// Probe probes all registered adapters.
+// Probe probes all registered adapters. A per-candidate probe failure
+// degrades that candidate to Available:false (clean fallback) and never
+// aborts probing of the remaining candidates.
 func (m *Manager) Probe(ctx context.Context) (map[string]ProbeResult, error) {
 	results := make(map[string]ProbeResult)
 	for name, a := range m.adapters {
 		pr, err := a.Probe(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("probe %s: %w", name, err)
+			results[name] = ProbeResult{Available: false}
+			continue
 		}
 		results[name] = pr
 	}
 	return results, nil
+}
+
+// Registered reports whether the named adapter is registered with the
+// manager. Unregistered harness names remain unavailable for sessions.
+func (m *Manager) Registered(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.adapters[name]
+	return ok
 }
 
 // Initialize performs bilateral negotiation for the named adapter.
