@@ -1,45 +1,113 @@
+// Package claude implements the real CLI-direct session adapter for the
+// Claude Code harness. Provider literals for Claude are confined to this
+// package (plus the adapter factory registration).
 package claude
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/HectorCortes/haro/internal/adapter"
 )
 
-// Adapter is the Claude Code adapter.
+// TestBinaryEnv is the hermetic test seam: when set, it takes precedence
+// over the configured binary so CI never needs a real claude install.
+const TestBinaryEnv = "HARO_TEST_CLAUDE_BINARY"
+
+// DefaultBinary is used when neither the test seam nor configuration
+// provides a binary path.
+const DefaultBinary = "claude"
+
+// ProtocolVersion is the adapter protocol version negotiated with the core.
+const ProtocolVersion = 1
+
+// DefaultTimeout bounds a session when configuration omits timeout_seconds.
+const DefaultTimeout = 300 * time.Second
+
+// Adapter is the Claude Code CLI-direct adapter. Prompts run through
+// `claude -p --output-format stream-json --include-partial-messages` print
+// mode; the prompt travels on stdin and never appears in positional argv.
 type Adapter struct {
-	binary string
+	binary  string
+	env     map[string]string
+	timeout time.Duration
+	neg     adapter.Capabilities
+	initd   bool
 }
 
-// NewAdapter creates a Claude adapter with the given binary path.
-func NewAdapter(binary string) *Adapter {
-	if binary == "" {
-		binary = "claude"
+// NewAdapter creates a Claude adapter with the given binary path, env
+// overlay, and per-session timeout. A zero timeout defaults to 300s.
+func NewAdapter(binary string, env map[string]string, timeout time.Duration) *Adapter {
+	if timeout <= 0 {
+		timeout = DefaultTimeout
 	}
-	return &Adapter{binary: binary}
+	return &Adapter{binary: binary, env: env, timeout: timeout}
 }
 
-// Probe checks availability of the binary.
-func (a *Adapter) Probe(ctx context.Context) (adapter.ProbeResult, error) {
-	// Check env override
-	if env := os.Getenv("HARO_TEST_CLAUDE_BINARY"); env != "" {
-		a.binary = env
+// resolveBinary applies the adapter-side binary precedence:
+// HARO_TEST_CLAUDE_BINARY, then the configured binary, then "claude".
+func (a *Adapter) resolveBinary() string {
+	if env := os.Getenv(TestBinaryEnv); env != "" {
+		return env
 	}
-	// If binary contains slash, check file exists; otherwise look in PATH
-	if _, err := exec.LookPath(a.binary); err != nil {
-		// Also try stat if LookPath fails but path is absolute
-		if _, statErr := os.Stat(a.binary); statErr != nil {
-			return adapter.ProbeResult{Available: false}, nil
+	if a.binary != "" {
+		return a.binary
+	}
+	return DefaultBinary
+}
+
+// isExecutableProgram reports whether path is an executable regular file the
+// kernel can exec directly: an ELF binary or a script with an interpreter
+// line. Documentation-like files (requirements.txt, CMakeLists.txt, Markdown,
+// extensionless text) and non-executable scripts are rejected so a disguised
+// path can never be launched with the fixed argv.
+func isExecutableProgram(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	head := make([]byte, 4)
+	n, err := f.Read(head)
+	if err != nil && n == 0 {
+		return false
+	}
+	if bytes.HasPrefix(head[:n], []byte("\x7fELF")) {
+		return true
+	}
+	return bytes.HasPrefix(head[:n], []byte("#!"))
+}
+
+// Probe checks availability of the binary. A missing, non-executable, or
+// documentation-like path yields Available:false with a nil error so the
+// manager falls through per candidate instead of aborting everything.
+func (a *Adapter) Probe(_ context.Context) (adapter.ProbeResult, error) {
+	binary := a.resolveBinary()
+	// Bare names resolve through PATH before the executable check.
+	if !strings.ContainsRune(binary, '/') {
+		if resolved, err := exec.LookPath(binary); err == nil {
+			binary = resolved
 		}
+	}
+	if !isExecutableProgram(binary) {
+		return adapter.ProbeResult{Available: false}, nil
 	}
 	return adapter.ProbeResult{
 		Available: true,
 		Version:   "claude",
 		Capabilities: adapter.Capabilities{
-			ProtocolVersion: 1,
+			ProtocolVersion: ProtocolVersion,
 			Permission:      true,
 			Terminal:        false,
 			LoadSession:     false,
@@ -47,10 +115,12 @@ func (a *Adapter) Probe(ctx context.Context) (adapter.ProbeResult, error) {
 	}, nil
 }
 
-// Initialize negotiates capabilities bilateraly.
-func (a *Adapter) Initialize(ctx context.Context, core adapter.Capabilities) (adapter.Capabilities, error) {
+// Initialize negotiates capabilities bilaterally. Claude supports permission
+// gating through the host; terminal and session loading stay unsupported in
+// this slice.
+func (a *Adapter) Initialize(_ context.Context, core adapter.Capabilities) (adapter.Capabilities, error) {
 	neg, err := adapter.Negotiate(core, adapter.Capabilities{
-		ProtocolVersion: 1,
+		ProtocolVersion: ProtocolVersion,
 		Permission:      true,
 		Terminal:        false,
 		LoadSession:     false,
@@ -58,41 +128,278 @@ func (a *Adapter) Initialize(ctx context.Context, core adapter.Capabilities) (ad
 	if err != nil {
 		return adapter.Capabilities{}, err
 	}
+	a.neg = neg
+	a.initd = true
 	return neg, nil
 }
 
-// NewSession creates a session handle.
-func (a *Adapter) NewSession(ctx context.Context, bundle adapter.SessionBundle, host adapter.SessionHost) (adapter.Session, error) {
-	if a.binary == "" {
+// NewSession creates a session handle for the given bundle.
+func (a *Adapter) NewSession(_ context.Context, bundle adapter.SessionBundle, host adapter.SessionHost) (adapter.Session, error) {
+	if !a.initd {
+		return nil, adapter.ErrNotInitialized
+	}
+	if a.resolveBinary() == "" {
 		return nil, fmt.Errorf("binary not set")
 	}
-	return &claudeSession{bundle: bundle, host: host, binary: a.binary}, nil
+	return &session{
+		adapter: a,
+		bundle:  bundle,
+		host:    host,
+		done:    make(chan struct{}),
+	}, nil
 }
 
-type claudeSession struct {
-	bundle adapter.SessionBundle
-	host   adapter.SessionHost
-	binary string
+// session is a real Claude Code subprocess session running in print mode
+// with stream-json output.
+type session struct {
+	adapter    *Adapter
+	bundle     adapter.SessionBundle
+	host       adapter.SessionHost
+	cmd        *exec.Cmd
+	done       chan struct{}
+	doneOnce   sync.Once
+	cancelOnce sync.Once
+	mu         sync.Mutex
+	nativeID   string
 }
 
-func (s *claudeSession) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan adapter.SessionEvent, error) {
-	ch := make(chan adapter.SessionEvent, 1)
+// settleDone closes the completion signal exactly once, on every path:
+// successful runs, launch failures, and pipe errors. Cancel waits on this
+// signal, so leaving it open on an early-return path would deadlock a
+// non-cancellable Cancel.
+func (s *session) settleDone() {
+	s.doneOnce.Do(func() { close(s.done) })
+}
+
+// promptArgv builds the fixed claude argv: print mode with the pinned
+// stream-json format flags, the fail-closed dontAsk permission mode, and
+// optional model flags translated from non-empty CLAUDE_MODEL and
+// CLAUDE_FALLBACK_MODEL values in the configured env overlay (N1: read only
+// from the configuration overlay, never from the process environment). The
+// prompt itself is never part of argv.
+func (s *session) promptArgv() []string {
+	binary := s.adapter.resolveBinary()
+	argv := []string{binary, "-p", "--output-format", "stream-json", "--include-partial-messages", "--permission-mode", "dontAsk"}
+	if model := s.adapter.env["CLAUDE_MODEL"]; model != "" {
+		argv = append(argv, "--model", model)
+	}
+	if fallback := s.adapter.env["CLAUDE_FALLBACK_MODEL"]; fallback != "" {
+		argv = append(argv, "--fallback-model", fallback)
+	}
+	return argv
+}
+
+// Prompt launches the pinned claude print-mode invocation with the prompt on
+// stdin, no shell, the inherited environment plus the configured overlay,
+// Dir=WorkspaceRoot, and a bounded timeout. The subprocess is started
+// synchronously so launch failures surface as a clean error before any
+// event is streamed.
+func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan adapter.SessionEvent, error) {
+	// Every early-return error path below must close the completion signal
+	// so Cancel never waits forever. Once the consumer goroutine takes
+	// ownership (started=true) it settles the signal at run completion
+	// instead; the deferred settle then becomes a no-op.
+	started := false
+	defer func() {
+		if !started {
+			s.settleDone()
+		}
+	}()
+	runCtx, cancelRun := context.WithTimeout(ctx, s.adapter.timeout)
+	argv := s.promptArgv()
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
+	if s.bundle.WorkspaceRoot != "" {
+		cmd.Dir = s.bundle.WorkspaceRoot
+	}
+	// Inherited environment with the configured overlay applied last.
+	if len(s.adapter.env) > 0 {
+		envMap := make(map[string]string)
+		for _, kv := range os.Environ() {
+			if idx := strings.IndexByte(kv, '='); idx != -1 {
+				envMap[kv[:idx]] = kv[idx+1:]
+			}
+		}
+		for k, v := range s.adapter.env {
+			envMap[k] = v
+		}
+		envList := make([]string, 0, len(envMap))
+		for k, v := range envMap {
+			envList = append(envList, k+"="+v)
+		}
+		cmd.Env = envList
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		cancelRun()
+		return nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancelRun()
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		cancelRun()
+		return nil, fmt.Errorf("launch %s: %w", s.adapter.resolveBinary(), err)
+	}
+	s.mu.Lock()
+	s.cmd = cmd
+	s.mu.Unlock()
+	if _, err := stdin.Write([]byte(input.Text)); err != nil {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		cancelRun()
+		return nil, fmt.Errorf("write prompt: %w", err)
+	}
+	if err := stdin.Close(); err != nil {
+		cancelRun()
+		return nil, fmt.Errorf("close prompt: %w", err)
+	}
+	ch := make(chan adapter.SessionEvent, 8)
+	started = true
 	go func() {
 		defer close(ch)
-		// In real implementation, would spawn binary via exec.CommandContext with JSON-RPC.
-		// For this slice, simulate immediate completion with fallback context.
-		payload := []byte(fmt.Sprintf(`{"text":%q}`, input.Text))
-		ch <- adapter.SessionEvent{Cursor: 1, Type: "completed", Payload: payload}
+		defer s.settleDone()
+		defer cancelRun()
+		s.consume(runCtx, stdout, &stderr, ch)
 	}()
 	return ch, nil
 }
 
-func (s *claudeSession) Cancel(ctx context.Context) error { return nil }
+// consume parses the stream-json stream through the parser, translates the
+// pinned 2.1.245 envelope to session events, and captures the first native
+// session_id for the transport accessor (N5 first-wins). All output_delta
+// events are emitted before the single final terminal event so a consumer
+// that breaks on the final event still drains the channel without deadlock.
+func (s *session) consume(runCtx context.Context, stdout io.ReadCloser, stderr *bytes.Buffer, ch chan<- adapter.SessionEvent) {
+	events, perr := ParseStreamJSON(stdout)
+	if perr != nil {
+		// A malformed or oversized frame makes the parser return before
+		// draining the stream. Drain the remainder so a producer blocked
+		// on a full stdout pipe can still exit; cmd.Wait would otherwise
+		// deadlock on the stderr copier waiting for the child.
+		_, _ = io.Copy(io.Discard, stdout)
+	}
+	waitErr := s.cmd.Wait()
+	if native := FirstSessionID(events); native != "" {
+		s.mu.Lock()
+		if s.nativeID == "" {
+			s.nativeID = native
+		}
+		s.mu.Unlock()
+	}
+	cursor := int64(0)
+	emit := func(evType string, payload string) {
+		cursor++
+		ch <- adapter.SessionEvent{Cursor: cursor, Type: evType, Payload: []byte(payload)}
+	}
+	sawText := false
+	var failMsg string
+	for _, ev := range events {
+		// Harness-declared errors: top-level error field or an error
+		// result. Clean failure, never completion.
+		if ev.Error != "" {
+			if failMsg == "" {
+				failMsg = ev.Error
+			}
+			continue
+		}
+		if ev.IsError {
+			if failMsg == "" {
+				if ev.Result != "" {
+					failMsg = ev.Result
+				} else {
+					failMsg = "harness reported an error result"
+				}
+			}
+			continue
+		}
+		// Result success: emit the result text as fallback only when no
+		// text was streamed earlier, then the run completes.
+		if ev.Type == "result" && !ev.IsError && !sawText && ev.Result != "" {
+			sawText = true
+			emit("output_delta", ev.Result)
+		}
+		for _, text := range ev.Texts() {
+			sawText = true
+			emit("output_delta", text)
+		}
+		if dt := ev.DeltaText(); dt != "" {
+			sawText = true
+			emit("output_delta", dt)
+		}
+	}
+	switch {
+	case perr != nil:
+		// Malformed or oversized frame: malformed protocol is terminal.
+		emit("failed", fmt.Sprintf("protocol error: %v", perr))
+	case runCtx.Err() == context.DeadlineExceeded:
+		// Timeout is terminal.
+		emit("failed", fmt.Sprintf("timeout: session exceeded %v", s.adapter.timeout))
+	case failMsg != "":
+		// Harness-declared error envelope: clean failure.
+		emit("failed", failMsg)
+	case waitErr != nil && !sawText:
+		msg := waitErr.Error()
+		if stderr.Len() > 0 {
+			msg += ": " + stderr.String()
+		}
+		emit("failed", msg)
+	case !sawText:
+		// Zero-text EOF fails cleanly (not terminal).
+		emit("failed", "no output: session ended without text events")
+	default:
+		emit("completed", "")
+	}
+}
 
-func (s *claudeSession) LoadPrevious(ctx context.Context, nativeSessionID string) error {
+// Cancel kills the subprocess exactly once and waits for the run goroutine
+// to drain. Calling Cancel on an already-settled or never-started session is
+// a no-op.
+func (s *session) Cancel(ctx context.Context) error {
+	s.cancelOnce.Do(func() {
+		s.mu.Lock()
+		cmd := s.cmd
+		s.mu.Unlock()
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+	if s.done == nil {
+		return nil
+	}
+	select {
+	case <-s.done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+// LoadPrevious is unsupported: Claude sessions here cannot resume a prior
+// native session.
+func (s *session) LoadPrevious(_ context.Context, _ string) error {
 	return adapter.ErrUnsupportedCapability
 }
 
-func (s *claudeSession) Terminal(ctx context.Context) (adapter.TerminalHandle, error) {
+// Terminal is unsupported: embedded terminal/PTY is deferred.
+func (s *session) Terminal(_ context.Context) (adapter.TerminalHandle, error) {
 	return adapter.TerminalHandle{}, adapter.ErrUnsupportedCapability
+}
+
+// SessionTransport exposes the real transport identity captured during the
+// run. It reports false until the stream carried a session_id.
+func (s *session) SessionTransport() (adapter.SessionTransport, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.nativeID == "" {
+		return adapter.SessionTransport{}, false
+	}
+	return adapter.SessionTransport{
+		NativeSessionID: s.nativeID,
+		ProtocolVersion: s.adapter.neg.ProtocolVersion,
+		Extra:           map[string]any{"transport": "stream-json"},
+	}, true
 }
