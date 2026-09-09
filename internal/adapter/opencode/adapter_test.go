@@ -298,3 +298,74 @@ func (fakeHost) RequestPermission(context.Context, adapter.PermissionRequest) (a
 
 // TestFactoryBinaryPrecedence lives in internal/adapter/factory; the adapter
 // package keeps only the session contract tests above.
+
+// TestCancelReturnsAfterLaunchFailure covers the remediation finding: every
+// Prompt early-return path (launch failure, pipe errors) must still close
+// the session completion signal so Cancel with a non-cancellable context
+// returns promptly instead of deadlocking. Also re-proves idempotent Cancel
+// on the failure path.
+func TestCancelReturnsAfterLaunchFailure(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("launch failure settles Cancel promptly", func(t *testing.T) {
+		binary := writeFixture(t, fixtureEnvelope)
+		a := initializedAdapter(t, binary, 10*time.Second)
+		if err := os.Remove(binary); err != nil {
+			t.Fatal(err)
+		}
+		sess, err := a.NewSession(ctx, adapter.SessionBundle{WorkspaceRoot: t.TempDir()}, &fakeHost{})
+		if err != nil {
+			t.Fatalf("new session must still construct: %v", err)
+		}
+		if _, err := sess.Prompt(ctx, adapter.PromptInput{Text: "go"}); err == nil {
+			t.Fatalf("prompt on deleted binary must fail")
+		}
+		// Cancel with a non-cancellable context must return promptly.
+		done := make(chan struct{})
+		go func() {
+			_ = sess.Cancel(context.Background())
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Cancel deadlocked after launch failure (non-cancellable context)")
+		}
+		// Idempotent: a second Cancel also returns promptly.
+		done2 := make(chan struct{})
+		go func() {
+			_ = sess.Cancel(context.Background())
+			close(done2)
+		}()
+		select {
+		case <-done2:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("second Cancel deadlocked after launch failure")
+		}
+	})
+
+	t.Run("successful path Cancel still settles promptly", func(t *testing.T) {
+		binary := writeFixture(t, fixtureEnvelope)
+		a := initializedAdapter(t, binary, 10*time.Second)
+		sess, err := a.NewSession(ctx, adapter.SessionBundle{WorkspaceRoot: t.TempDir()}, &fakeHost{})
+		if err != nil {
+			t.Fatalf("new session: %v", err)
+		}
+		ch, err := sess.Prompt(ctx, adapter.PromptInput{Text: "go"})
+		if err != nil {
+			t.Fatalf("prompt: %v", err)
+		}
+		for range ch {
+		}
+		done := make(chan struct{})
+		go func() {
+			_ = sess.Cancel(context.Background())
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Cancel deadlocked on settled successful session")
+		}
+	})
+}

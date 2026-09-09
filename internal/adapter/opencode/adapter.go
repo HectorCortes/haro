@@ -169,9 +169,18 @@ type session struct {
 	host       adapter.SessionHost
 	cmd        *exec.Cmd
 	done       chan struct{}
+	doneOnce   sync.Once
 	cancelOnce sync.Once
 	mu         sync.Mutex
 	nativeID   string
+}
+
+// settleDone closes the completion signal exactly once, on every path:
+// successful runs, launch failures, and pipe errors. Cancel waits on this
+// signal, so leaving it open on an early-return path would deadlock a
+// non-cancellable Cancel.
+func (s *session) settleDone() {
+	s.doneOnce.Do(func() { close(s.done) })
 }
 
 // Prompt launches `binary run --format json` with the prompt on stdin, no
@@ -179,6 +188,16 @@ type session struct {
 // subprocess is started synchronously so launch failures surface as a clean
 // error before any event is streamed.
 func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan adapter.SessionEvent, error) {
+	// Every early-return error path below must close the completion signal
+	// so Cancel never waits forever. Once the consumer goroutine takes
+	// ownership (started=true) it settles the signal at run completion
+	// instead; the deferred settle then becomes a no-op.
+	started := false
+	defer func() {
+		if !started {
+			s.settleDone()
+		}
+	}()
 	runCtx, cancelRun := context.WithTimeout(ctx, s.adapter.timeout)
 	argv := []string{s.adapter.binary, "run", "--format", "json"}
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
@@ -230,9 +249,10 @@ func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan
 		return nil, fmt.Errorf("close prompt: %w", err)
 	}
 	ch := make(chan adapter.SessionEvent, 8)
+	started = true
 	go func() {
 		defer close(ch)
-		defer close(s.done)
+		defer s.settleDone()
 		defer cancelRun()
 		s.consume(runCtx, stdout, &stderr, ch)
 	}()
