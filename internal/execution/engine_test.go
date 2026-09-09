@@ -6,7 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/HectorCortes/haro/internal/adapter"
+	"github.com/HectorCortes/haro/internal/adapter/claude"
+	"github.com/HectorCortes/haro/internal/adapter/opencode"
 	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
 )
@@ -248,4 +252,195 @@ steps:
 
 // helpers
 func contains(s, substr string) bool { return strings.Contains(s, substr) }
-func stringsJoin(a []string) string { return strings.Join(a, " ") }
+func stringsJoin(a []string) string  { return strings.Join(a, " ") }
+
+// writeClaudeGateFixture writes an executable claude fixture emitting the
+// pinned success envelope, with optional extra body.
+func writeClaudeGateFixture(t *testing.T, extra string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude-fixture.sh")
+	script := "#!/bin/sh\n" +
+		"stdin=$(cat)\n" +
+		"cat <<'CLAUDE_EOF'\n" +
+		`{"type":"system","subtype":"init","session_id":"sess_claude_gate_1"}` + "\n" +
+		"CLAUDE_EOF\n" +
+		"cat <<'CLAUDE_EOF'\n" +
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"claude gate output"}]}}` + "\n" +
+		"CLAUDE_EOF\n" +
+		"cat <<'CLAUDE_EOF'\n" +
+		`{"type":"result","subtype":"success","is_error":false,"result":"done"}` + "\n" +
+		"CLAUDE_EOF\n" +
+		extra + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestClaudeAgentAttemptEndToEnd covers task 5.1: a claude attempt end to
+// end persists evidence and transport identity through the generic engine
+// path.
+func TestClaudeAgentAttemptEndToEnd(t *testing.T) {
+	ctx := context.Background()
+	wfYAML := `version: 2
+name: agentwf
+steps:
+  - id: ag
+    type: agent
+    harness: [claude]
+    instructions: do the thing
+    mode: headless
+`
+	_, eng := newAgentEngine(t, wfYAML, `version: 2
+harnesses:
+  claude:
+    binary: /nonexistent/claude
+`)
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	fixture := writeClaudeGateFixture(t, "")
+	setupFakeManager(t, eng, map[string]adapter.Adapter{"claude": claude.NewAdapter(fixture, nil, 10_000_000_000)})
+
+	if err := eng.RunStep(ctx, execID, "ag", ""); err != nil {
+		t.Fatalf("run agent step: %v", err)
+	}
+	assertStepStatus(t, eng, execID, "ag", "completed")
+	attemptID := eng.singleAttemptID(t, execID, "ag")
+
+	tr, err := eng.store.Transport().Get(ctx, attemptID)
+	if err != nil {
+		t.Fatalf("get transport: %v", err)
+	}
+	if tr.AdapterName != "claude" || tr.NativeSessionID == nil || *tr.NativeSessionID != "sess_claude_gate_1" {
+		t.Fatalf("transport identity = %+v", tr)
+	}
+	if tr.ProtocolVersion == nil || *tr.ProtocolVersion != 1 {
+		t.Fatalf("protocol_version = %v, want 1", tr.ProtocolVersion)
+	}
+	assertAttemptEvidence(t, eng, execID, "ag", 1)
+}
+
+// TestClaudeAgentEmptyIntersectionFailsClosed covers task 5.1: when the
+// claude candidate is configured but unavailable, the intersection is empty,
+// the step fails closed, no attempt runs, and no synthetic success or
+// identity is ever produced.
+func TestClaudeAgentEmptyIntersectionFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	wfYAML := `version: 2
+name: agentwf
+steps:
+  - id: ag
+    type: agent
+    harness: [claude]
+    instructions: do the thing
+    mode: headless
+`
+	_, eng := newAgentEngine(t, wfYAML, `version: 2
+harnesses:
+  claude:
+    binary: /nonexistent/claude
+`)
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	// The claude adapter probes unavailable: empty intersection.
+	unavailable := claude.NewAdapter("/nonexistent/claude-binary", nil, time.Second)
+	setupFakeManager(t, eng, map[string]adapter.Adapter{"claude": unavailable})
+
+	if err := eng.RunStep(ctx, execID, "ag", ""); err == nil {
+		t.Fatalf("empty intersection must fail closed")
+	}
+	assertStepStatus(t, eng, execID, "ag", "failed")
+	assertAttemptEvidence(t, eng, execID, "ag", 0)
+}
+
+// TestClaudeAgentCleanFailureFallsThrough covers task 5.1: a claude clean
+// failure (zero-text EOF) falls through to the next usable candidate; a
+// zero-text claude stream never becomes synthetic success.
+func TestClaudeAgentCleanFailureFallsThrough(t *testing.T) {
+	ctx := context.Background()
+	wfYAML := `version: 2
+name: agentwf
+steps:
+  - id: ag
+    type: agent
+    harness: [claude, oc]
+    instructions: do the thing
+    mode: headless
+`
+	_, eng := newAgentEngine(t, wfYAML, `version: 2
+harnesses:
+  claude:
+    binary: /nonexistent/claude
+  oc:
+    binary: /nonexistent/oc
+`)
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	// Claude fixture emits init but zero text: clean failure at EOF.
+	zeroText := filepath.Join(t.TempDir(), "claude-fixture.sh")
+	script := "#!/bin/sh\n" +
+		"cat <<'CLAUDE_EOF'\n" +
+		`{"type":"system","subtype":"init","session_id":"sess_claude_zero_1"}` + "\n" +
+		"CLAUDE_EOF\n"
+	if err := os.WriteFile(zeroText, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ocFixture := writeOpenCodeGateFixture(t)
+	setupFakeManager(t, eng, map[string]adapter.Adapter{
+		"claude": claude.NewAdapter(zeroText, nil, 10_000_000_000),
+		"oc":     opencode.NewAdapter(ocFixture, nil, 10_000_000_000),
+	})
+
+	if err := eng.RunStep(ctx, execID, "ag", ""); err != nil {
+		t.Fatalf("fallback to opencode must succeed: %v", err)
+	}
+	assertStepStatus(t, eng, execID, "ag", "completed")
+	// Two attempts: the claude clean failure and the opencode success; each
+	// persisted inline evidence.
+	assertAttemptEvidence(t, eng, execID, "ag", 2)
+	// The claude attempt kept its real identity.
+	ctx2 := context.Background()
+	rows, err := eng.store.(*store.SQLiteStore).QueryForTest(ctx2,
+		`SELECT t.attempt_id, t.native_session_id, t.adapter_name FROM attempt_transport t JOIN attempts a ON a.id = t.attempt_id WHERE a.execution_id = ? AND a.step_id = ?`, execID, "ag")
+	if err != nil {
+		t.Fatalf("query transports: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	sawZero := false
+	for rows.Next() {
+		var attemptID, native, adapterName string
+		if err := rows.Scan(&attemptID, &native, &adapterName); err != nil {
+			t.Fatal(err)
+		}
+		if adapterName == "claude" && native == "sess_claude_zero_1" {
+			sawZero = true
+		}
+	}
+	if !sawZero {
+		t.Fatalf("claude clean-failure attempt must keep its native identity")
+	}
+}
+
+// writeOpenCodeGateFixture writes an executable opencode fixture emitting a
+// successful JSONL envelope.
+func writeOpenCodeGateFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oc-fixture.sh")
+	script := "#!/bin/sh\n" +
+		"cat <<'OC_EOF'\n" +
+		`{"type":"step_start","sessionID":"sess_oc_gate_1"}` + "\n" +
+		`{"type":"part","sessionID":"sess_oc_gate_1","part":{"type":"text","text":"oc gate output"}}` + "\n" +
+		"OC_EOF\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}

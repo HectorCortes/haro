@@ -22,7 +22,7 @@ var (
 	tokenAssignRe = regexp.MustCompile(`(?i)\b(token|secret|api[_-]?token|api[_-]?key|secret[_-]?key|password|passwd|pwd)\b\s*[:=]\s*([^\s"']+)`)
 	// GitHub PAT-like tokens
 	ghpRe = regexp.MustCompile(`ghp_[A-Za-z0-9]+`)
-	// Anthropic-style keys (sk-ant-api03-...) and generic sk- secret keys.
+	// sk-ant-style keys (sk-ant-api03-...) and generic sk- secret keys.
 	// The dedicated sk-ant pattern runs first so the generic sk- rule never
 	// leaves a partial secret behind.
 	skAntRe = regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]+`)
@@ -49,7 +49,7 @@ func Redact(s string) string {
 	})
 	// ghp tokens
 	s = ghpRe.ReplaceAllString(s, "***")
-	// Anthropic-style keys and generic sk- secrets
+	// sk-ant-style keys and generic sk- secrets
 	s = skAntRe.ReplaceAllString(s, "***")
 	s = skRe.ReplaceAllString(s, "***")
 	return s
