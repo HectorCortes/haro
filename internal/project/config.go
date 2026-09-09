@@ -14,8 +14,9 @@ import (
 const DefaultHarnessTimeoutSeconds = 300
 
 // HarnessConfig is one configured harness record from .haro/config.yaml.
-// Record keys are arbitrary data names; provider literals must stay confined
-// to adapters. Unknown record fields are rejected by strict decoding.
+// Record keys are arbitrary data names; harness-specific behavior must stay
+// confined to adapters. Unknown record fields are rejected by strict
+// decoding.
 type HarnessConfig struct {
 	Binary         string            `yaml:"binary"`
 	Env            map[string]string `yaml:"env"`

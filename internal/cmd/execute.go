@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/HectorCortes/haro/internal/adapter/factory"
 	"github.com/HectorCortes/haro/internal/claim"
 	"github.com/HectorCortes/haro/internal/execution"
 	"github.com/HectorCortes/haro/internal/project"
@@ -31,6 +32,27 @@ func getRunner() execution.CommandRunner {
 		return runnerOverride
 	}
 	return execution.NewRunner()
+}
+
+// injectAdapterManager loads the project harness configuration and builds
+// one CLI-scoped adapter manager (probe + initialize each usable harness
+// once) for the engine. It is wired at the agent-capable sites: run, step
+// run, step reopen, and step skip. The report site stays unwired. An error
+// fails closed: a malformed harness configuration must not silently run.
+func injectAdapterManager(ctx context.Context, eng *execution.Engine, root string) error {
+	cfg, err := project.LoadConfig(root)
+	if err != nil {
+		return fmt.Errorf("harness config: %w", err)
+	}
+	if len(cfg.Harnesses) == 0 {
+		return nil
+	}
+	mgr, err := factory.NewManager(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("harness factory: %w", err)
+	}
+	eng.SetAdapterManager(mgr)
+	return nil
 }
 
 // Execute is the thin CLI entry point. It routes args and returns exit code.
@@ -258,6 +280,9 @@ func handleRun(ctx context.Context, args []string, cwd string, out io.Writer, wr
 	}
 	defer func() { _ = s.Close() }()
 	eng := execution.NewEngine(s, getRunner(), cwd)
+	if err := injectAdapterManager(ctx, eng, cwd); err != nil {
+		return writeErr(err.Error(), "harness_config_failed")
+	}
 	id, err := eng.CreateExecution(ctx, name)
 	if err != nil {
 		if ve, ok := err.(*workflow.ValidationError); ok {
@@ -473,6 +498,9 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 	}
 	defer func() { _ = s.Close() }()
 	eng := execution.NewEngine(s, getRunner(), cwd)
+	if err := injectAdapterManager(ctx, eng, cwd); err != nil {
+		return writeErr(err.Error(), "harness_config_failed")
+	}
 	if err := eng.RunStep(ctx, execID, stepID, feedback); err != nil {
 		if ve, ok := err.(*workflow.ValidationError); ok {
 			payload := map[string]string{"error": ve.Message, "code": ve.Code, "field": ve.Field}
@@ -554,6 +582,9 @@ func handleStepReopen(ctx context.Context, args []string, cwd string, out io.Wri
 	}
 	defer func() { _ = s.Close() }()
 	eng := execution.NewEngine(s, getRunner(), cwd)
+	if err := injectAdapterManager(ctx, eng, cwd); err != nil {
+		return writeErr(err.Error(), "harness_config_failed")
+	}
 	if err := eng.ReopenStep(ctx, execID, stepID, cascade, feedback); err != nil {
 		return writeErr(err.Error(), "reopen_failed")
 	}
@@ -594,6 +625,9 @@ func handleStepSkip(ctx context.Context, args []string, cwd string, out io.Write
 	}
 	defer func() { _ = s.Close() }()
 	eng := execution.NewEngine(s, getRunner(), cwd)
+	if err := injectAdapterManager(ctx, eng, cwd); err != nil {
+		return writeErr(err.Error(), "harness_config_failed")
+	}
 	if err := eng.SkipStep(ctx, execID, stepID, reason); err != nil {
 		return writeErr(err.Error(), "skip_failed")
 	}
