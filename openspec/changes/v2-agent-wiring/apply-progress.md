@@ -126,3 +126,38 @@ Both CRITICAL verify findings fixed via strict TDD (RED confirmed, then GREEN), 
 ### Next Steps (updated)
 
 - `next_recommended`: `sdd-verify` (re-run)
+
+---
+
+## Remediation Round 2 (post-re-verify, blocker: reopen site coverage)
+
+The re-verify found one remaining blocker: `TestAgentManagerCLIInjection` did not exercise the `step reopen` agent-capable site, leaving the F-01 CLI lifecycle scenario 8/9 covered (run, step run, step skip covered; reopen missing).
+
+### New coverage
+
+- **`TestAgentManagerCLIInjectionStepReopen`** (`internal/cmd/agent_wiring_test.go`, dedicated test matched by the same `-run` prefix): drives the real CLI path end to end —
+  1. `run` + `step run` complete the agent step through the OpenCode fixture (attempt 1, identity `sess_fixture_1` persisted);
+  2. `step reopen <exec> ag --cascade` through `Execute` (the `handleStepReopen` handler, which injects one manager fail-closed) → exit 0, step back to `pending`, generation invalidated;
+  3. post-reopen `step run` executes through the real adapter branch again: second attempt with fresh persisted transport identity (`sess_fixture_1`), exactly 2 fixture subprocess invocations (one per step run), attempts = 2.
+  - No false positives: the test asserts the pre-reopen completed status (reopen processes a completed step), the post-reopen pending status + invalidated generation (reopen took effect), and fresh per-attempt transport rows (the post-reopen run really executed).
+- **`TestReopenDoesNotReprobeHarness`** (`internal/execution/agent_fallback_test.go`): probe count is only observable through the fake manager adapter (the CLI fixture is a shell script; probing is a filesystem check), so the probe-once assertion for the reopen lifecycle lives at the engine level: exactly 1 probe per harness across first run → reopen → post-reopen run, with 2 fake sessions total. The counting mechanism is the one proven RED in remediation round 1 (`probed 2 times` failure).
+
+### Outcome
+
+- No production defect: `handleStepReopen` already wires the manager (code-verified and now runtime-covered); the blocker was missing coverage, so the new tests are approval-style coverage and passed on first run. Guard value: if reopen wiring or probe-once regresses, the new tests fail (missing second identity / probe count > 1 / reopen rejected before agent execution).
+
+### Remediation Round 2 gates
+
+| Command | Result |
+|---|---|
+| `go test ./internal/cmd/ -run TestAgentManagerCLIInjection -v -count=1` | 2/2 PASS, ok, exit 0 |
+| `go test ./... -race -count=1` | ok, 15/15 packages, exit 0 |
+| `go build ./...` | exit 0 |
+| `go vet ./...` | exit 0 |
+| `scripts/verify-adapter-boundary.sh` | exit 0 |
+
+- **Commit**: `c014ec4` test(cmd): cover step reopen agent wiring end to end
+
+### Next Steps (updated)
+
+- `next_recommended`: `sdd-verify` (re-run)
