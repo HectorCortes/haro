@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess_synthetic_claude_1"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"synthetic claude output"}]}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"synthetic delta"}}}
+{"type":"result","subtype":"success","is_error":false,"result":"synthetic claude result","session_id":"sess_synthetic_claude_1"}

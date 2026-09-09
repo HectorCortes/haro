@@ -100,3 +100,62 @@ func TestEvidenceBudgets(t *testing.T) {
 		}
 	})
 }
+
+// TestRedactAnthropicTokens covers the U4 redaction extension: the single
+// redaction point must cover Anthropic-style sk-ant- tokens and generic sk-
+// secret keys alongside Bearer, while innocuous words that merely contain
+// "sk-" as a substring stay untouched.
+func TestRedactAnthropicTokens(t *testing.T) {
+	t.Run("sk-ant token redacted", func(t *testing.T) {
+		in := "Authorization: Bearer sk-ant-api03-AbCdEfGh123456_IjKlMnOp"
+		got := Redact(in)
+		if strings.Contains(got, "sk-ant-api03") {
+			t.Fatalf("sk-ant token not redacted: %q", got)
+		}
+		// Triangulate: a bare sk-ant token with no Bearer prefix must also
+		// be redacted by the dedicated pattern.
+		bare := "credentials sk-ant-api03-ZqWw12ErTyUiOpAsDf leaked"
+		bareGot := Redact(bare)
+		if strings.Contains(bareGot, "sk-ant-api03-ZqWw12ErTyUiOpAsDf") {
+			t.Fatalf("bare sk-ant token not redacted: %q", bareGot)
+		}
+	})
+	t.Run("generic sk- secret redacted", func(t *testing.T) {
+		cases := []string{
+			"key sk-1234567890abcdef tail",
+			"openai sk-ProjAb12Cd34Ef56Gh78",
+			"path=/creds sk-9f8e7d6c5b4a3210f",
+		}
+		for _, c := range cases {
+			got := Redact(c)
+			if strings.Contains(got, "sk-1234567890abcdef") || strings.Contains(got, "sk-ProjAb") || strings.Contains(got, "sk-9f8e7d6c5b4a3210f") {
+				t.Fatalf("sk- secret not redacted for %q -> %q", c, got)
+			}
+		}
+	})
+	t.Run("bearer behavior unchanged", func(t *testing.T) {
+		got := Redact("Authorization: Bearer abc.def.ghi-123_456")
+		if strings.Contains(got, "abc.def.ghi") {
+			t.Fatalf("bearer regression: %q", got)
+		}
+		if !strings.Contains(got, "Bearer ***") {
+			t.Fatalf("bearer placeholder changed: %q", got)
+		}
+	})
+	t.Run("substring sk- inside words stays untouched", func(t *testing.T) {
+		in := "task-list and risk-assessment and ask-user stay"
+		if got := Redact(in); got != in {
+			t.Fatalf("innocuous text must be unchanged, got %q", got)
+		}
+	})
+	t.Run("visible bound applies after sk-ant redaction", func(t *testing.T) {
+		oversized := strings.Repeat("a", 20*1024) + " Bearer tok123 sk-ant-api03-secretvalue"
+		got := VisibleEvidence(oversized)
+		if len(got) > 16*1024 {
+			t.Fatalf("visible len = %d, want <= 16384", len(got))
+		}
+		if strings.Contains(got, "sk-ant-api03-secretvalue") || strings.Contains(got, "tok123") {
+			t.Fatalf("secrets must be redacted before truncation: %q", got[:min(len(got), 128)])
+		}
+	})
+}
