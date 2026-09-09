@@ -376,3 +376,58 @@ harnesses:
 	}
 	assertStepStatus(t, eng, execID, "ag", "completed")
 }
+
+// TestReopenDoesNotReprobeHarness extends the probe-once guarantee across
+// the reopen lifecycle (F-01): completing an agent step, reopening it, and
+// running it again must keep exactly one probe per harness — reopen neither
+// re-probes nor re-initializes the manager's adapters.
+func TestReopenDoesNotReprobeHarness(t *testing.T) {
+	ctx := context.Background()
+	root, eng := newAgentEngine(t, fallbackWfYAML, `version: 2
+harnesses:
+  unavailable:
+    binary: /nonexistent/unavailable
+  good:
+    binary: /nonexistent/good
+`)
+	writeRequiredArtifacts(t, root)
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	unavailable := newFakeHarnessAdapter(false, "completed", "")
+	good := newFakeHarnessAdapter(true, "completed", "output from good")
+	setupFakeManager(t, eng, map[string]adapter.Adapter{
+		"unavailable": unavailable,
+		"good":        good,
+	})
+	if err := eng.RunStep(ctx, execID, "ag", ""); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	assertStepStatus(t, eng, execID, "ag", "completed")
+	if got := good.ProbeCount(); got != 1 {
+		t.Fatalf("good probed %d times after first run, want 1", got)
+	}
+	if err := eng.ReopenStep(ctx, execID, "ag", true, "retry with feedback"); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	assertStepStatus(t, eng, execID, "ag", "pending")
+	if got := good.ProbeCount(); got != 1 {
+		t.Fatalf("reopen must not re-probe, got %d", got)
+	}
+	if got := unavailable.ProbeCount(); got != 1 {
+		t.Fatalf("reopen must not re-probe unavailable candidate, got %d", got)
+	}
+	// The reopened step runs again through the same manager with no
+	// additional probe and no re-initialization.
+	if err := eng.RunStep(ctx, execID, "ag", "retry with feedback"); err != nil {
+		t.Fatalf("post-reopen run: %v", err)
+	}
+	assertStepStatus(t, eng, execID, "ag", "completed")
+	if got := good.ProbeCount(); got != 1 {
+		t.Fatalf("post-reopen run must keep single probe, got %d", got)
+	}
+	if got := good.NewSessionCount(); got != 2 {
+		t.Fatalf("expected two sessions (one per run), got %d", got)
+	}
+}
