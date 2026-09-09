@@ -11,12 +11,19 @@ Implementation MUST be pure Go/no cgo with dependency-free stdlib JSON, confine 
 ## Requirements
 
 ### Requirement: Prior initialization [v2-adapter/F-01]
-Each subprocess MUST receive exactly one bilateral protocol/capability `initialize` before any `session/*` call.
 
-#### Scenario: Call order
-- GIVEN a recorded subprocess
-- WHEN a session runs
-- THEN `initialize` is first and occurs once
+Each CLI invocation MUST construct one manager from project configuration, probe and initialize each usable harness once before `session/*`, and inject it into `run`, `step run`, `step reopen`, and `step skip` engines. Sessions MUST use `exec.CommandContext`, fixed arguments, no shell, configured environment, and a timeout defaulting to at most 300 seconds; cancellation MUST be idempotent. Only OpenCode SHALL be registered; Claude and ACP MUST remain unregistered until their sessions are real.
+
+
+#### Scenario: CLI lifecycle (`TestAgentManagerCLIInjection`)
+- GIVEN enabled configuration and any agent-capable run site
+- WHEN the CLI creates its execution engine
+- THEN one manager is injected and each usable harness is initialized once before its first session
+
+#### Scenario: Real OpenCode session (`TestOpenCodeRealSessionLifecycle`)
+- GIVEN an OpenCode fixture and simulated Claude and ACP sessions
+- WHEN a session runs, times out, or is cancelled repeatedly
+- THEN the subprocess is bounded and only OpenCode is registered
 
 ### Requirement: Optional-method gate [v2-adapter/F-02]
 The core MUST NOT invoke unannounced optional methods and MUST return `unsupported_capability` when their use is requested.
@@ -35,12 +42,19 @@ A harness MUST request permission only when core permission support was negotiat
 - THEN no request is sent and default policy resolves it or execution fails closed
 
 ### Requirement: Adapter boundary [v2-adapter/F-04]
-The OpenCode JSONL parser and provider details MUST remain in its adapter; `scripts/verify-adapter-boundary.sh` MUST enforce this by grep/import graph.
+
+`.haro/config.yaml` MUST accept optional `harnesses: map[string]{binary, env, timeout_seconds, enabled}`. Parsing MUST use `yaml.v3` `KnownFields(true)` and reject unknown record fields. Harness names are data keys; provider literals MUST remain confined to adapters. `scripts/verify-adapter-boundary.sh` MUST enforce confinement and oversized-message rejection.
+
 
 #### Scenario: Boundary gate
 - GIVEN sources and an oversized message
 - WHEN boundary and parser checks run
 - THEN provider leakage fails the gate and the oversized message is rejected
+
+#### Scenario: Strict optional configuration (`TestHarnessConfigKnownFields`)
+- GIVEN absent harnesses, arbitrary harness keys, or an unknown record field
+- WHEN project configuration is loaded
+- THEN absence and arbitrary keys pass, while the unknown field fails
 
 ### Requirement: Claude contract [v2-adapter/F-05]
 The Claude Code adapter MUST pass the public-boundary suite using the opted-in binary or justified fixtures.
@@ -51,17 +65,24 @@ The Claude Code adapter MUST pass the public-boundary suite using the opted-in b
 - THEN the contract suite passes
 
 ### Requirement: Ordered fallback [v2-adapter/F-06]
-Candidates MUST run in declared order; clean failure MUST advance without semantic classification, carrying sanitized accumulated context no larger than 2 MiB.
 
-#### Scenario: E2E fallback
-- GIVEN two candidates whose first fails cleanly
+The engine MUST intersect a step's ordered harness list with configured, enabled, successfully probed harnesses without reordering. Unknown, disabled, unavailable, or cleanly failing candidates MUST fall through, carrying sanitized context of at most 2 MiB. Exhaustion MUST fail closed with clear evidence. Production MUST NOT synthesize success, identity, or output; tests MUST inject fakes.
+
+
+#### Scenario: E2E fallback (`TestAgentHarnessIntersectionFallback`)
+- GIVEN unavailable candidates before a usable adapter
 - WHEN `step run` executes
-- THEN the second receives bounded sanitized context and runs
+- THEN they fall through and the usable adapter receives bounded sanitized context
 
 #### Scenario: Candidates exhausted
-- GIVEN all candidates fail cleanly
+- GIVEN every intersected candidate fails cleanly
 - WHEN fallback exhausts the list
-- THEN the step fails with sanitized evidence from every candidate
+- THEN the step fails with sanitized evidence from every attempted candidate
+
+#### Scenario: No configured harness (`TestAgentStepFailsWithoutConfiguredHarness`)
+- GIVEN no configuration or no usable candidate
+- WHEN an agent step runs without an injected fake
+- THEN the step fails closed with clear evidence and no simulated result
 
 ### Requirement: Capability drift table [v2-adapter/U-01]
 Optional calls MUST be table-gated; capabilities MUST be additive; major versions MUST change only for mandatory-method incompatibility.
@@ -88,9 +109,16 @@ The generic ACP adapter MUST translate initialize, new, prompt, update, cancel, 
 - THEN equivalent capabilities and messages return
 
 ### Requirement: Transport-neutral attempts [v2-adapter/U-04]
-`attempts` MUST contain no transport fields; native session ID, protocol version, and extra data MUST live in per-adapter `attempt_transport`.
+
+`attempts` MUST contain no transport fields. Real attempts MUST persist actual `native_session_id`, `adapter_name`, protocol version, and metadata in `attempt_transport`. `SessionBundle.Requires` MUST contain resolved required-artifact paths. Harness output MUST be redacted once, bounded to 16 KiB, and stored in `attempt_events.payload`; legacy `payload_ref` MUST remain unchanged.
+
 
 #### Scenario: Optional transport row
 - GIVEN the idempotent additive migration runs repeatedly
 - WHEN attempts are inserted with and without transport details
 - THEN both succeed and native fields remain absent from `attempts`
+
+#### Scenario: Real identity and evidence (`TestAgentStepPersistsRealEvidenceAndTransport`)
+- GIVEN required artifacts, protocol metadata, credentials, and oversized output
+- WHEN the attempt settles
+- THEN resolved requirements reach the session and actual transport identity plus redacted payload of at most 16 KiB are persisted
