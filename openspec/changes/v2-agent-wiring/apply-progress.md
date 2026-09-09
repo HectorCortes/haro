@@ -87,3 +87,42 @@ Modified: `internal/project/config.go`, `internal/project/config_test.go`, `inte
 ## Next Steps
 
 - `next_recommended`: `sdd-verify`
+
+---
+
+## Remediation Round 1 (post-VERIFY, CRITICAL findings)
+
+Both CRITICAL verify findings fixed via strict TDD (RED confirmed, then GREEN), two focused commits on `main`, not pushed.
+
+### Finding 1 — Probe-once violation (v2-adapter/F-01)
+
+- **RED test**: `TestProbeCalledOncePerHarness` (`internal/execution/agent_fallback_test.go`) — failed with `good probed 2 times, want exactly 1` (factory probe in `setupFakeManager` + engine re-probe at `runAgentStep`). Supporting RED: `TestManager_ProbeCachedOnce` (`internal/adapter/manager_probe_once_test.go`) — adapters re-probed on a second `Manager.Probe` call and `ProbeResults` was undefined (compile RED).
+- **Fix**: `internal/adapter/manager.go` — `Manager` now caches the availability snapshot of a single serialized probe per manager lifetime (`probeMu` + `probeResults`); subsequent `Probe` calls return the cached snapshot without touching adapters, and a new `ProbeResults()` accessor exposes the captured state without probing. `internal/execution/engine.go` `runAgentStep` consumes `adapterMgr.ProbeResults()` instead of calling `Probe` during execution. Per-candidate clean-fallback semantics preserved (probe failure → that candidate `Available:false`, never terminal, never abort-all); missing snapshot (never probed) → all unavailable → fail closed.
+- **Commit**: `c777510` fix(execution): probe harnesses once per CLI invocation
+
+### Finding 2 — Cancellation deadlock on Prompt early returns
+
+- **RED test**: `TestCancelReturnsAfterLaunchFailure` (`internal/adapter/opencode/adapter_test.go`) — the `launch failure settles Cancel promptly` subtest deadlocked (2s guard hit: `Cancel deadlocked after launch failure (non-cancellable context)`), because Prompt's early returns (stdin/stdout pipe errors, `cmd.Start` failure, prompt write/close errors) left `s.done` open while Cancel waits on it.
+- **Fix**: `internal/adapter/opencode/adapter.go` — session gains `doneOnce sync.Once` and `settleDone()` closing `done` exactly once. The consumer goroutine owns the settle on the success path; a deferred settle in `Prompt` (guarded by a `started` flag that flips when the goroutine takes ownership) covers every early-return error path without closing early on success — preserving the wait-for-exit semantics of `Cancel` for successful sessions. Covered cases: launch failure Cancel prompt return, idempotent second Cancel, settled-successful-session Cancel.
+- **Commit**: `89f1c0a` fix(adapter): settle session completion on every Prompt failure path
+
+### Remediation gates
+
+| Command | Result |
+|---|---|
+| `go test ./internal/execution/ ./internal/adapter/opencode/ ./internal/cmd/ -count=1` | ok, exit 0 |
+| `go test ./... -race -count=1` | ok, 15/15 packages, exit 0 |
+| `go build ./...` | exit 0 |
+| `go vet ./...` | exit 0 |
+| `scripts/verify-adapter-boundary.sh` | exit 0 |
+
+### TDD Cycle Evidence (remediation)
+
+| Finding | RED test | Layer | RED observed | GREEN | REFACTOR |
+|---|---|---|---|---|---|
+| 1 | `TestProbeCalledOncePerHarness` + `TestManager_ProbeCachedOnce` | Integration (fake manager) / Unit | `probed 2 times, want exactly 1`; re-probe on 2nd call + compile RED `ProbeResults undefined` | Passed | Clean (probeMu serialization) |
+| 2 | `TestCancelReturnsAfterLaunchFailure` | Integration (subprocess fixture) | `Cancel deadlocked after launch failure (non-cancellable context)` (2s guard) | Passed | `started` flag prevents early close on success path |
+
+### Next Steps (updated)
+
+- `next_recommended`: `sdd-verify` (re-run)
