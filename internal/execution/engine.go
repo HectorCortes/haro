@@ -799,13 +799,13 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		return fmt.Errorf("harness config: %w", cfgErr)
 	}
 	// Without an injected manager there is no usable candidate: production
-	// never synthesizes success, identity, or output.
+	// never synthesizes success, identity, or output. The engine consumes
+	// the availability state captured by the manager's single probe (the
+	// factory probes each harness exactly once per CLI invocation, F-01);
+	// it must never re-probe during execution.
 	var probes map[string]adapter.ProbeResult
 	if e.adapterMgr != nil {
-		pr, pErr := e.adapterMgr.Probe(ctx)
-		if pErr == nil {
-			probes = pr
-		}
+		probes = e.adapterMgr.ProbeResults()
 	}
 	// Ordered intersection (F-06): preserve the step's harness order and
 	// keep only configured, enabled, registered, successfully probed

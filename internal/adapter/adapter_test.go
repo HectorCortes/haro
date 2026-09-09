@@ -39,11 +39,13 @@ func (f *fakeSession) Terminal(_ context.Context) (TerminalHandle, error) {
 type fakeAdapter struct {
 	probeResult ProbeResult
 	probeErr    error
+	probeCount  int
 	initCalled  int
 	sessions    int
 }
 
 func (f *fakeAdapter) Probe(_ context.Context) (ProbeResult, error) {
+	f.probeCount++
 	if f.probeErr != nil {
 		return ProbeResult{}, f.probeErr
 	}

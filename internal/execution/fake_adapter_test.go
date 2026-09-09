@@ -19,6 +19,7 @@ type fakeHarnessAdapter struct {
 	outcome    string // "completed" or "failed"
 	output     string
 	noIdentity bool // session captures no transport identity
+	probeCount int  // number of Probe invocations on this adapter
 	sessions   int
 	bundles    []adapter.SessionBundle
 	prompts    []string
@@ -30,11 +31,22 @@ func newFakeHarnessAdapter(available bool, outcome, output string) *fakeHarnessA
 }
 
 func (f *fakeHarnessAdapter) Probe(_ context.Context) (adapter.ProbeResult, error) {
+	f.mu.Lock()
+	f.probeCount++
+	f.mu.Unlock()
 	return adapter.ProbeResult{
 		Available:    f.available,
 		Version:      "fake-1.0",
 		Capabilities: adapter.Capabilities{ProtocolVersion: 1},
 	}, nil
+}
+
+// ProbeCount reports how many times Probe ran on this adapter. F-01 allows
+// exactly one probe per harness per CLI invocation.
+func (f *fakeHarnessAdapter) ProbeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.probeCount
 }
 
 func (f *fakeHarnessAdapter) Initialize(_ context.Context, core adapter.Capabilities) (adapter.Capabilities, error) {

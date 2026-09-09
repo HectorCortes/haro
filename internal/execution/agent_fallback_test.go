@@ -339,3 +339,40 @@ func TestIsTerminalClassifiesTimeoutAndContract(t *testing.T) {
 		t.Fatalf("harness-declared failure must fall through")
 	}
 }
+
+// TestProbeCalledOncePerHarness covers F-01: each harness is probed exactly
+// once per CLI invocation (the factory's single probe). The engine must
+// consume the manager's captured availability state, never re-probe.
+func TestProbeCalledOncePerHarness(t *testing.T) {
+	ctx := context.Background()
+	root, eng := newAgentEngine(t, fallbackWfYAML, `version: 2
+harnesses:
+  unavailable:
+    binary: /nonexistent/unavailable
+  good:
+    binary: /nonexistent/good
+`)
+	writeRequiredArtifacts(t, root)
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	unavailable := newFakeHarnessAdapter(false, "completed", "")
+	good := newFakeHarnessAdapter(true, "completed", "output from good")
+	setupFakeManager(t, eng, map[string]adapter.Adapter{
+		"unavailable": unavailable,
+		"good":        good,
+	})
+	if err := eng.RunStep(ctx, execID, "ag", ""); err != nil {
+		t.Fatalf("run agent step: %v", err)
+	}
+	// The factory probe (setupFakeManager) is the single probe of the
+	// invocation; the engine must not probe again during execution.
+	if got := good.ProbeCount(); got != 1 {
+		t.Fatalf("good probed %d times, want exactly 1", got)
+	}
+	if got := unavailable.ProbeCount(); got != 1 {
+		t.Fatalf("unavailable probed %d times, want exactly 1", got)
+	}
+	assertStepStatus(t, eng, execID, "ag", "completed")
+}

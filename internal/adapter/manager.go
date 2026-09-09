@@ -7,13 +7,16 @@ import (
 )
 
 // Manager owns CLI-direct adapter lifecycle.
-// It ensures one bilateral initialize per adapter before any session.
+// It ensures one bilateral initialize per adapter before any session, and a
+// single probe of each registered adapter per manager lifetime.
 type Manager struct {
 	mu           sync.Mutex
+	probeMu      sync.Mutex
 	adapters     map[string]Adapter
 	initialized  map[string]Capabilities
 	negotiated   map[string]Capabilities
 	initCalled   map[string]bool
+	probeResults map[string]ProbeResult
 }
 
 // NewManager creates a manager with registered adapters.
@@ -26,10 +29,18 @@ func NewManager(adapters map[string]Adapter) *Manager {
 	}
 }
 
-// Probe probes all registered adapters. A per-candidate probe failure
-// degrades that candidate to Available:false (clean fallback) and never
-// aborts probing of the remaining candidates.
+// Probe probes all registered adapters exactly once per manager lifetime
+// and caches the availability snapshot. Subsequent Probe calls and
+// ProbeResults readers return the cached snapshot without touching the
+// adapters again (F-01: one probe per harness per CLI invocation). A
+// per-candidate probe failure degrades that candidate to Available:false
+// (clean fallback) and never aborts probing of the remaining candidates.
 func (m *Manager) Probe(ctx context.Context) (map[string]ProbeResult, error) {
+	m.probeMu.Lock()
+	defer m.probeMu.Unlock()
+	if m.probeResults != nil {
+		return m.probeResults, nil
+	}
 	results := make(map[string]ProbeResult)
 	for name, a := range m.adapters {
 		pr, err := a.Probe(ctx)
@@ -39,7 +50,19 @@ func (m *Manager) Probe(ctx context.Context) (map[string]ProbeResult, error) {
 		}
 		results[name] = pr
 	}
+	m.mu.Lock()
+	m.probeResults = results
+	m.mu.Unlock()
 	return results, nil
+}
+
+// ProbeResults returns the availability snapshot captured by the single
+// probe of the manager lifetime without probing again. It returns nil when
+// no probe has run yet; consumers must treat missing names as unavailable.
+func (m *Manager) ProbeResults() map[string]ProbeResult {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.probeResults
 }
 
 // Registered reports whether the named adapter is registered with the
