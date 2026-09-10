@@ -428,6 +428,141 @@ harnesses:
 	}
 }
 
+// TestSupervisedAgentStepFailsClosed covers v2-no-regresion/F-02: an agent
+// step declared with `mode: supervised` fails closed at runtime with the
+// distinct reason `supervised mode not supported`, before any attempt,
+// fallback, or adapter session; execution must not silently downgrade to
+// headless even when a usable adapter is available.
+func TestSupervisedAgentStepFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	wfYAML := `version: 2
+name: agentwf
+steps:
+  - id: ag
+    type: agent
+    harness: [opencode]
+    instructions: do the thing
+    mode: supervised
+`
+	root, eng := newAgentEngine(t, wfYAML, `version: 2
+harnesses:
+  opencode:
+    binary: /nonexistent/oc
+`)
+	writeRequiredArtifacts(t, root)
+	// Supervised is a valid declared mode: CreateExecution must succeed.
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	// An available adapter must never be reached through a supervised step.
+	good := newFakeHarnessAdapter(true, "completed", "simulated output")
+	setupFakeManager(t, eng, map[string]adapter.Adapter{"opencode": good})
+
+	err = eng.RunStep(ctx, execID, "ag", "")
+	if err == nil {
+		t.Fatalf("supervised mode must fail closed")
+	}
+	if !strings.Contains(err.Error(), "supervised mode not supported") {
+		t.Fatalf("expected supervised rejection reason, got %v", err)
+	}
+	assertStepStatus(t, eng, execID, "ag", "failed")
+	exec, err := eng.store.Executions().Get(ctx, execID)
+	if err != nil {
+		t.Fatalf("get execution: %v", err)
+	}
+	if exec.Status != "failed" {
+		t.Fatalf("execution status = %q, want failed", exec.Status)
+	}
+	// No attempt, no adapter session: the fallback loop was never entered.
+	assertAttemptEvidence(t, eng, execID, "ag", 0)
+	if got := good.NewSessionCount(); got != 0 {
+		t.Fatalf("supervised step must not open adapter sessions, got %d", got)
+	}
+}
+
+// TestTerminalAgentStepRegressionStoreSeeded pins the existing terminal
+// rejection through the store-seeded path (v2-no-regresion/F-02):
+// CreateExecution rejects terminal mode during validation, so a legacy
+// running execution is seeded directly; RunStep re-parses the workflow
+// without validation and must still reach the guard with zero attempts and
+// zero adapter sessions.
+func TestTerminalAgentStepRegressionStoreSeeded(t *testing.T) {
+	ctx := context.Background()
+	wfYAML := `version: 2
+name: agentwf
+steps:
+  - id: ag
+    type: agent
+    harness: [opencode]
+    instructions: do the thing
+    mode: terminal
+`
+	root, eng := newAgentEngine(t, wfYAML, `version: 2
+harnesses:
+  opencode:
+    binary: /nonexistent/oc
+`)
+	// Seed the project, a running execution, and a pending agent step the way
+	// a rehydrated execution looks: nil DagHash skips hash re-flattening and
+	// WorkflowSource drives the runtime re-parse.
+	wfPath := filepath.Join(root, ".haro", "workflows", "agentwf", "workflow.yaml")
+	if err := eng.store.Projects().Create(ctx, root, root); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	exec := &store.Execution{
+		ID:             "exec-term",
+		ProjectID:      root,
+		WorkflowSource: wfPath,
+		Status:         "running",
+		WorkspaceMode:  "shared",
+		WorkspaceRoot:  root,
+		StartedAt:      time.Now().UTC().Format(time.RFC3339),
+		DagHash:        nil,
+		BaseCommit:     nil,
+	}
+	if err := eng.store.Executions().Create(ctx, exec); err != nil {
+		t.Fatalf("seed execution: %v", err)
+	}
+	step := &store.ExecutionStep{
+		ExecutionID:       exec.ID,
+		StepID:            "ag",
+		Type:              "agent",
+		Status:            "pending",
+		DependsOn:         "[]",
+		Requires:          "[]",
+		Produces:          "[]",
+		WorkspaceMode:     "shared",
+		CurrentGeneration: 0,
+	}
+	if err := eng.store.Steps().Create(ctx, step); err != nil {
+		t.Fatalf("seed step: %v", err)
+	}
+	// An available adapter must never be reached through a terminal step.
+	good := newFakeHarnessAdapter(true, "completed", "simulated output")
+	setupFakeManager(t, eng, map[string]adapter.Adapter{"opencode": good})
+
+	err := eng.RunStep(ctx, exec.ID, "ag", "")
+	if err == nil {
+		t.Fatalf("terminal mode must fail closed")
+	}
+	if !strings.Contains(err.Error(), "terminal mode not supported") {
+		t.Fatalf("expected terminal rejection reason, got %v", err)
+	}
+	assertStepStatus(t, eng, exec.ID, "ag", "failed")
+	gotExec, err := eng.store.Executions().Get(ctx, exec.ID)
+	if err != nil {
+		t.Fatalf("get execution: %v", err)
+	}
+	if gotExec.Status != "failed" {
+		t.Fatalf("execution status = %q, want failed", gotExec.Status)
+	}
+	assertAttemptEvidence(t, eng, exec.ID, "ag", 0)
+	if got := good.NewSessionCount(); got != 0 {
+		t.Fatalf("terminal step must not open adapter sessions, got %d", got)
+	}
+}
+
 // writeOpenCodeGateFixture writes an executable opencode fixture emitting a
 // successful JSONL envelope.
 func writeOpenCodeGateFixture(t *testing.T) string {
