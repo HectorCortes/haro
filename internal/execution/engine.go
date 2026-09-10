@@ -786,9 +786,10 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		_ = e.failAttempt(ctx, "no-attempt", executionID, stepID, "no harness candidates")
 		return fmt.Errorf("no harness candidates for agent step %q", stepID)
 	}
-	if mode == "terminal" {
-		_ = e.failAttempt(ctx, "no-attempt", executionID, stepID, "terminal mode not supported")
-		return fmt.Errorf("terminal mode not supported")
+	if mode == "terminal" || mode == "supervised" {
+		reason := fmt.Sprintf("%s mode not supported", mode)
+		_ = e.failAttempt(ctx, "no-attempt", executionID, stepID, reason)
+		return fmt.Errorf("%s", reason)
 	}
 	// Load harness configuration. A malformed configuration fails closed
 	// before any attempt is created.
