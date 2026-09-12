@@ -37,10 +37,10 @@ Strict TDD: RED task before GREEN per task (`go test ./...` locally mandatory; f
 
 ## U2: RPC server + strict validation [v2-broker/U-02, v2-ipc/U-04]
 
-- [ ] 2.1 RED `internal/broker/server_test.go`: malformed frame → `-32700`, connection stays healthy; oversized (>10 MiB) → `-32600`/`-32700` then next valid frame matched; N concurrent connections each get matched responses; no panic on any input.
-- [ ] 2.2 GREEN `internal/broker/server.go`: per-conn goroutine, reused `jsonrpc/codec.go` NDJSON codec, per-conn writer mutex interleaving replies and notifications, envelope checks (`jsonrpc=="2.0"`, id) → `-32600`, unknown method → `-32601`; health demux without store retained.
-- [ ] 2.3 RED `internal/broker/validation_test.go`: per-method strict decode (`DisallowUnknownFields`, required fields, enums): unknown field / missing field / invalid enum / trailing data / non-object params → `-32602` with stable message + field path, no `WithTx` entered (zero effects).
-- [ ] 2.4 GREEN `internal/broker/handlers.go`: `Dispatcher` map, typed params structs per method, fail-closed decode helper; error-code table enforced: `-32700` parse, `-32600` envelope, `-32601` method, `-32602` boundary/field, `-32603` internal, `-32001` stale/reopen-and-rerun, `-32002` interaction conflict, `-32003` unsupported mode.
+- [x] 2.1 RED `internal/broker/server_test.go`: malformed frame → `-32700`, connection stays healthy; oversized (>10 MiB) → `-32600`/`-32700` then next valid frame matched; N concurrent connections each get matched responses; no panic on any input.
+- [x] 2.2 GREEN `internal/broker/server.go`: per-conn goroutine, reused `jsonrpc/codec.go` NDJSON codec, per-conn writer mutex interleaving replies and notifications, envelope checks (`jsonrpc=="2.0"`, id) → `-32600`, unknown method → `-32601`; health demux without store retained.
+- [x] 2.3 RED `internal/broker/validation_test.go`: per-method strict decode (`DisallowUnknownFields`, required fields, enums): unknown field / missing field / invalid enum / trailing data / non-object params → `-32602` with stable message + field path, no `WithTx` entered (zero effects).
+- [x] 2.4 GREEN `internal/broker/handlers.go`: `Dispatcher` map, typed params structs per method, fail-closed decode helper; error-code table enforced: `-32700` parse, `-32600` envelope, `-32601` method, `-32602` boundary/field, `-32603` internal, `-32001` stale/reopen-and-rerun, `-32002` interaction conflict, `-32003` unsupported mode.
 
 ## U3: execution.start/status + CLI client wiring [v2-ipc/F-01,F-02]
 

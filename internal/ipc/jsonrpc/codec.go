@@ -11,6 +11,15 @@ import (
 // MaxMessageSize is the 10 MiB limit per JSON-RPC frame.
 const MaxMessageSize = 10 * 1024 * 1024
 
+// Standard JSON-RPC error codes used by the broker boundary.
+const (
+	ParseErrorCode     = -32700
+	InvalidRequestCode = -32600
+	MethodNotFoundCode = -32601
+	InvalidParamsCode  = -32602
+	InternalErrorCode  = -32603
+)
+
 // RPCError is the JSON-RPC 2.0 error object.
 type RPCError struct {
 	Code    int    `json:"code"`
@@ -29,7 +38,7 @@ type ID struct {
 func (id *ID) IsNull() bool { return id != nil && id.null }
 
 // IsString reports whether the id is a string.
-func (id *ID) IsString() bool { return id != nil && id.Str != "" && !id.null && id.Num == "" }
+func (id *ID) IsString() bool { return id != nil && !id.null && id.Num == "" }
 
 // IsNumber reports whether the id is a number.
 func (id *ID) IsNumber() bool { return id != nil && id.Num != "" }
@@ -208,35 +217,46 @@ func EncodeNotification(w io.Writer, method string, params any) error {
 // DecodeMessage decodes a single NDJSON JSON-RPC message from r.
 // It enforces 10 MiB limit and uses UseNumber for numbers.
 func DecodeMessage(r io.Reader) (*Message, error) {
-	// Read one line or all remaining if no newline, with limit check.
+	return decodeMessageStrict(r)
+}
+
+func decodeMessageStrict(r io.Reader) (*Message, error) {
 	br, ok := r.(*bufio.Reader)
 	if !ok {
-		// If r is *bytes.Buffer, we can read all efficiently; but use bufio for limit
 		br = bufio.NewReader(r)
 	}
-	// Read until newline, but also handle EOF without newline.
 	var buf bytes.Buffer
+	readAny := false
 	for {
 		b, err := br.ReadByte()
 		if err == io.EOF {
+			if !readAny {
+				return nil, io.EOF
+			}
 			break
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read: %w", err)
 		}
-		if buf.Len()+1 > MaxMessageSize {
-			return nil, fmt.Errorf("message too large: exceeds %d bytes", MaxMessageSize)
-		}
+		readAny = true
 		if b == '\n' {
 			break
 		}
+		if buf.Len() >= MaxMessageSize {
+			for {
+				b, err = br.ReadByte()
+				if err != nil || b == '\n' {
+					break
+				}
+			}
+			return nil, fmt.Errorf("message too large: exceeds %d bytes", MaxMessageSize)
+		}
 		buf.WriteByte(b)
 	}
-	// If buffer is empty and we hit EOF immediately, try reading all (for readers that are not line-oriented)
-	// Actually above loop handles line; if input was provided as bytes.Buffer containing JSON without reading via ReadByte loop (we already drained via ReadByte), we have data.
-	// But for cases where Reader is bytes.Buffer and we used bufio.NewReader, ReadByte loop will handle.
-	// If msg was encoded with trailing newline, we broke on newline; else EOF.
 	data := bytes.TrimSpace(buf.Bytes())
+	if len(data) == 0 && readAny {
+		return nil, fmt.Errorf("empty message")
+	}
 	if len(data) == 0 {
 		// Maybe input had no newline and we already consumed? Try alternative: if buffer empty, read remaining with LimitReader
 		// Fallback: read all with limit (for cases where br was wrapped but no bytes read due to alternative path)
@@ -261,8 +281,12 @@ func DecodeMessage(r io.Reader) (*Message, error) {
 	if err := dec.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode json: %w", err)
 	}
-	if raw.JSONRPC != "" && raw.JSONRPC != "2.0" {
-		return nil, fmt.Errorf("invalid jsonrpc version: %q", raw.JSONRPC)
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("trailing JSON value")
+		}
+		return nil, fmt.Errorf("trailing JSON: %w", err)
 	}
 	msg := &Message{
 		JSONRPC: raw.JSONRPC,
@@ -281,10 +305,10 @@ func DecodeMessage(r io.Reader) (*Message, error) {
 				return nil, fmt.Errorf("decode id string: %w", err)
 			}
 			msg.ID = &ID{Str: s}
-		} else {
-			// number
-			// Preserve as string via UseNumber
+		} else if isJSONNumber(trim) {
 			msg.ID = &ID{Num: string(trim)}
+		} else {
+			return nil, fmt.Errorf("invalid id")
 		}
 	} else {
 		// No id field -> notification (ID stays nil)
@@ -304,9 +328,18 @@ func DecodeMessage(r io.Reader) (*Message, error) {
 		}
 		msg.Error = &rpcErr
 	}
-	// If no explicit jsonrpc, default to 2.0 for leniency? keep as is
-	if msg.JSONRPC == "" {
-		msg.JSONRPC = "2.0"
-	}
 	return msg, nil
+}
+
+func isJSONNumber(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	for _, b := range raw {
+		if (b < '0' || b > '9') && b != '-' && b != '+' && b != '.' && b != 'e' && b != 'E' {
+			return false
+		}
+	}
+	var n json.Number
+	return json.Unmarshal(raw, &n) == nil
 }

@@ -1,8 +1,8 @@
 package broker
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -42,6 +42,7 @@ type Daemon struct {
 	engine    *execution.Engine
 	ownerID   string
 	lock      *os.File
+	rpc       *Server
 
 	state atomic.Value // string
 	wg    sync.WaitGroup
@@ -60,7 +61,11 @@ func NewDaemon(root string, tr ipc.Transport) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Daemon{root: canon, endpoint: ep, transport: tr, ownerID: uuid.NewString()}, nil
+	dispatcher := NewDispatcher()
+	dispatcher.Register("health", func(context.Context, json.RawMessage) (any, *jsonrpc.RPCError) {
+		return map[string]bool{"ok": true}, nil
+	})
+	return &Daemon{root: canon, endpoint: ep, transport: tr, ownerID: uuid.NewString(), rpc: NewServer(dispatcher)}, nil
 }
 
 // State reports the current lifecycle state.
@@ -203,43 +208,16 @@ func (d *Daemon) acceptLoop(ctx context.Context) error {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			d.serveConn(conn)
+			d.serveConn(ctx, conn)
 		}()
 	}
 }
 
 // serveConn is the U1 minimal loop; U2 replaces it with the full JSON-RPC
 // server (Dispatcher, strict validation, notifications).
-func (d *Daemon) serveConn(c net.Conn) {
-	defer func() {
-		if r := recover(); r != nil {
-			// Robust framing: never panic a connection away from others.
-			_ = c.Close()
-		}
-	}()
-	defer func() { _ = c.Close() }()
-	br := bufio.NewReader(c)
-	for {
-		msg, err := jsonrpc.DecodeMessage(br)
-		if err != nil {
-			return
-		}
-		if msg.Method == "health" {
-			id := any(nil)
-			if msg.ID != nil {
-				id = msg.ID
-			}
-			if err := jsonrpc.EncodeResponse(c, id, map[string]bool{"ok": true}); err != nil {
-				return
-			}
-			continue
-		}
-		if msg.ID == nil {
-			continue // notification: nothing to answer
-		}
-		if err := jsonrpc.EncodeError(c, msg.ID, jsonrpc.RPCError{Code: -32601, Message: "method not found"}); err != nil {
-			return
-		}
+func (d *Daemon) serveConn(ctx context.Context, c net.Conn) {
+	if d.rpc != nil {
+		_ = d.rpc.ServeConn(ctx, c)
 	}
 }
 

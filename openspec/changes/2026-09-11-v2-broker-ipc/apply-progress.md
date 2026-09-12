@@ -4,13 +4,13 @@ Date: 2026-09-12 · Mode: Strict TDD (`go test ./...`) · Delivery: `single-pr` 
 
 ## Status
 
-6/41 tasks complete. U1 is complete; U2 is the next work unit.
+10/41 tasks complete. U1 and U2 are complete; U3 is the next work unit.
 
 ## Completed Work Units
 
 ### U1 — Socket identity + daemon/launcher lifecycle
 
-Commit: pending at artifact write; intended commit message: `feat(broker): socket identity, transport seam (go-winio), daemon and launcher lifecycle`
+Commit: `ddc162d` · `feat(broker): socket identity, transport seam, daemon and launcher lifecycle`
 
 #### TDD Cycle Evidence
 
@@ -36,6 +36,34 @@ Commit: pending at artifact write; intended commit message: `feat(broker): socke
 - `go test ./...` — exit 0.
 - `go vet ./...` — exit 0.
 - `go build ./...` — exit 0 (included in the suite's successful build path).
+- `GOOS=windows go build ./...` — exit 0.
+
+### U2 — RPC server + strict validation
+
+Commit: pending at artifact write; intended commit message: `feat(ipc): JSON-RPC server loop with strict per-method validation and error-code table`
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 2.1 | `internal/broker/server_test.go` | Integration | ✅ U1 package tests passed before U2 edits | ✅ New server API tests failed to compile before implementation | ✅ `go test ./internal/broker -run 'TestServer'` passed | ✅ Malformed, oversized, valid-following, invalid envelope, unknown method, and 12 concurrent connections | ✅ Per-frame recovery and panic containment centralized |
+| 2.2 | `internal/broker/server.go`, `internal/ipc/jsonrpc/codec.go` | Integration | ✅ `go test ./internal/broker ./internal/ipc/jsonrpc` passed before U2 edits | ✅ Server tests failed with undefined server/dispatcher and missing error codes | ✅ `go test ./internal/broker ./internal/ipc/jsonrpc -run 'TestServer|TestCodec'` passed | ✅ Same connection recovers after two failure classes; independent connections match IDs | ✅ Oversized frames are drained before the next NDJSON frame; strict trailing JSON rejected |
+| 2.3 | `internal/broker/validation_test.go` | Unit | ✅ U1 and codec safety net passed | ✅ Tests were run against a temporarily disabled `DecodeParams` and failed | ✅ `go test ./internal/broker -run 'TestDecodeParams|TestValidateEnum'` passed | ✅ Unknown, missing, enum, trailing, non-object, and zero-effect cases | ✅ Decode into a temporary value prevents partial destination mutation |
+| 2.4 | `internal/broker/handlers.go`, `internal/broker/validation.go` | Unit | ✅ Existing broker tests passed before handler edits | ✅ Strict validation tests failed before dispatcher and helper APIs existed | ✅ `go test ./internal/broker -run 'TestServer|TestDecodeParams|TestValidateEnum'` passed | ✅ Registered, unknown, panic, and invalid boundary paths exercise the error table | ✅ Handler panic is converted to `-32603` without terminating the connection |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test ./internal/broker ./internal/ipc/jsonrpc -run 'TestServer|TestCodec|TestDecodeParams|TestValidateEnum'` — exit 0; all selected server, codec, validation, and enum tests passed |
+| Runtime harness command/scenario and exact result | `go test ./internal/broker -run 'TestServerRecoversMalformedAndOversizedFrames|TestServerMatchesConcurrentConnectionResponses'` — exit 0; net.Pipe runtime exercised recoverable frames and 12 concurrent connections |
+| Rollback boundary | Revert U2 commit: remove `internal/broker/{server,handlers,validation}.go` and tests, restore daemon connection dispatch, and restore codec framing behavior; retain U1 endpoint/lifecycle files |
+
+#### Gates
+
+- `go test ./...` — exit 0.
+- `go vet ./...` — exit 0.
+- `go build ./...` — exit 0.
 - `GOOS=windows go build ./...` — exit 0.
 
 ## Remaining Tasks
