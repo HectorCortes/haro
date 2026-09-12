@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/HectorCortes/haro/internal/adapter/factory"
+	"github.com/HectorCortes/haro/internal/broker"
 	"github.com/HectorCortes/haro/internal/claim"
 	"github.com/HectorCortes/haro/internal/execution"
 	"github.com/HectorCortes/haro/internal/project"
@@ -102,6 +103,8 @@ func Execute(ctx context.Context, args []string, cwd string, out, errOut io.Writ
 		return handleStatus(ctx, rest, cwd, out, writeErr)
 	case "report":
 		return handleReport(ctx, rest, cwd, out, writeErr)
+	case "broker":
+		return handleBroker(ctx, rest, cwd, out, writeErr)
 	default:
 		return writeErr(fmt.Sprintf("unknown command %q", cmd), "unknown_command")
 	}
@@ -775,3 +778,29 @@ func jsonUnmarshal(s string, v any) error {
 // Ensure imports used
 var _ = os.Stderr
 var _ = filepath.Join
+
+func handleBroker(ctx context.Context, args []string, cwd string, out io.Writer, writeErr func(string, string) int) int {
+	fs := flag.NewFlagSet("broker", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var projectRoot string
+	fs.StringVar(&projectRoot, "project", "", "")
+	if idx := indexOf(args, "--"); idx != -1 {
+		if idx+1 < len(args) {
+			return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(args[idx+1:], " ")), "unexpected_argument")
+		}
+		args = args[:idx]
+	}
+	if err := fs.Parse(args); err != nil {
+		return writeErr(err.Error(), "invalid_argument")
+	}
+	if fs.NArg() != 0 {
+		return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(fs.Args(), " ")), "unexpected_argument")
+	}
+	if strings.TrimSpace(projectRoot) == "" {
+		projectRoot = cwd
+	}
+	if err := broker.RunDaemon(ctx, projectRoot); err != nil {
+		return writeErr(err.Error(), "broker_failed")
+	}
+	return 0
+}
