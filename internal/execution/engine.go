@@ -10,15 +10,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/HectorCortes/haro/internal/adapter"
 	"github.com/HectorCortes/haro/internal/claim"
 	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
 	"github.com/HectorCortes/haro/internal/workflow"
 	"github.com/HectorCortes/haro/internal/worktree"
+	"github.com/google/uuid"
 )
 
 // LogicalConflictError is returned when a claim conflicts with an active owner.
@@ -35,16 +36,18 @@ func (e *LogicalConflictError) Error() string {
 
 // Engine orchestrates command execution with store and runner.
 type Engine struct {
-	store       store.Store
-	runner      CommandRunner
-	root        string
-	adapterMgr  *adapter.Manager
-	worktreeMgr worktree.Manager
+	store          store.Store
+	runner         CommandRunner
+	root           string
+	adapterMgr     *adapter.Manager
+	worktreeMgr    worktree.Manager
+	activeClaimsMu sync.Mutex
+	activeClaims   map[string]attemptClaims
 }
 
 // NewEngine creates an engine.
 func NewEngine(s store.Store, r CommandRunner, root string) *Engine {
-	return &Engine{store: s, runner: r, root: root, worktreeMgr: worktree.NewManager()}
+	return &Engine{store: s, runner: r, root: root, worktreeMgr: worktree.NewManager(), activeClaims: make(map[string]attemptClaims)}
 }
 
 // SetAdapterManager sets the adapter manager for agent steps.
@@ -135,15 +138,15 @@ func (e *Engine) CreateExecution(ctx context.Context, workflowName string) (stri
 	startedAt := time.Now().UTC().Format(time.RFC3339)
 	hashCopy := flatDAG.Hash
 	exec := &store.Execution{
-		ID:              execID,
-		ProjectID:       projectID,
-		WorkflowSource:  wfPath,
-		Status:          "running",
-		WorkspaceMode:   execMode,
-		WorkspaceRoot:   workspaceRoot,
-		StartedAt:       startedAt,
-		DagHash:         &hashCopy,
-		BaseCommit:      baseCommit,
+		ID:             execID,
+		ProjectID:      projectID,
+		WorkflowSource: wfPath,
+		Status:         "running",
+		WorkspaceMode:  execMode,
+		WorkspaceRoot:  workspaceRoot,
+		StartedAt:      startedAt,
+		DagHash:        &hashCopy,
+		BaseCommit:     baseCommit,
 	}
 	err = e.store.WithTx(ctx, func(tx store.Store) error {
 		if err := tx.Executions().Create(ctx, exec); err != nil {

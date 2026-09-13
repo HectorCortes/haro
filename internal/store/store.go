@@ -13,10 +13,11 @@ import (
 
 // Sentinels for normalized SQLite errors.
 var (
-	ErrNotFound             = errors.New("not found")
-	ErrCheckViolation       = errors.New("check violation")
-	ErrUniqueViolation      = errors.New("unique violation")
-	ErrForeignKeyViolation  = errors.New("foreign key violation")
+	ErrNotFound            = errors.New("not found")
+	ErrCheckViolation      = errors.New("check violation")
+	ErrUniqueViolation     = errors.New("unique violation")
+	ErrForeignKeyViolation = errors.New("foreign key violation")
+	ErrLeaseConflict       = errors.New("lease conflict")
 )
 
 // normalizeSQLiteError maps sqlite errors to typed sentinels.
@@ -74,40 +75,41 @@ type ProjectsRepository interface {
 
 // Execution is a stored execution.
 type Execution struct {
-	ID              string
-	ProjectID       string
-	WorkflowSource  string
-	Status          string
-	WorkspaceMode   string
-	WorkspaceRoot   string
-	StartedAt       string
-	EndedAt         *string
-	DagHash         *string
-	BaseCommit      *string
+	ID             string
+	ProjectID      string
+	WorkflowSource string
+	Status         string
+	WorkspaceMode  string
+	WorkspaceRoot  string
+	StartedAt      string
+	EndedAt        *string
+	DagHash        *string
+	BaseCommit     *string
 }
 
 // ExecutionStep is a stored step.
 type ExecutionStep struct {
-	ExecutionID      string
-	StepID           string
-	Type             string
-	Status           string
-	DependsOn        string // JSON array
-	Requires         string // JSON array
-	Produces         string // JSON array
-	WorkspaceMode    string
+	ExecutionID       string
+	StepID            string
+	Type              string
+	Status            string
+	DependsOn         string // JSON array
+	Requires          string // JSON array
+	Produces          string // JSON array
+	WorkspaceMode     string
 	CurrentGeneration int
+	PendingFeedback   *string
 }
 
 // Generation is a stored generation.
 type Generation struct {
-	ID                 string
-	ExecutionID        string
-	StepID             string
-	Number             int
-	CreatedAt          string
-	InvalidatedAt      *string
-	InvalidatedByStep  *string
+	ID                string
+	ExecutionID       string
+	StepID            string
+	Number            int
+	CreatedAt         string
+	InvalidatedAt     *string
+	InvalidatedByStep *string
 }
 
 // Attempt is a stored attempt.
@@ -162,6 +164,7 @@ type StepsRepository interface {
 	List(ctx context.Context, executionID string) ([]*ExecutionStep, error)
 	UpdateStatus(ctx context.Context, executionID, stepID, status string) error
 	UpdateGeneration(ctx context.Context, executionID, stepID string, gen int) error
+	SetPendingFeedback(ctx context.Context, executionID, stepID string, feedback *string) error
 }
 
 // AttemptsRepository manages attempts.
@@ -170,6 +173,7 @@ type AttemptsRepository interface {
 	Get(ctx context.Context, id string) (*Attempt, error)
 	UpdateStatus(ctx context.Context, id, status string, endedAt *string, terminationReason *string, resultDigest *string) error
 	CountByStep(ctx context.Context, executionID, stepID string) (int, error)
+	CurrentByStep(ctx context.Context, executionID, stepID string) (*Attempt, error)
 }
 
 // GenerationsRepository manages generations.
@@ -207,6 +211,13 @@ type EventsRepository interface {
 	ListTransitions(ctx context.Context, executionID, stepID string) ([]*StepTransitionEvent, error)
 	NextAttemptCursor(ctx context.Context, attemptID string) (int, error)
 	NextTransitionCursor(ctx context.Context, executionID, stepID string) (int, error)
+	ListAttemptEvents(ctx context.Context, attemptID string, sinceCursor, limit int) ([]*AttemptEvent, error)
+}
+
+// AttemptEventPage is the bounded event projection exposed by step.events.
+type AttemptEventPage struct {
+	Events     []*AttemptEvent
+	NextCursor int
 }
 
 // Lease is a fencing lease.
@@ -229,13 +240,13 @@ type LeaseRepository interface {
 
 // Interaction is a human interaction.
 type Interaction struct {
-	ID              string
-	AttemptID       string
-	Type            string
-	Status          string
-	Decision        *string
-	IdempotencyKey  string
-	ResolvedAt      *string
+	ID             string
+	AttemptID      string
+	Type           string
+	Status         string
+	Decision       *string
+	IdempotencyKey string
+	ResolvedAt     *string
 }
 
 // InteractionRepository manages interactions with CAS.
@@ -297,8 +308,6 @@ func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 	}
 	return &SQLiteStore{db: db}, nil
 }
-
-
 
 // Projects returns the projects repository.
 func (s *SQLiteStore) Projects() ProjectsRepository {

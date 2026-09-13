@@ -129,8 +129,12 @@ func (r *executionsRepo) UpdateStatus(ctx context.Context, id, status string) er
 type stepsRepo struct{ store *SQLiteStore }
 
 func (r *stepsRepo) Create(ctx context.Context, s *ExecutionStep) error {
-	_, err := r.store.exec(ctx, `INSERT INTO execution_steps(execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ExecutionID, s.StepID, s.Type, s.Status, s.DependsOn, s.Requires, s.Produces, s.WorkspaceMode, s.CurrentGeneration)
+	_, err := r.store.exec(ctx, `INSERT INTO execution_steps(execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation, pending_feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ExecutionID, s.StepID, s.Type, s.Status, s.DependsOn, s.Requires, s.Produces, s.WorkspaceMode, s.CurrentGeneration, s.PendingFeedback)
+	if err != nil && isMissingColumn(err, "pending_feedback") {
+		_, err = r.store.exec(ctx, `INSERT INTO execution_steps(execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			s.ExecutionID, s.StepID, s.Type, s.Status, s.DependsOn, s.Requires, s.Produces, s.WorkspaceMode, s.CurrentGeneration)
+	}
 	if err != nil {
 		return normalizeSQLiteError(err)
 	}
@@ -138,16 +142,32 @@ func (r *stepsRepo) Create(ctx context.Context, s *ExecutionStep) error {
 }
 
 func (r *stepsRepo) Get(ctx context.Context, executionID, stepID string) (*ExecutionStep, error) {
-	row := r.store.queryRow(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation FROM execution_steps WHERE execution_id = ? AND step_id = ?`, executionID, stepID)
+	row := r.store.queryRow(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation, pending_feedback FROM execution_steps WHERE execution_id = ? AND step_id = ?`, executionID, stepID)
 	var s ExecutionStep
-	if err := row.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration); err != nil {
-		return nil, normalizeSQLiteError(err)
+	var feedback sql.NullString
+	if err := row.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration, &feedback); err != nil {
+		if !isMissingColumn(err, "pending_feedback") {
+			return nil, normalizeSQLiteError(err)
+		}
+		row = r.store.queryRow(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation FROM execution_steps WHERE execution_id = ? AND step_id = ?`, executionID, stepID)
+		if err := row.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration); err != nil {
+			return nil, normalizeSQLiteError(err)
+		}
+		return &s, nil
+	}
+	if feedback.Valid {
+		s.PendingFeedback = &feedback.String
 	}
 	return &s, nil
 }
 
 func (r *stepsRepo) List(ctx context.Context, executionID string) ([]*ExecutionStep, error) {
-	rows, err := r.store.query(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation FROM execution_steps WHERE execution_id = ? ORDER BY step_id`, executionID)
+	rows, err := r.store.query(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation, pending_feedback FROM execution_steps WHERE execution_id = ? ORDER BY step_id`, executionID)
+	legacy := false
+	if err != nil && isMissingColumn(err, "pending_feedback") {
+		rows, err = r.store.query(ctx, `SELECT execution_id, step_id, type, status, depends_on, requires, produces, workspace_mode, current_generation FROM execution_steps WHERE execution_id = ? ORDER BY step_id`, executionID)
+		legacy = true
+	}
 	if err != nil {
 		return nil, normalizeSQLiteError(err)
 	}
@@ -155,8 +175,18 @@ func (r *stepsRepo) List(ctx context.Context, executionID string) ([]*ExecutionS
 	var out []*ExecutionStep
 	for rows.Next() {
 		var s ExecutionStep
-		if err := rows.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration); err != nil {
-			return nil, normalizeSQLiteError(err)
+		var feedback sql.NullString
+		var scanErr error
+		if legacy {
+			scanErr = rows.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration)
+		} else {
+			scanErr = rows.Scan(&s.ExecutionID, &s.StepID, &s.Type, &s.Status, &s.DependsOn, &s.Requires, &s.Produces, &s.WorkspaceMode, &s.CurrentGeneration, &feedback)
+		}
+		if scanErr != nil {
+			return nil, normalizeSQLiteError(scanErr)
+		}
+		if feedback.Valid {
+			s.PendingFeedback = &feedback.String
 		}
 		out = append(out, &s)
 	}
@@ -180,6 +210,11 @@ func (r *stepsRepo) UpdateGeneration(ctx context.Context, executionID, stepID st
 		return normalizeSQLiteError(err)
 	}
 	return nil
+}
+
+func (r *stepsRepo) SetPendingFeedback(ctx context.Context, executionID, stepID string, feedback *string) error {
+	_, err := r.store.exec(ctx, `UPDATE execution_steps SET pending_feedback = ? WHERE execution_id = ? AND step_id = ?`, feedback, executionID, stepID)
+	return normalizeSQLiteError(err)
 }
 
 // attemptsRepo
@@ -236,6 +271,25 @@ func (r *attemptsRepo) CountByStep(ctx context.Context, executionID, stepID stri
 		return 0, normalizeSQLiteError(err)
 	}
 	return n, nil
+}
+
+func (r *attemptsRepo) CurrentByStep(ctx context.Context, executionID, stepID string) (*Attempt, error) {
+	row := r.store.queryRow(ctx, `SELECT id, execution_id, step_id, generation_id, status, started_at, ended_at, termination_reason, result_digest FROM attempts WHERE execution_id = ? AND step_id = ? ORDER BY started_at DESC, id DESC LIMIT 1`, executionID, stepID)
+	var a Attempt
+	var endedAt, term, digest sql.NullString
+	if err := row.Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.GenerationID, &a.Status, &a.StartedAt, &endedAt, &term, &digest); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	if endedAt.Valid {
+		a.EndedAt = &endedAt.String
+	}
+	if term.Valid {
+		a.TerminationReason = &term.String
+	}
+	if digest.Valid {
+		a.ResultDigest = &digest.String
+	}
+	return &a, nil
 }
 
 // generationsRepo
@@ -418,6 +472,36 @@ func (r *eventsRepo) NextTransitionCursor(ctx context.Context, executionID, step
 		return 0, normalizeSQLiteError(err)
 	}
 	return n, nil
+}
+
+func (r *eventsRepo) ListAttemptEvents(ctx context.Context, attemptID string, sinceCursor, limit int) ([]*AttemptEvent, error) {
+	if limit <= 0 || limit > 128 {
+		limit = 128
+	}
+	rows, err := r.store.query(ctx, `SELECT id, attempt_id, cursor, event_type, payload_ref, payload, occurred_at FROM attempt_events WHERE attempt_id = ? AND cursor >= ? ORDER BY cursor LIMIT ?`, attemptID, sinceCursor, limit)
+	if err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []*AttemptEvent
+	for rows.Next() {
+		var e AttemptEvent
+		var ref, payload sql.NullString
+		if err := rows.Scan(&e.ID, &e.AttemptID, &e.Cursor, &e.EventType, &ref, &payload, &e.OccurredAt); err != nil {
+			return nil, normalizeSQLiteError(err)
+		}
+		if ref.Valid {
+			e.PayloadRef = &ref.String
+		}
+		if payload.Valid {
+			e.Payload = &payload.String
+		}
+		out = append(out, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLiteError(err)
+	}
+	return out, nil
 }
 
 // Ensure imports used

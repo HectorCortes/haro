@@ -16,35 +16,35 @@ type FakeStore struct {
 	mu   sync.Mutex
 	inTx bool
 
-	projects               map[string]*Project
-	executions             map[string]*Execution
-	steps                  map[string]*ExecutionStep
-	generations            map[string]*Generation
-	attempts               map[string]*Attempt
-	attemptEvents          map[string]map[int]*AttemptEvent
-	transitionEvents       map[string]map[int]*StepTransitionEvent
-	transports             map[string]*Transport
-	pathClaims             map[int64]*PathClaim
-	pathClaimNextID        int64
-	leases                 map[string]*Lease
-	interactions           map[string]*Interaction
+	projects                 map[string]*Project
+	executions               map[string]*Execution
+	steps                    map[string]*ExecutionStep
+	generations              map[string]*Generation
+	attempts                 map[string]*Attempt
+	attemptEvents            map[string]map[int]*AttemptEvent
+	transitionEvents         map[string]map[int]*StepTransitionEvent
+	transports               map[string]*Transport
+	pathClaims               map[int64]*PathClaim
+	pathClaimNextID          int64
+	leases                   map[string]*Lease
+	interactions             map[string]*Interaction
 	interactionsByAttemptKey map[string]string // key: attemptID + "\x00" + idempotencyKey -> interaction ID
 }
 
 // NewFakeStore creates a new fake store.
 func NewFakeStore() *FakeStore {
 	return &FakeStore{
-		projects:               make(map[string]*Project),
-		executions:             make(map[string]*Execution),
-		steps:                  make(map[string]*ExecutionStep),
-		generations:            make(map[string]*Generation),
-		attempts:               make(map[string]*Attempt),
-		attemptEvents:          make(map[string]map[int]*AttemptEvent),
-		transitionEvents:       make(map[string]map[int]*StepTransitionEvent),
-		transports:             make(map[string]*Transport),
-		pathClaims:             make(map[int64]*PathClaim),
-		leases:                 make(map[string]*Lease),
-		interactions:           make(map[string]*Interaction),
+		projects:                 make(map[string]*Project),
+		executions:               make(map[string]*Execution),
+		steps:                    make(map[string]*ExecutionStep),
+		generations:              make(map[string]*Generation),
+		attempts:                 make(map[string]*Attempt),
+		attemptEvents:            make(map[string]map[int]*AttemptEvent),
+		transitionEvents:         make(map[string]map[int]*StepTransitionEvent),
+		transports:               make(map[string]*Transport),
+		pathClaims:               make(map[int64]*PathClaim),
+		leases:                   make(map[string]*Lease),
+		interactions:             make(map[string]*Interaction),
 		interactionsByAttemptKey: make(map[string]string),
 	}
 }
@@ -74,6 +74,10 @@ func (s *FakeStore) clone() *FakeStore {
 	}
 	for k, v := range s.steps {
 		cp := *v
+		if v.PendingFeedback != nil {
+			feedback := *v.PendingFeedback
+			cp.PendingFeedback = &feedback
+		}
 		c.steps[k] = &cp
 	}
 	for k, v := range s.generations {
@@ -176,17 +180,17 @@ func (s *FakeStore) clone() *FakeStore {
 }
 
 // Store interface
-func (s *FakeStore) Projects() ProjectsRepository { return &fakeProjectsRepo{s: s} }
-func (s *FakeStore) Executions() ExecutionsRepository { return &fakeExecutionsRepo{s: s} }
-func (s *FakeStore) Steps() StepsRepository { return &fakeStepsRepo{s: s} }
-func (s *FakeStore) Attempts() AttemptsRepository { return &fakeAttemptsRepo{s: s} }
-func (s *FakeStore) Generations() GenerationsRepository { return &fakeGenerationsRepo{s: s} }
-func (s *FakeStore) Events() EventsRepository { return &fakeEventsRepo{s: s} }
-func (s *FakeStore) Transport() TransportRepository { return &fakeTransportRepo{s: s} }
-func (s *FakeStore) PathClaims() PathClaimRepository { return &fakePathClaimRepo{s: s} }
-func (s *FakeStore) Leases() LeaseRepository { return &fakeLeasesRepo{s: s} }
+func (s *FakeStore) Projects() ProjectsRepository        { return &fakeProjectsRepo{s: s} }
+func (s *FakeStore) Executions() ExecutionsRepository    { return &fakeExecutionsRepo{s: s} }
+func (s *FakeStore) Steps() StepsRepository              { return &fakeStepsRepo{s: s} }
+func (s *FakeStore) Attempts() AttemptsRepository        { return &fakeAttemptsRepo{s: s} }
+func (s *FakeStore) Generations() GenerationsRepository  { return &fakeGenerationsRepo{s: s} }
+func (s *FakeStore) Events() EventsRepository            { return &fakeEventsRepo{s: s} }
+func (s *FakeStore) Transport() TransportRepository      { return &fakeTransportRepo{s: s} }
+func (s *FakeStore) PathClaims() PathClaimRepository     { return &fakePathClaimRepo{s: s} }
+func (s *FakeStore) Leases() LeaseRepository             { return &fakeLeasesRepo{s: s} }
 func (s *FakeStore) Interactions() InteractionRepository { return &fakeInteractionsRepo{s: s} }
-func (s *FakeStore) Close() error { return nil }
+func (s *FakeStore) Close() error                        { return nil }
 
 func (s *FakeStore) WithTx(ctx context.Context, fn func(Store) error) error {
 	if s.inTx {
@@ -218,12 +222,18 @@ func (s *FakeStore) WithTx(ctx context.Context, fn func(Store) error) error {
 }
 
 // helpers for validation
-func isValidExecutionStatus(st string) bool { return st == "pending" || st == "running" || st == "completed" || st == "failed" }
+func isValidExecutionStatus(st string) bool {
+	return st == "pending" || st == "running" || st == "completed" || st == "failed"
+}
 func isValidWorkspaceMode(m string) bool { return m == "isolated" || m == "shared" }
-func isValidStepType(t string) bool { return t == "command" || t == "agent" || t == "workflow" }
-func isValidStepStatus(s string) bool { return s == "pending" || s == "running" || s == "completed" || s == "failed" || s == "skipped" }
-func isValidAttemptStatus(s string) bool { return s == "running" || s == "completed" || s == "failed" || s == "cancelled" }
-func isValidInteractionType(t string) bool { return t == "permission" || t == "question" }
+func isValidStepType(t string) bool      { return t == "command" || t == "agent" || t == "workflow" }
+func isValidStepStatus(s string) bool {
+	return s == "pending" || s == "running" || s == "completed" || s == "failed" || s == "skipped"
+}
+func isValidAttemptStatus(s string) bool {
+	return s == "running" || s == "completed" || s == "failed" || s == "cancelled"
+}
+func isValidInteractionType(t string) bool   { return t == "permission" || t == "question" }
 func isValidInteractionStatus(s string) bool { return s == "pending" || s == "resolved" }
 
 // fakeProjectsRepo
@@ -366,6 +376,10 @@ func (r *fakeStepsRepo) Get(ctx context.Context, execID, stepID string) (*Execut
 		return nil, ErrNotFound
 	}
 	cp := *s
+	if s.PendingFeedback != nil {
+		feedback := *s.PendingFeedback
+		cp.PendingFeedback = &feedback
+	}
 	return &cp, nil
 }
 func (r *fakeStepsRepo) List(ctx context.Context, execID string) ([]*ExecutionStep, error) {
@@ -375,6 +389,10 @@ func (r *fakeStepsRepo) List(ctx context.Context, execID string) ([]*ExecutionSt
 	for _, s := range r.s.steps {
 		if s.ExecutionID == execID {
 			cp := *s
+			if s.PendingFeedback != nil {
+				feedback := *s.PendingFeedback
+				cp.PendingFeedback = &feedback
+			}
 			out = append(out, &cp)
 		}
 	}
@@ -403,6 +421,22 @@ func (r *fakeStepsRepo) UpdateGeneration(ctx context.Context, execID, stepID str
 		return ErrNotFound
 	}
 	s.CurrentGeneration = gen
+	return nil
+}
+
+func (r *fakeStepsRepo) SetPendingFeedback(ctx context.Context, execID, stepID string, feedback *string) error {
+	r.s.mu.Lock()
+	defer r.s.mu.Unlock()
+	s, ok := r.s.steps[stepKey(execID, stepID)]
+	if !ok {
+		return ErrNotFound
+	}
+	if feedback == nil {
+		s.PendingFeedback = nil
+	} else {
+		copy := *feedback
+		s.PendingFeedback = &copy
+	}
 	return nil
 }
 
@@ -508,6 +542,37 @@ func (r *fakeAttemptsRepo) CountByStep(ctx context.Context, execID, stepID strin
 		}
 	}
 	return n, nil
+}
+
+func (r *fakeAttemptsRepo) CurrentByStep(ctx context.Context, execID, stepID string) (*Attempt, error) {
+	r.s.mu.Lock()
+	defer r.s.mu.Unlock()
+	var current *Attempt
+	for _, attempt := range r.s.attempts {
+		if attempt.ExecutionID != execID || attempt.StepID != stepID {
+			continue
+		}
+		if current == nil || attempt.StartedAt > current.StartedAt || (attempt.StartedAt == current.StartedAt && attempt.ID > current.ID) {
+			current = attempt
+		}
+	}
+	if current == nil {
+		return nil, ErrNotFound
+	}
+	cp := *current
+	if current.EndedAt != nil {
+		value := *current.EndedAt
+		cp.EndedAt = &value
+	}
+	if current.TerminationReason != nil {
+		value := *current.TerminationReason
+		cp.TerminationReason = &value
+	}
+	if current.ResultDigest != nil {
+		value := *current.ResultDigest
+		cp.ResultDigest = &value
+	}
+	return &cp, nil
 }
 
 // fakeGenerationsRepo
@@ -758,6 +823,36 @@ func (r *fakeEventsRepo) NextTransitionCursor(ctx context.Context, execID, stepI
 		}
 	}
 	return max + 1, nil
+}
+
+func (r *fakeEventsRepo) ListAttemptEvents(ctx context.Context, attemptID string, sinceCursor, limit int) ([]*AttemptEvent, error) {
+	r.s.mu.Lock()
+	defer r.s.mu.Unlock()
+	if limit <= 0 || limit > 128 {
+		limit = 128
+	}
+	if _, ok := r.s.attempts[attemptID]; !ok {
+		return nil, ErrNotFound
+	}
+	events := r.s.attemptEvents[attemptID]
+	var out []*AttemptEvent
+	for cursor := sinceCursor; cursor < sinceCursor+limit; cursor++ {
+		ev, ok := events[cursor]
+		if !ok {
+			continue
+		}
+		copy := *ev
+		if ev.PayloadRef != nil {
+			value := *ev.PayloadRef
+			copy.PayloadRef = &value
+		}
+		if ev.Payload != nil {
+			value := *ev.Payload
+			copy.Payload = &value
+		}
+		out = append(out, &copy)
+	}
+	return out, nil
 }
 
 // fakeTransportRepo

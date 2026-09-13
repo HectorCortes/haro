@@ -470,6 +470,8 @@ func handleStep(ctx context.Context, args []string, cwd string, out io.Writer, w
 	switch sub {
 	case "run":
 		return handleStepRun(ctx, rest, cwd, out, writeErr)
+	case "events":
+		return handleStepEvents(ctx, rest, cwd, out, writeErr)
 	case "reopen":
 		return handleStepReopen(ctx, rest, cwd, out, writeErr)
 	case "skip":
@@ -503,6 +505,9 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 	}
 	if fs.NArg() != 0 {
 		return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(fs.Args(), " ")), "unexpected_argument")
+	}
+	if runnerOverride == nil && feedback == "" {
+		return handleBrokerStepRun(ctx, execID, stepID, cwd, out, writeErr, jsonOut)
 	}
 	dbPath := filepath.Join(cwd, ".haro", "store.db")
 	s, err := store.Open(ctx, dbPath)
@@ -558,6 +563,29 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 		_, _ = fmt.Fprintln(out, "ok")
 	}
 	return 0
+}
+
+func handleStepEvents(ctx context.Context, args []string, cwd string, out io.Writer, writeErr func(string, string) int) int {
+	if len(args) < 2 {
+		return writeErr("missing execution and step", "invalid_argument")
+	}
+	execID, stepID := args[0], args[1]
+	fs := flag.NewFlagSet("step events", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var jsonOut bool
+	var since int
+	fs.BoolVar(&jsonOut, "json", false, "")
+	fs.IntVar(&since, "since-cursor", 0, "")
+	if err := fs.Parse(args[2:]); err != nil {
+		return writeErr(err.Error(), "invalid_argument")
+	}
+	if fs.NArg() != 0 || since < 0 {
+		return writeErr("invalid step events arguments", "invalid_argument")
+	}
+	if runnerOverride != nil {
+		return writeErr("step events requires broker mode", "invalid_argument")
+	}
+	return handleBrokerStepEvents(ctx, execID, stepID, since, cwd, out, writeErr, jsonOut)
 }
 
 func handleStepReopen(ctx context.Context, args []string, cwd string, out io.Writer, writeErr func(string, string) int) int {
@@ -869,6 +897,22 @@ func handleBrokerStatus(ctx context.Context, execID, cwd string, out io.Writer, 
 		return 1
 	}
 	return 0
+}
+
+func handleBrokerStepRun(ctx context.Context, execID, stepID, cwd string, out io.Writer, writeErr func(string, string) int, jsonOut bool) int {
+	result, err := brokerCall(ctx, cwd, "step.run", map[string]string{"execution_id": execID, "step_id": stepID})
+	if err != nil {
+		return writeBrokerCallError(out, writeErr, err, "run_failed")
+	}
+	return writeBrokerResult(out, result, jsonOut, "attempt_id")
+}
+
+func handleBrokerStepEvents(ctx context.Context, execID, stepID string, since int, cwd string, out io.Writer, writeErr func(string, string) int, jsonOut bool) int {
+	result, err := brokerCall(ctx, cwd, "step.events", map[string]any{"execution_id": execID, "step_id": stepID, "since_cursor": since})
+	if err != nil {
+		return writeBrokerCallError(out, writeErr, err, "events_failed")
+	}
+	return writeBrokerResult(out, result, jsonOut, "next_cursor")
 }
 
 type executionStatusOutput struct {

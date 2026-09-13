@@ -149,6 +149,9 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := ensurePayloadColumn(ctx, db); err != nil {
 		return err
 	}
+	if err := ensurePendingFeedbackColumn(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -258,6 +261,37 @@ func ensurePayloadColumn(ctx context.Context, db *sql.DB) error {
 			if !isDuplicateColumnError(err) {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func ensurePendingFeedbackColumn(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(execution_steps)")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	has := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "pending_feedback" {
+			has = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.ExecContext(ctx, "ALTER TABLE execution_steps ADD COLUMN pending_feedback TEXT"); err != nil && !isDuplicateColumnError(err) {
+			return err
 		}
 	}
 	return nil
