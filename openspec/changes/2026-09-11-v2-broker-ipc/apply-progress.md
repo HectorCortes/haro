@@ -4,7 +4,7 @@ Date: 2026-09-13 · Mode: Strict TDD (bounded focused Go tests) · Delivery: `si
 
 ## Status
 
-13/39 tasks complete. U1, U2, and U3 are complete; U4 is the next work unit. The dispatcher supplied `applyState: ready` for this continuation.
+18/39 tasks complete. U1, U2, U3, and U4 are complete; U5 is the next work unit. The dispatcher supplied `applyState: ready` for this continuation.
 
 ## Completed Work Units
 
@@ -66,12 +66,39 @@ Commit: `465f9b2` · `feat(ipc): add JSON-RPC server validation and error handli
 - `go build ./...` — exit 0.
 - `GOOS=windows go build ./...` — exit 0.
 
+### U4 — Async step.run + step.events projection
+
+Commits: `61b7eba`, `d2b650b` · `feat(broker): add async step execution and event projection`; `fix(execution): retain leases across async attempts`
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 4.1 | `internal/broker/steps_test.go` | Integration | ✅ Focused broker baseline passed | ✅ Missing `handleStepRun`/mode guard compile failure | ✅ `TestStepRunRejectsUnsupportedModeBeforeAttempt` passed; both guarded modes leave zero runtime rows | ✅ Supervised and terminal cases | ✅ Centralized `stepRPCError` mode mapping |
+| 4.2 | `internal/broker/steps_test.go`, `internal/execution/async.go` | Integration | ✅ Execution/store baseline passed | ✅ Missing `StartStep` and `ExecuteAttempt` compile failure | ✅ `TestStartStepAndExecuteAttemptAreSeparated` passed; early result, one attempt, lease acquire/release, and completion | ✅ Slow runner and cancellation-aware release path | ✅ Attempt claim/lease tracking extracted from handler |
+| 4.3 | `internal/broker/steps_test.go` | Integration | ✅ Store event tests passed | ✅ Missing current-attempt/page repository APIs compile failure | ✅ `TestStepEventsProjectsCurrentAttemptWithStablePages` passed; 128-event page, retry, and sequential cursor | ✅ 129 events force bounded second page; transition events remain excluded | ✅ Repository owns current-attempt ordering and cursor paging |
+| 4.4 | `internal/broker/steps.go`, `internal/store/{repositories,fake}.go` | Unit/integration | ✅ Store parity baseline passed | ✅ Missing `ListAttemptEvents` compile failure | ✅ Focused broker/store tests passed; inline payloads are sanitized and bounded to 16 KiB, legacy refs remain refs | ✅ SQLite and fake repository paths | ✅ Shared store interface keeps backend parity |
+| 4.5 | `internal/cmd/step_broker_test.go` | Integration | ✅ Command package baseline passed | ✅ Missing broker step routing compile failure | ✅ `TestCLIStepRunAndEventsUseBroker` passed; JSON early result and event cursor | ✅ Run and events methods both asserted | ✅ Existing direct `--feedback` path remains selected |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/broker ./internal/execution ./internal/store ./internal/cmd -run 'Test(StepRunRejectsUnsupportedModeBeforeAttempt|StartStepAndExecuteAttemptAreSeparated|StepEventsProjectsCurrentAttemptWithStablePages|CLI.*Step|CommandCycle|Feedback|AttemptEventPayloadBackendParity)'` — exit 0; broker, execution, store, and command selectors passed |
+| Runtime harness command/scenario and exact result | The broker handler test ran a slow fake command through `step.run`, observed the immediate `{attempt_id,next_cursor:0}` response, then released the runner and observed persisted completion; exit 0 |
+| Rollback boundary | Revert commits `d2b650b` and `61b7eba`: remove async step/event handlers, async engine/store APIs, pending-feedback migration, and CLI broker step routing; retain U1–U3 and unrelated launcher cleanup |
+
+#### Gates and Resource Cleanup
+
+- Focused bounded tests passed; no full suite, race run, build, or verify phase was started.
+- After every broker/runtime selector, `pgrep -af 'HARO_TEST_BROKER|haro broker'` showed no broker process and `/tmp/haro-*.sock` glob returned no files.
+
 ## Remaining Tasks
 
 - [x] 1.1 through 1.6 — socket identity, transport seam, daemon, launcher, and broker entrypoint
 - [x] 2.1 through 2.4 — RPC server and strict validation
 - [x] 3.1 through 3.3 — execution start/status and client wiring
-- [ ] 4.1 through 4.5 — asynchronous step run and event projection
+- [x] 4.1 through 4.5 — asynchronous step run and event projection
 - [ ] 5.1 through 5.5 — approval CAS and cancellation
 - [ ] 6.1 through 6.4 — reopen cascade and feedback
 - [ ] 7.1 through 7.12 — fencing, notifications, shutdown, E2E, and final gates

@@ -50,11 +50,11 @@ Strict TDD: RED task before GREEN per task (`go test ./...` locally mandatory; f
 
 ## U4: Async step.run + step.events projection [v2-ipc/F-03,F-04,U-01,U-03]
 
-- [ ] 4.1 RED mode guard: `step.run{mode:"supervised"|"terminal"}` → `-32003` `<mode> mode not supported` BEFORE lease/attempt creation — zero attempts, generations, leases, transitions (design: pre-attempt centralized guard).
-- [ ] 4.2 GREEN engine split (`internal/execution/engine.go`): `StartStep` (DAG verify, guards, validation, lease acquire, atomic pending→running + generation + attempt in one tx) vs `ExecuteAttempt` (continuation under caller ctx); broker `step.run` replies `{attempt_id,next_cursor:0}` immediately then goroutine runs `ExecuteAttempt`; `SessionRegistry[attempt_id]` retains cancelable adapter/session handle.
-- [ ] 4.3 RED `events_projection_test.go`: current attempt = `attempts WHERE execution_id=? AND step_id=? ORDER BY started_at DESC,id DESC LIMIT 1`; page = `attempt_events WHERE attempt_id=? AND cursor>=? ORDER BY cursor LIMIT 128`; `next_cursor=last+1` or unchanged when empty; retry same `since_cursor` → identical page; no gaps/duplicates across sequential pages; transition events never merged (available via status/notifications only).
-- [ ] 4.4 GREEN `step.events` handler + `Events.ListAttemptEvents` repo method; outgoing payloads sanitized inline ≤16 KiB, `payload_ref` external/legacy only (U-03 boundary revalidation).
-- [ ] 4.5 GREEN CLI: `step run`/`step events` routed via broker; client polls `step.events` from returned cursor; `step run` remains JSON `ok` on early return.
+- [x] 4.1 RED mode guard: `step.run{mode:"supervised"|"terminal"}` → `-32003` `<mode> mode not supported` BEFORE lease/attempt creation — zero attempts, generations, leases, transitions (design: pre-attempt centralized guard).
+- [x] 4.2 GREEN engine split (`internal/execution/engine.go`): `StartStep` (DAG verify, guards, validation, lease acquire, atomic pending→running + generation + attempt in one tx) vs `ExecuteAttempt` (continuation under caller ctx); broker `step.run` replies `{attempt_id,next_cursor:0}` immediately then goroutine runs `ExecuteAttempt`; `SessionRegistry[attempt_id]` retains cancelable adapter/session handle.
+- [x] 4.3 RED `events_projection_test.go`: current attempt = `attempts WHERE execution_id=? AND step_id=? ORDER BY started_at DESC,id DESC LIMIT 1`; page = `attempt_events WHERE attempt_id=? AND cursor>=? ORDER BY cursor LIMIT 128`; `next_cursor=last+1` or unchanged when empty; retry same `since_cursor` → identical page; no gaps/duplicates across sequential pages; transition events never merged (available via status/notifications only).
+- [x] 4.4 GREEN `step.events` handler + `Events.ListAttemptEvents` repo method; outgoing payloads sanitized inline ≤16 KiB, `payload_ref` external/legacy only (U-03 boundary revalidation).
+- [x] 4.5 GREEN CLI: `step run`/`step events` routed via broker; client polls `step.events` from returned cursor; `step run` remains JSON `ok` on early return.
 
 ## U5: step.approve CAS + step.cancel [v2-ipc/F-05,F-06,U-02]
 
