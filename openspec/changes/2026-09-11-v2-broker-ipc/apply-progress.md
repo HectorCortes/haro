@@ -1,10 +1,10 @@
 # Apply Progress: v2 Broker IPC
 
-Date: 2026-09-12 · Mode: Strict TDD (`go test ./...`) · Delivery: `single-pr` with maintainer-approved `size:exception` (200000-line review budget) · Direct commits to `main`, not pushed.
+Date: 2026-09-13 · Mode: Strict TDD (bounded focused Go tests) · Delivery: `single-pr` with maintainer-approved `size:exception` against the default 400-line threshold and a 20,000-line review budget · Direct commits to `main`, not pushed.
 
 ## Status
 
-10/41 tasks complete. U1 and U2 are complete; U3 is the next work unit.
+13/39 tasks complete. U1, U2, and U3 are complete; U4 is the next work unit. The dispatcher supplied `applyState: ready` for this continuation.
 
 ## Completed Work Units
 
@@ -40,7 +40,7 @@ Commit: `ddc162d` · `feat(broker): socket identity, transport seam, daemon and 
 
 ### U2 — RPC server + strict validation
 
-Commit: pending at artifact write; intended commit message: `feat(ipc): JSON-RPC server loop with strict per-method validation and error-code table`
+Commit: `465f9b2` · `feat(ipc): add JSON-RPC server validation and error handling`
 
 #### TDD Cycle Evidence
 
@@ -68,9 +68,39 @@ Commit: pending at artifact write; intended commit message: `feat(ipc): JSON-RPC
 
 ## Remaining Tasks
 
-- [ ] 2.1 through 2.4 — RPC server and strict validation
-- [ ] 3.1 through 3.3 — execution start/status and client wiring
+- [x] 1.1 through 1.6 — socket identity, transport seam, daemon, launcher, and broker entrypoint
+- [x] 2.1 through 2.4 — RPC server and strict validation
+- [x] 3.1 through 3.3 — execution start/status and client wiring
 - [ ] 4.1 through 4.5 — asynchronous step run and event projection
 - [ ] 5.1 through 5.5 — approval CAS and cancellation
 - [ ] 6.1 through 6.4 — reopen cascade and feedback
 - [ ] 7.1 through 7.12 — fencing, notifications, shutdown, E2E, and final gates
+
+### U3 — Execution start/status + CLI client wiring
+
+Commit: `dd9b980` · `feat(broker): wire execution start and status through RPC`
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 3.1 | `internal/broker/exec_test.go` | Integration | ✅ Focused broker package baseline passed at resume | ✅ Inherited RED evidence; task was complete in the dispatcher state | ✅ `TestExecutionStartResolvesCanonicalWorkflowPath` and `TestExecutionStartRejectsUnknownPathAndInvalidWorkflowWithoutRows` passed | ✅ Valid path, symlink-equivalent path, unknown path, and cycle/schema rejection | ✅ Canonical path helper and stable RPC error mapping retained |
+| 3.2 | `internal/broker/exec_test.go` | Integration | ✅ Focused broker package baseline passed at resume | ✅ Inherited RED evidence; task was complete in the dispatcher state | ✅ `TestExecutionStatusReturnsPersistedAggregateAndSteps` passed | ✅ Running aggregate, pending step, and unknown execution/no mutation cases | ✅ Status projection uses the persisted execution and step repositories |
+| 3.3 | `internal/ipc/client_test.go`, `internal/cmd/execute_test.go` | Integration | ✅ IPC and command package baseline passed at resume | ✅ Inherited RED evidence; task was complete in the dispatcher state | ✅ Client multiplexing/remote-error tests and `TestCLIUsesBrokerForRunAndStatus` passed | ✅ Matched responses, notifications, remote errors, JSON output, and human output | ✅ Client response mux and CLI routing remain behind injectable seams |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 90s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=60s ./internal/broker ./internal/ipc ./internal/cmd -run 'TestExecution\|TestClient\|TestCLIUsesBroker'` — exit 0; broker 0.057s, IPC 0.007s, command 0.006s |
+| Runtime harness command/scenario and exact result | Bounded built-binary harness started `haro broker --project <temp git repo>`, then ran `haro run demo --json` and `haro status <execution_id> --json` through the Unix socket — functional exit 0; execution ID, aggregate `running`, and step `pending` matched. TERM cleanup exposed the pending U7 signal-shutdown gap and left one safe 0600 orphan socket; no broker process remained, and the socket was removed after verification |
+| Rollback boundary | Revert `dd9b980`: remove `internal/broker/exec.go` and its tests, `internal/ipc/client.go` and its tests, and the U3 broker routing additions in `internal/broker/daemon.go` and `internal/cmd/{execute,execute_test}.go`; leave U1/U2 and unrelated launcher cleanup changes untouched |
+
+#### Gates
+
+- `git diff --check` — exit 0 before commit.
+- No full-suite, race, or broad broker-loop command was run in this continuation by resource-safety instruction.
+
+#### Continuation Boundary
+
+U3 was the only implementation unit committed in this continuation. U4–U7 remain pending because the runtime cleanup check exposed the not-yet-implemented U7 signal/shutdown behavior; no further broker tests or implementation were started after that finding.

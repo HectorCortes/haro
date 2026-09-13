@@ -2,10 +2,10 @@
 
 ## Review Workload Forecast
 
-Estimated lines: ~4,200 (prod ~2,100 / tests ~1,900 / wiring+docs ~200). Delivery: `single-pr`, maintainer-pre-approved `size:exception` (200000-line review budget); direct push to `main`, no PR, no chaining.
+Estimated lines: ~4,200 (prod ~2,100 / tests ~1,900 / wiring+docs ~200). Delivery: `single-pr`, maintainer-approved `size:exception` against the default 400-line threshold with a 20,000-line review budget; direct push to `main`, no PR, no chaining unless the forecast crosses 20,000 lines.
 Decision needed before apply: No
 Chained PRs recommended: No
-Chain strategy: size-exception
+Chain strategy: size-exception (no chaining unless the forecast crosses 20,000 lines)
 400-line budget risk: High
 
 | Unit | Goal | Focused test command | Runtime harness | Rollback boundary |
@@ -44,9 +44,9 @@ Strict TDD: RED task before GREEN per task (`go test ./...` locally mandatory; f
 
 ## U3: execution.start/status + CLI client wiring [v2-ipc/F-01,F-02]
 
-- [ ] 3.1 RED `internal/broker/exec_test.go`: start path→name resolution per correction 2 — valid path → `{execution_id}`; unknown/mismatched canonical path → `-32602 workflow_not_found`, nothing persisted; invalid workflow (cycle/schema) → error, zero executions; symlinked path resolves equal.
-- [ ] 3.2 GREEN `internal/broker/handlers` exec.go: `execution.start{workflow_path,workspace_override?}` → canonicalize → Discover match → `Engine.CreateExecution(name)`; `execution.status{execution_id}` → `Executions.Get` + `Steps.List` → `{status,steps}` consistent with persisted transitions.
-- [ ] 3.3 GREEN `internal/ipc/client.go`: mux responses/notifications, `Call` via launcher `Ensure` with dial/launch/retry; route `run` and `status` through broker in `internal/cmd/execute.go`; `report` and `step skip` stay direct-engine; error mapping preserves existing JSON codes.
+- [x] 3.1 RED `internal/broker/exec_test.go`: start path→name resolution per correction 2 — valid path → `{execution_id}`; unknown/mismatched canonical path → `-32602 workflow_not_found`, nothing persisted; invalid workflow (cycle/schema) → error, zero executions; symlinked path resolves equal.
+- [x] 3.2 GREEN `internal/broker/handlers` exec.go: `execution.start{workflow_path,workspace_override?}` → canonicalize → Discover match → `Engine.CreateExecution(name)`; `execution.status{execution_id}` → `Executions.Get` + `Steps.List` → `{status,steps}` consistent with persisted transitions.
+- [x] 3.3 GREEN `internal/ipc/client.go`: mux responses/notifications, `Call` via launcher `Ensure` with dial/launch/retry; route `run` and `status` through broker in `internal/cmd/execute.go`; `report` and `step skip` stay direct-engine; error mapping preserves existing JSON codes.
 
 ## U4: Async step.run + step.events projection [v2-ipc/F-03,F-04,U-01,U-03]
 
