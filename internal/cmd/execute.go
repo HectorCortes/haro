@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,12 +16,18 @@ import (
 	"github.com/HectorCortes/haro/internal/broker"
 	"github.com/HectorCortes/haro/internal/claim"
 	"github.com/HectorCortes/haro/internal/execution"
+	"github.com/HectorCortes/haro/internal/ipc"
 	"github.com/HectorCortes/haro/internal/project"
 	"github.com/HectorCortes/haro/internal/store"
 	"github.com/HectorCortes/haro/internal/workflow"
 )
 
 var runnerOverride execution.CommandRunner
+
+var brokerCall = func(ctx context.Context, root, method string, params any) (json.RawMessage, error) {
+	tr := ipc.DefaultTransport()
+	return ipc.CallWithLauncher(ctx, broker.NewLauncher(tr, nil), tr, root, method, params)
+}
 
 // SetRunnerForTest overrides the runner used by Execute (for E2E tests).
 func SetRunnerForTest(r execution.CommandRunner) { runnerOverride = r }
@@ -274,6 +281,9 @@ func handleRun(ctx context.Context, args []string, cwd string, out io.Writer, wr
 	}
 	if fs.NArg() != 0 {
 		return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(fs.Args(), " ")), "unexpected_argument")
+	}
+	if runnerOverride == nil {
+		return handleBrokerRun(ctx, name, cwd, out, writeErr, jsonOut)
 	}
 	// Open store
 	dbPath := filepath.Join(cwd, ".haro", "store.db")
@@ -660,6 +670,9 @@ func handleStatus(ctx context.Context, args []string, cwd string, out io.Writer,
 	if fs.NArg() != 0 {
 		return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(fs.Args(), " ")), "unexpected_argument")
 	}
+	if runnerOverride == nil {
+		return handleBrokerStatus(ctx, execID, cwd, out, writeErr, jsonOut)
+	}
 	dbPath := filepath.Join(cwd, ".haro", "store.db")
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
@@ -803,4 +816,102 @@ func handleBroker(ctx context.Context, args []string, cwd string, out io.Writer,
 		return writeErr(err.Error(), "broker_failed")
 	}
 	return 0
+}
+
+func handleBrokerRun(ctx context.Context, name, cwd string, out io.Writer, writeErr func(string, string) int, jsonOut bool) int {
+	discovered, err := workflow.Discover(cwd)
+	if err != nil {
+		return writeErr(err.Error(), "discover_failed")
+	}
+	var path string
+	for _, entry := range discovered {
+		if entry.Name == name || (entry.Workflow != nil && entry.Workflow.Name == name) {
+			path = entry.Path
+			break
+		}
+	}
+	if path == "" {
+		return writeErr(fmt.Sprintf("workflow %q not found", name), "not_found")
+	}
+	result, err := brokerCall(ctx, cwd, "execution.start", map[string]string{"workflow_path": path})
+	if err != nil {
+		return writeBrokerCallError(out, writeErr, err, "create_failed")
+	}
+	return writeBrokerResult(out, result, jsonOut, "execution_id")
+}
+
+func handleBrokerStatus(ctx context.Context, execID, cwd string, out io.Writer, writeErr func(string, string) int, jsonOut bool) int {
+	result, err := brokerCall(ctx, cwd, "execution.status", map[string]string{"execution_id": execID})
+	if err != nil {
+		return writeBrokerCallError(out, writeErr, err, "not_found")
+	}
+	if jsonOut {
+		var payload map[string]any
+		if err := json.Unmarshal(result, &payload); err != nil {
+			return writeErr(err.Error(), "broker_failed")
+		}
+		payload["execution_id"] = execID
+		if err := writeJSON(out, payload); err != nil && !isEPIPE(err) {
+			return 1
+		}
+		return 0
+	}
+	var payload executionStatusOutput
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return writeErr(err.Error(), "broker_failed")
+	}
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "execution %s status %s\n", execID, payload.Status)
+	for _, step := range payload.Steps {
+		fmt.Fprintf(&buf, "  %s: %s\n", step.ID, step.Status)
+	}
+	if _, err := io.Copy(out, &buf); err != nil && !isEPIPE(err) {
+		return 1
+	}
+	return 0
+}
+
+type executionStatusOutput struct {
+	Status string `json:"status"`
+	Steps  []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	} `json:"steps"`
+}
+
+func writeBrokerResult(out io.Writer, result json.RawMessage, jsonOut bool, requiredField string) int {
+	if jsonOut {
+		if err := writeJSON(out, json.RawMessage(result)); err != nil && !isEPIPE(err) {
+			return 1
+		}
+		return 0
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return 1
+	}
+	if value := payload[requiredField]; value != "" {
+		_, _ = fmt.Fprintln(out, value)
+		return 0
+	}
+	return 1
+}
+
+func writeBrokerCallError(out io.Writer, writeErr func(string, string) int, err error, fallback string) int {
+	var remote *ipc.RemoteError
+	if errors.As(err, &remote) {
+		code := remote.Message
+		if code == "" {
+			code = fallback
+		}
+		payload := map[string]any{"error": remote.Message, "code": code}
+		if remote.Data != nil {
+			payload["data"] = remote.Data
+		}
+		if outputErr := writeJSON(out, payload); outputErr != nil && !isEPIPE(outputErr) {
+			return writeErr(outputErr.Error(), fallback)
+		}
+		return 1
+	}
+	return writeErr(err.Error(), fallback)
 }

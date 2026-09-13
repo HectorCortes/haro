@@ -125,6 +125,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		_ = os.Remove(d.endpoint)
 		return err
 	}
+	d.registerExecutionHandlers()
 	d.state.Store(StateRunning)
 
 	stop := make(chan struct{})

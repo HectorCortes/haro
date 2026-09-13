@@ -167,3 +167,67 @@ func TestCLI_EPIPE(t *testing.T) {
 	}
 	_ = r
 }
+
+func TestCLIUsesBrokerForRunAndStatus(t *testing.T) {
+	root := t.TempDir()
+	if code := Execute(context.Background(), []string{"init"}, root, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("init exit = %d", code)
+	}
+	wfDir := filepath.Join(root, ".haro", "workflows", "demo")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "workflow.yaml"), []byte("version: 2\nname: demo\nsteps:\n  - id: s1\n    type: command\n    run: echo hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := brokerCall
+	t.Cleanup(func() { brokerCall = previous })
+	var methods []string
+	brokerCall = func(_ context.Context, _ string, method string, _ any) (json.RawMessage, error) {
+		methods = append(methods, method)
+		switch method {
+		case "execution.start":
+			return json.RawMessage(`{"execution_id":"exec-123"}`), nil
+		case "execution.status":
+			return json.RawMessage(`{"status":"running","steps":[{"id":"s1","status":"pending"}]}`), nil
+		default:
+			t.Fatalf("unexpected broker method %q", method)
+			return nil, nil
+		}
+	}
+
+	var runOut bytes.Buffer
+	if code := Execute(context.Background(), []string{"run", "demo", "--json"}, root, &runOut, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("run exit = %d, output=%q", code, runOut.String())
+	}
+	var runPayload map[string]string
+	if err := json.Unmarshal(runOut.Bytes(), &runPayload); err != nil {
+		t.Fatalf("run output: %v", err)
+	}
+	if runPayload["execution_id"] != "exec-123" {
+		t.Fatalf("run payload = %v", runPayload)
+	}
+
+	var statusOut bytes.Buffer
+	if code := Execute(context.Background(), []string{"status", "exec-123", "--json"}, root, &statusOut, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("status exit = %d, output=%q", code, statusOut.String())
+	}
+	var statusPayload map[string]any
+	if err := json.Unmarshal(statusOut.Bytes(), &statusPayload); err != nil {
+		t.Fatalf("status output: %v", err)
+	}
+	if statusPayload["execution_id"] != "exec-123" || statusPayload["status"] != "running" {
+		t.Fatalf("status payload = %v", statusPayload)
+	}
+	var humanStatus bytes.Buffer
+	if code := Execute(context.Background(), []string{"status", "exec-123"}, root, &humanStatus, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("human status exit = %d, output=%q", code, humanStatus.String())
+	}
+	if !strings.Contains(humanStatus.String(), "execution exec-123 status running") || !strings.Contains(humanStatus.String(), "s1: pending") {
+		t.Fatalf("human status output = %q", humanStatus.String())
+	}
+	if strings.Join(methods, ",") != "execution.start,execution.status,execution.status" {
+		t.Fatalf("broker methods = %v", methods)
+	}
+}
