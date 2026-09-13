@@ -43,11 +43,22 @@ type Engine struct {
 	worktreeMgr    worktree.Manager
 	activeClaimsMu sync.Mutex
 	activeClaims   map[string]attemptClaims
+	leaseHolder    string
+	activeLeasesMu sync.Mutex
+	activeLeases   map[string]attemptLease
 }
 
 // NewEngine creates an engine.
 func NewEngine(s store.Store, r CommandRunner, root string) *Engine {
-	return &Engine{store: s, runner: r, root: root, worktreeMgr: worktree.NewManager(), activeClaims: make(map[string]attemptClaims)}
+	return &Engine{
+		store:        s,
+		runner:       r,
+		root:         root,
+		worktreeMgr:  worktree.NewManager(),
+		activeClaims: make(map[string]attemptClaims),
+		leaseHolder:  uuid.NewString(),
+		activeLeases: make(map[string]attemptLease),
+	}
 }
 
 // SetAdapterManager sets the adapter manager for agent steps.

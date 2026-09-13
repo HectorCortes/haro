@@ -45,6 +45,11 @@ func (e *Engine) StartStep(ctx context.Context, executionID, stepID, requestedMo
 	if err != nil {
 		return nil, err
 	}
+	leaseToken, err := e.store.Leases().Acquire(ctx, executionID, stepID, e.leaseHolder)
+	if err != nil {
+		e.releaseClaims(ctx, executionID, stepID, claims)
+		return nil, err
+	}
 	startedAt := time.Now().UTC().Format(time.RFC3339)
 	gen := &store.Generation{
 		ID:          uuid.NewString(),
@@ -88,10 +93,12 @@ func (e *Engine) StartStep(ctx context.Context, executionID, stepID, requestedMo
 		return tx.Attempts().Create(ctx, attempt)
 	})
 	if err != nil {
+		_ = e.store.Leases().Release(ctx, executionID, stepID, e.leaseHolder, leaseToken)
 		e.releaseClaims(ctx, executionID, stepID, claims)
 		return nil, err
 	}
 	e.trackAttemptClaims(attempt.ID, executionID, stepID, claims)
+	e.trackAttemptLease(attempt.ID, executionID, stepID, leaseToken)
 	return attempt, nil
 }
 
@@ -106,6 +113,7 @@ func (e *Engine) ExecuteAttempt(ctx context.Context, attemptID string) error {
 		return fmt.Errorf("attempt %q not running", attemptID)
 	}
 	defer e.releaseAttemptClaims(ctx, attempt)
+	defer e.releaseAttemptLease(ctx, attempt)
 	step, err := e.store.Steps().Get(ctx, attempt.ExecutionID, attempt.StepID)
 	if err != nil {
 		return fmt.Errorf("get step: %w", err)
@@ -293,4 +301,28 @@ type attemptClaims struct {
 	executionID string
 	stepID      string
 	paths       []string
+}
+
+type attemptLease struct {
+	executionID string
+	stepID      string
+	token       int64
+}
+
+func (e *Engine) trackAttemptLease(attemptID, executionID, stepID string, token int64) {
+	e.activeLeasesMu.Lock()
+	e.activeLeases[attemptID] = attemptLease{executionID: executionID, stepID: stepID, token: token}
+	e.activeLeasesMu.Unlock()
+}
+
+func (e *Engine) releaseAttemptLease(ctx context.Context, attempt *store.Attempt) {
+	e.activeLeasesMu.Lock()
+	lease, ok := e.activeLeases[attempt.ID]
+	if ok {
+		delete(e.activeLeases, attempt.ID)
+	}
+	e.activeLeasesMu.Unlock()
+	if ok {
+		_ = e.store.Leases().Release(ctx, lease.executionID, lease.stepID, e.leaseHolder, lease.token)
+	}
 }

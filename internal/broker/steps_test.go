@@ -105,11 +105,23 @@ steps:
 	if got, err := s.Attempts().CountByStep(context.Background(), executionID, "one"); err != nil || got != 1 {
 		t.Fatalf("attempt count=%d err=%v, want one attempt", got, err)
 	}
+	lease, err := s.Leases().Get(context.Background(), executionID, "one")
+	if err != nil || lease.Holder == "" || lease.FencingToken != 1 {
+		t.Fatalf("lease=%+v err=%v, want owned token one", lease, err)
+	}
 	close(release)
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		attempt, getErr := s.Attempts().Get(context.Background(), payload.AttemptID)
 		if getErr == nil && attempt.Status == "completed" {
+			lease, leaseErr := s.Leases().Get(context.Background(), executionID, "one")
+			if leaseErr != nil {
+				t.Fatalf("get released lease: %v", leaseErr)
+			}
+			expires, parseErr := time.Parse(time.RFC3339, lease.ExpiresAt)
+			if parseErr != nil || expires.After(time.Now().UTC().Add(time.Second)) {
+				t.Fatalf("lease still active after attempt: %+v", lease)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
