@@ -92,7 +92,7 @@ Commit: `dd9b980` · `feat(broker): wire execution start and status through RPC`
 
 | Evidence | Result |
 |---|---|
-| Focused test command and exact result | `timeout 90s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=60s ./internal/broker ./internal/ipc ./internal/cmd -run 'TestExecution\|TestClient\|TestCLIUsesBroker'` — exit 0; broker 0.057s, IPC 0.007s, command 0.006s |
+| Focused test command and exact result | `timeout 90s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=60s ./internal/broker ./internal/ipc ./internal/cmd -run 'TestExecution|TestClient|TestCLIUsesBroker'` — exit 0; broker 0.057s, IPC 0.007s, command 0.006s |
 | Runtime harness command/scenario and exact result | Bounded built-binary harness started `haro broker --project <temp git repo>`, then ran `haro run demo --json` and `haro status <execution_id> --json` through the Unix socket — functional exit 0; execution ID, aggregate `running`, and step `pending` matched. TERM cleanup exposed the pending U7 signal-shutdown gap and left one safe 0600 orphan socket; no broker process remained, and the socket was removed after verification |
 | Rollback boundary | Revert `dd9b980`: remove `internal/broker/exec.go` and its tests, `internal/ipc/client.go` and its tests, and the U3 broker routing additions in `internal/broker/daemon.go` and `internal/cmd/{execute,execute_test}.go`; leave U1/U2 and unrelated launcher cleanup changes untouched |
 
