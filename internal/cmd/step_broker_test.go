@@ -45,3 +45,33 @@ func TestCLIStepRunAndEventsUseBroker(t *testing.T) {
 		t.Fatalf("broker methods=%v", methods)
 	}
 }
+
+func TestCLIStepReopenUsesBrokerAndReturnsInvalidated(t *testing.T) {
+	previous := brokerCall
+	t.Cleanup(func() { brokerCall = previous })
+	var method string
+	var params map[string]any
+	brokerCall = func(_ context.Context, _ string, gotMethod string, gotParams any) (json.RawMessage, error) {
+		method = gotMethod
+		encoded, err := json.Marshal(gotParams)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(encoded, &params); err != nil {
+			t.Fatal(err)
+		}
+		return json.RawMessage(`{"invalidated":["s1","s2"]}`), nil
+	}
+
+	var out bytes.Buffer
+	if code := Execute(context.Background(), []string{"step", "reopen", "exec-1", "s1", "--cascade", "--feedback", "repair", "--json"}, t.TempDir(), &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("step reopen exit=%d output=%q", code, out.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || result["invalidated"] == nil {
+		t.Fatalf("step reopen output=%q err=%v", out.String(), err)
+	}
+	if method != "step.reopen" || params["execution_id"] != "exec-1" || params["step_id"] != "s1" || params["feedback"] != "repair" {
+		t.Fatalf("method=%q params=%v", method, params)
+	}
+}

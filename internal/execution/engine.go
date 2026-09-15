@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -599,10 +600,15 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 		var prior string
 		if ev, err := e.store.Events().PriorOutputDelta(ctx, attemptID); err == nil && ev != nil {
 			if ev.Payload != nil {
-				prior = *ev.Payload
+				prior = FallbackEvidence(*ev.Payload)
 			} else if ev.PayloadRef != nil {
-				if data, rerr := os.ReadFile(*ev.PayloadRef); rerr == nil {
+				if data, truncated, rerr := readBoundedFile(*ev.PayloadRef, FallbackLimit); rerr == nil {
 					prior = string(data)
+					if truncated {
+						prior = truncateWithNotice(prior, FallbackLimit-len(fallbackTruncationNotice), "\n[prior evidence truncated]")
+					} else {
+						prior = FallbackEvidence(prior)
+					}
 				}
 			}
 		}
@@ -613,7 +619,7 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 			available = 0
 		}
 		if len(prior) > available {
-			prior = prior[:available]
+			prior = truncateWithNotice(prior, available, "\n[prior evidence truncated]")
 		}
 		// Ensure combined within fallback limit
 		combined := FallbackEvidence(prior + delimited)
@@ -661,7 +667,7 @@ func (e *Engine) RunStep(ctx context.Context, executionID, stepID, feedback stri
 	var missing []string
 	for _, prod := range produces {
 		abs := filepath.Join(artifactsRoot, prod)
-		data, err := os.ReadFile(abs)
+		data, _, err := readBoundedFile(abs, SnapshotLimit)
 		if err != nil {
 			hasMissing = true
 			missing = append(missing, prod)
@@ -874,7 +880,7 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		reqMap[r] = r
 	}
 	// Fallback loop over the intersected candidates only.
-	var evidences []string
+	var evidences string
 	for idx, harness := range candidates {
 		// Create generation and attempt plus the identity-empty transport
 		// row atomically. Real identity replaces the row after the session
@@ -917,8 +923,8 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		})
 		if err != nil {
 			// If transport creation fails, treat as terminal
-			evidences = append(evidences, VisibleEvidence(fmt.Sprintf("transport error for %s: %v", harness, err)))
-			accumulated = FallbackEvidence(strings.Join(evidences, ""))
+			evidences = appendFallbackEvidence(evidences, VisibleEvidence(fmt.Sprintf("transport error for %s: %v", harness, err)))
+			accumulated = evidences
 			if isTerminal(err) {
 				reason := VisibleEvidence(fmt.Sprintf("terminal: %v", err))
 				_ = e.completeAttempt(ctx, attemptID, "failed", &reason, &accumulated)
@@ -927,7 +933,7 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 				return err
 			}
 			if idx == len(candidates)-1 {
-				reason := VisibleEvidence(strings.Join(evidences, ""))
+				reason := VisibleEvidence(evidences)
 				_ = e.completeAttempt(ctx, attemptID, "failed", &reason, &accumulated)
 				_ = e.transitionStep(ctx, executionID, stepID, "running", "failed")
 				e.resyncExecution(ctx, executionID)
@@ -966,13 +972,13 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 				var collected string
 				for ev := range ch {
 					if ev.Type == "output_delta" {
-						collected += string(ev.Payload)
+						collected = appendFallbackEvidence(collected, string(ev.Payload))
 					} else if ev.Type == "completed" {
-						collected += string(ev.Payload)
+						collected = appendFallbackEvidence(collected, string(ev.Payload))
 						break
 					} else if ev.Type == "failed" {
 						runErr = fmt.Errorf("harness %s failed: %s", harness, string(ev.Payload))
-						collected += string(ev.Payload)
+						collected = appendFallbackEvidence(collected, string(ev.Payload))
 						break
 					}
 				}
@@ -1007,7 +1013,7 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		// Compose execution-identifying agent evidence, then redact and bound
 		// once. Persisted inline; no evidence files are written.
 		visible := AgentEvidence(harness, idx+1, len(candidates), mode, instructions, output)
-		evidences = append(evidences, visible)
+		evidences = appendFallbackEvidence(evidences, visible)
 		cursor, _ := e.store.Events().NextAttemptCursor(ctx, attemptID)
 		_ = e.store.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{
 			AttemptID:  attemptID,
@@ -1027,14 +1033,14 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		}
 		if isTerminal(runErr) {
 			reason := VisibleEvidence(fmt.Sprintf("terminal: %v", runErr))
-			all := FallbackEvidence(strings.Join(evidences, ""))
+			all := evidences
 			_ = e.completeAttempt(ctx, attemptID, "failed", &reason, &all)
 			_ = e.transitionStep(ctx, executionID, stepID, "running", "failed")
 			e.resyncExecution(ctx, executionID)
 			return runErr
 		}
 		// Clean failure: accumulate and continue
-		accumulated = FallbackEvidence(strings.Join(evidences, ""))
+		accumulated = evidences
 		// Mark this attempt failed but continue
 		reason := VisibleEvidence(runErr.Error())
 		_ = e.completeAttempt(ctx, attemptID, "failed", &reason, &accumulated)
@@ -1047,6 +1053,22 @@ func (e *Engine) runAgentStep(ctx context.Context, executionID, stepID, feedback
 		// continue to next harness
 	}
 	return fmt.Errorf("no candidates")
+}
+
+func readBoundedFile(path string, limit int) ([]byte, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > limit {
+		return data[:limit], true, nil
+	}
+	return data, false, nil
 }
 
 type agentHost struct {
@@ -1082,8 +1104,12 @@ func (e *Engine) completeAttempt(ctx context.Context, attemptID, status string, 
 }
 
 func (e *Engine) transitionStep(ctx context.Context, executionID, stepID, from, to string) error {
+	return e.transitionStepWithStore(ctx, e.store, executionID, stepID, from, to)
+}
+
+func (e *Engine) transitionStepWithStore(ctx context.Context, s store.Store, executionID, stepID, from, to string) error {
 	// Idempotent: if current status already equals to, do not create duplicate event
-	cur, err := e.store.Steps().Get(ctx, executionID, stepID)
+	cur, err := s.Steps().Get(ctx, executionID, stepID)
 	if err != nil {
 		return err
 	}
@@ -1091,11 +1117,11 @@ func (e *Engine) transitionStep(ctx context.Context, executionID, stepID, from, 
 		return nil
 	}
 	// Update step status
-	if err := e.store.Steps().UpdateStatus(ctx, executionID, stepID, to); err != nil {
+	if err := s.Steps().UpdateStatus(ctx, executionID, stepID, to); err != nil {
 		return err
 	}
 	// Audit transition
-	cursor, _ := e.store.Events().NextTransitionCursor(ctx, executionID, stepID)
+	cursor, _ := s.Events().NextTransitionCursor(ctx, executionID, stepID)
 	fromCopy := from
 	ev := &store.StepTransitionEvent{
 		ExecutionID: executionID,
@@ -1107,11 +1133,15 @@ func (e *Engine) transitionStep(ctx context.Context, executionID, stepID, from, 
 	if from == "" {
 		ev.FromStatus = nil
 	}
-	return e.store.Events().CreateTransition(ctx, ev)
+	return s.Events().CreateTransition(ctx, ev)
 }
 
 func (e *Engine) resyncExecution(ctx context.Context, executionID string) {
-	steps, err := e.store.Steps().List(ctx, executionID)
+	e.resyncExecutionWithStore(ctx, e.store, executionID)
+}
+
+func (e *Engine) resyncExecutionWithStore(ctx context.Context, s store.Store, executionID string) {
+	steps, err := s.Steps().List(ctx, executionID)
 	if err != nil {
 		return
 	}
@@ -1162,10 +1192,10 @@ func (e *Engine) resyncExecution(ctx context.Context, executionID string) {
 	if hasRunning {
 		status = "running"
 	}
-	_ = e.store.Executions().UpdateStatus(ctx, executionID, status)
+	_ = s.Executions().UpdateStatus(ctx, executionID, status)
 	// Terminal resync: remove worktree if execution completed/failed
 	if (status == "completed" || status == "failed") && e.worktreeMgr != nil {
-		exec, err := e.store.Executions().Get(ctx, executionID)
+		exec, err := s.Executions().Get(ctx, executionID)
 		if err == nil && exec != nil && exec.WorkspaceMode == "isolated" && exec.WorkspaceRoot != "" && exec.WorkspaceRoot != e.root {
 			_ = e.worktreeMgr.Remove(ctx, exec.WorkspaceRoot)
 		}

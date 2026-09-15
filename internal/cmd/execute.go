@@ -599,8 +599,10 @@ func handleStepReopen(ctx context.Context, args []string, cwd string, out io.Wri
 	fs.SetOutput(io.Discard)
 	var cascade bool
 	var feedback string
+	var jsonOut bool
 	fs.BoolVar(&cascade, "cascade", false, "")
 	fs.StringVar(&feedback, "feedback", "", "")
+	fs.BoolVar(&jsonOut, "json", false, "")
 	if idx := indexOf(rest, "--"); idx != -1 {
 		if idx+1 < len(rest) {
 			return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(rest[idx+1:], " ")), "unexpected_argument")
@@ -615,6 +617,9 @@ func handleStepReopen(ctx context.Context, args []string, cwd string, out io.Wri
 	}
 	if !cascade {
 		return writeErr("reopen requires --cascade", "invalid_argument")
+	}
+	if runnerOverride == nil {
+		return handleBrokerStepReopen(ctx, execID, stepID, feedback, cwd, out, writeErr, jsonOut)
 	}
 	dbPath := filepath.Join(cwd, ".haro", "store.db")
 	s, err := store.Open(ctx, dbPath)
@@ -913,6 +918,35 @@ func handleBrokerStepEvents(ctx context.Context, execID, stepID string, since in
 		return writeBrokerCallError(out, writeErr, err, "events_failed")
 	}
 	return writeBrokerResult(out, result, jsonOut, "next_cursor")
+}
+
+func handleBrokerStepReopen(ctx context.Context, execID, stepID, feedback, cwd string, out io.Writer, writeErr func(string, string) int, jsonOut bool) int {
+	params := map[string]any{"execution_id": execID, "step_id": stepID, "cascade": true}
+	if feedback != "" {
+		params["feedback"] = feedback
+	}
+	result, err := brokerCall(ctx, cwd, "step.reopen", params)
+	if err != nil {
+		return writeBrokerCallError(out, writeErr, err, "reopen_failed")
+	}
+	if jsonOut {
+		if err := writeJSON(out, json.RawMessage(result)); err != nil && !isEPIPE(err) {
+			return 1
+		}
+		return 0
+	}
+	var payload struct {
+		Invalidated []string `json:"invalidated"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return writeErr(err.Error(), "reopen_failed")
+	}
+	for _, stepID := range payload.Invalidated {
+		if _, err := fmt.Fprintln(out, stepID); err != nil && !isEPIPE(err) {
+			return 1
+		}
+	}
+	return 0
 }
 
 type executionStatusOutput struct {

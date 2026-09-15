@@ -1,13 +1,15 @@
 package execution
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/HectorCortes/haro/internal/limits"
+	"github.com/HectorCortes/haro/internal/process"
 )
 
 // CommandRunner runs a command with argv, cwd and env, returning exit code, stdout, stderr.
@@ -70,7 +72,8 @@ func ParseArgv(s string) ([]string, error) {
 	return args, nil
 }
 
-// RealRunner is the production CommandRunner using exec.CommandContext.
+// RealRunner is the production CommandRunner using exec.Command and the
+// shared process lifecycle helper.
 type RealRunner struct{}
 
 // NewRunner creates a RealRunner.
@@ -96,7 +99,7 @@ func (r *RealRunner) Run(ctx context.Context, cwd string, argv []string, env map
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
@@ -119,24 +122,29 @@ func (r *RealRunner) Run(ctx context.Context, cwd string, argv []string, env map
 		}
 		cmd.Env = envList
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if runCtx.Err() == context.DeadlineExceeded {
-		return 0, stdout.String(), stderr.String(), runCtx.Err()
+	stdout, stderr := limits.NewCaptureWriters()
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	proc, err := process.Start(runCtx, cmd)
+	if err != nil {
+		return 0, "", "", err
+	}
+	err = proc.Wait()
+	stdoutText, stderrText := stdout.String(), stderr.String()
+	if runCtx.Err() != nil {
+		return 0, stdoutText, stderrText, runCtx.Err()
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return exitErr.ExitCode(), stdout.String(), stderr.String(), nil
+			return exitErr.ExitCode(), stdoutText, stderrText, nil
 		}
 		// Start failure or other
 		if ctx.Err() != nil {
-			return 0, stdout.String(), stderr.String(), ctx.Err()
+			return 0, stdoutText, stderrText, ctx.Err()
 		}
-		return 0, stdout.String(), stderr.String(), err
+		return 0, stdoutText, stderrText, err
 	}
-	return 0, stdout.String(), stderr.String(), nil
+	return 0, stdoutText, stderrText, nil
 }
 
 // RunCall records a FakeRunner invocation.

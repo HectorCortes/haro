@@ -13,27 +13,19 @@ func RunFallback(candidates []string, runner func(harness string, fallbackContex
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("no candidates")
 	}
-	var evidences []string
 	var accumulated string
 	for i, harness := range candidates {
 		output, err := runner(harness, accumulated)
 		// Sanitize: Redact -> VisibleEvidence (which already redacts, but ensure)
 		visible := VisibleEvidence(output)
-		evidences = append(evidences, visible)
+		accumulated = appendFallbackEvidence(accumulated, visible)
 		if err == nil {
-			// Success: return accumulated visible evidence (all)
-			all := strings.Join(evidences, "")
-			// Already visible bounded, but fallback also bounded
-			all = FallbackEvidence(all)
-			return all, nil
+			return accumulated, nil
 		}
 		if isTerminal(err) {
-			all := strings.Join(evidences, "")
-			all = FallbackEvidence(all)
-			return all, err
+			return accumulated, err
 		}
 		// Clean failure: accumulate bounded
-		accumulated = FallbackEvidence(strings.Join(evidences, ""))
 		if i == len(candidates)-1 {
 			return accumulated, fmt.Errorf("exhausted candidates: %w", err)
 		}

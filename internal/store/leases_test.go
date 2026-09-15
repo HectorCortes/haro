@@ -96,3 +96,35 @@ func TestLeaseRenewAndReleaseFailClosed(t *testing.T) {
 		t.Fatalf("Release non-existent expected ErrNotFound got %v", err)
 	}
 }
+
+func TestLeaseRejectsUnexpiredForeignHolderAndAllowsSameHolder(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "leases-conflict.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	first, err := s.Leases().Acquire(ctx, "exec", "step", "holder-a")
+	if err != nil || first != 1 {
+		t.Fatalf("first acquire token=%d err=%v", first, err)
+	}
+	if _, err := s.Leases().Acquire(ctx, "exec", "step", "holder-b"); !errors.Is(err, ErrLeaseConflict) {
+		t.Fatalf("foreign acquire err=%v, want ErrLeaseConflict", err)
+	}
+	second, err := s.Leases().Acquire(ctx, "exec", "step", "holder-a")
+	if err != nil || second != 2 {
+		t.Fatalf("same-holder reacquire token=%d err=%v, want token 2", second, err)
+	}
+}
+
+func TestFakeLeaseRejectsUnexpiredForeignHolder(t *testing.T) {
+	ctx := context.Background()
+	s := NewFakeStore()
+	if _, err := s.Leases().Acquire(ctx, "exec", "step", "holder-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Leases().Acquire(ctx, "exec", "step", "holder-b"); !errors.Is(err, ErrLeaseConflict) {
+		t.Fatalf("foreign fake acquire err=%v, want ErrLeaseConflict", err)
+	}
+}

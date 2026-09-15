@@ -32,7 +32,7 @@ func (s *Server) Dispatcher() *Dispatcher { return s.dispatcher }
 
 // ServeConn processes requests until the peer closes, the context is done, or
 // a transport write fails. Parse errors are recoverable at the frame boundary.
-func (s *Server) ServeConn(ctx context.Context, conn net.Conn) error {
+func (s *Server) ServeConn(ctx context.Context, conn net.Conn, hubs ...*Hub) error {
 	if conn == nil {
 		return errors.New("nil connection")
 	}
@@ -57,6 +57,15 @@ func (s *Server) ServeConn(ctx context.Context, conn net.Conn) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		return jsonrpc.EncodeResponse(conn, id, result)
+	}
+	var unsubscribe func()
+	if len(hubs) > 0 && hubs[0] != nil {
+		unsubscribe = hubs[0].Subscribe(func(method string, params any) error {
+			writeMu.Lock()
+			defer writeMu.Unlock()
+			return jsonrpc.EncodeNotification(conn, method, params)
+		})
+		defer unsubscribe()
 	}
 	for {
 		msg, err := jsonrpc.DecodeMessage(br)

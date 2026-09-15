@@ -390,6 +390,11 @@ func (s *SQLiteStore) QueryForTest(ctx context.Context, query string, args ...an
 	return s.query(ctx, query, args...)
 }
 
+// ExecForTest exposes exec for tests (uses underlying db/tx).
+func (s *SQLiteStore) ExecForTest(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return s.exec(ctx, query, args...)
+}
+
 // projectsRepo implements ProjectsRepository.
 type projectsRepo struct {
 	store *SQLiteStore

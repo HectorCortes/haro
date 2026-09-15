@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/HectorCortes/haro/internal/ipc/jsonrpc"
+	"github.com/HectorCortes/haro/internal/limits"
 )
 
 // Content is one Claude message content block; text blocks carry output.
@@ -86,35 +87,41 @@ func FirstSessionID(events []Event) string {
 }
 
 // ParseStreamJSON parses newline-delimited Claude stream-json frames,
-// rejecting frames over jsonrpc.MaxMessageSize (10 MiB) and using UseNumber
-// so numeric literals never lose precision. Any malformed or oversized frame
-// is a protocol error: the caller treats the whole stream as failed.
+// rejecting frames over jsonrpc.MaxMessageSize and bounding retained frames.
+// It uses UseNumber so numeric literals never lose precision. Any malformed,
+// oversized, or over-retained stream is a protocol error; already parsed
+// events are returned so callers can preserve preceding terminal evidence.
 func ParseStreamJSON(r io.Reader) ([]Event, error) {
-	br := bufio.NewReader(r)
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), jsonrpc.MaxMessageSize+1)
 	var events []Event
-	for {
-		line, err := br.ReadString('\n')
-		atEOF := err == io.EOF
-		if err != nil && !atEOF {
-			return nil, fmt.Errorf("read: %w", err)
+	retained := 0
+	for scanner.Scan() {
+		trimmed := strings.TrimSpace(scanner.Text())
+		if trimmed == "" {
+			continue
 		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			if len(trimmed) > jsonrpc.MaxMessageSize {
-				return nil, fmt.Errorf("message too large: %d > %d", len(trimmed), jsonrpc.MaxMessageSize)
-			}
-			dec := json.NewDecoder(strings.NewReader(trimmed))
-			dec.UseNumber()
-			var ev Event
-			if derr := dec.Decode(&ev); derr != nil {
-				return nil, fmt.Errorf("decode stream-json frame: %w", derr)
-			}
-			ev.Raw = json.RawMessage(trimmed)
-			events = append(events, ev)
+		if len(trimmed) > jsonrpc.MaxMessageSize {
+			return events, fmt.Errorf("message too large: %d > %d", len(trimmed), jsonrpc.MaxMessageSize)
 		}
-		if atEOF {
-			break
+		if retained+len(trimmed) > limits.AdapterEventRetentionLimit {
+			return events, fmt.Errorf("event retention limit exceeded: %d > %d", retained+len(trimmed), limits.AdapterEventRetentionLimit)
 		}
+		dec := json.NewDecoder(strings.NewReader(trimmed))
+		dec.UseNumber()
+		var ev Event
+		if err := dec.Decode(&ev); err != nil {
+			return events, fmt.Errorf("decode stream-json frame: %w", err)
+		}
+		ev.Raw = json.RawMessage(trimmed)
+		events = append(events, ev)
+		retained += len(trimmed)
+	}
+	if err := scanner.Err(); err != nil {
+		if strings.Contains(err.Error(), "token too long") {
+			return events, fmt.Errorf("message too large: line exceeds %d bytes", jsonrpc.MaxMessageSize)
+		}
+		return events, fmt.Errorf("read: %w", err)
 	}
 	return events, nil
 }

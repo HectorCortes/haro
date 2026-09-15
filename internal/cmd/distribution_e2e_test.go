@@ -17,9 +17,9 @@ func buildHaroBinary(t *testing.T) string {
 	}
 	binDir := t.TempDir()
 	bin := filepath.Join(binDir, "haro")
-	cmd := exec.Command("go", "build", "-o", bin, ".")
+	cmd := exec.Command("go", "build", "-p=1", "-o", bin, ".")
 	cmd.Dir = "../.."
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOMAXPROCS=2", "GOMEMLIMIT=512MiB")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}

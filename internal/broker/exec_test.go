@@ -162,6 +162,7 @@ func testDaemon(t *testing.T, root string, s store.Store) *Daemon {
 	}
 	d.st = s
 	d.engine = execution.NewEngine(s, &execution.FakeRunner{}, root)
+	d.state.Store(StateRunning)
 	return d
 }
 

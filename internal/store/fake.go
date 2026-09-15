@@ -982,6 +982,12 @@ func (r *fakeLeasesRepo) Acquire(ctx context.Context, executionID, stepID, holde
 	now := time.Now().UTC().Format(time.RFC3339)
 	expires := time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 	if existing, ok := r.s.leases[k]; ok {
+		if existing.Holder != holder {
+			expiresAt, parseErr := time.Parse(time.RFC3339, existing.ExpiresAt)
+			if parseErr != nil || expiresAt.After(time.Now().UTC()) {
+				return 0, ErrLeaseConflict
+			}
+		}
 		next := existing.FencingToken + 1
 		existing.Holder = holder
 		existing.FencingToken = next

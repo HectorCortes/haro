@@ -82,14 +82,24 @@ steps:
 	// Verify feedback was stored delimited + bounded prior from the inline
 	// DB payload. New runs never create evidence files or directories; the
 	// output_delta payload is inline with a null payload_ref.
-	rows, _ := s.QueryForTest(ctx, "SELECT id FROM attempts WHERE execution_id = ? AND step_id = ? ORDER BY started_at", execID, "s1")
+	rows, err := s.QueryForTest(ctx, "SELECT id FROM attempts WHERE execution_id = ? AND step_id = ? ORDER BY started_at", execID, "s1")
+	if err != nil {
+		t.Fatalf("query attempts: %v", err)
+	}
 	var ids []string
 	for rows.Next() {
 		var id string
-		_ = rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan attempt: %v", err)
+		}
 		ids = append(ids, id)
 	}
-	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate attempts: %v", err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("close attempts: %v", err)
+	}
 	if len(ids) != 2 {
 		t.Fatalf("ids len = %d", len(ids))
 	}
@@ -100,11 +110,16 @@ steps:
 	}
 	var inlinePayload *string
 	var inlineRef *string
-	evRows2, _ := s.QueryForTest(ctx, "SELECT event_type, payload_ref, payload FROM attempt_events WHERE attempt_id = ? AND event_type = 'output_delta'", secondID)
+	evRows2, err := s.QueryForTest(ctx, "SELECT event_type, payload_ref, payload FROM attempt_events WHERE attempt_id = ? AND event_type = 'output_delta'", secondID)
+	if err != nil {
+		t.Fatalf("query output event: %v", err)
+	}
 	for evRows2.Next() {
 		var typ string
 		var r, p sql.NullString
-		_ = evRows2.Scan(&typ, &r, &p)
+		if err := evRows2.Scan(&typ, &r, &p); err != nil {
+			t.Fatalf("scan output event: %v", err)
+		}
 		if r.Valid {
 			refCopy := r.String
 			inlineRef = &refCopy
@@ -114,7 +129,12 @@ steps:
 			inlinePayload = &pCopy
 		}
 	}
-	_ = evRows2.Close()
+	if err := evRows2.Err(); err != nil {
+		t.Fatalf("iterate output event: %v", err)
+	}
+	if err := evRows2.Close(); err != nil {
+		t.Fatalf("close output event: %v", err)
+	}
 	if inlinePayload == nil || !strings.HasPrefix(*inlinePayload, "$ echo hello") {
 		t.Fatalf("output_delta must persist inline evidence with the argv header, got %v", inlinePayload)
 	}
@@ -228,6 +248,9 @@ steps:
 				t.Fatalf("scan: %v", err)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterate reconstruction: %v", err)
+		}
 		if !ref.Valid {
 			t.Fatalf("no reconstruction_context recorded")
 		}
@@ -279,7 +302,7 @@ steps:
 		if err := os.WriteFile(legacyPath, []byte(legacyContent), 0o600); err != nil {
 			t.Fatalf("write legacy: %v", err)
 		}
-		if _, err := s.QueryForTest(ctx, `UPDATE attempt_events SET payload = NULL, payload_ref = ? WHERE event_type = 'output_delta'`, legacyPath); err != nil {
+		if _, err := s.ExecForTest(ctx, `UPDATE attempt_events SET payload = NULL, payload_ref = ? WHERE event_type = 'output_delta'`, legacyPath); err != nil {
 			t.Fatalf("rewrite legacy event: %v", err)
 		}
 		if err := eng.RunStep(ctx, execID, "s1", feedback); err != nil {
@@ -302,7 +325,7 @@ steps:
 		}
 		// Oversized inline payload (3 MiB > 2 MiB budget).
 		oversized := strings.Repeat("C", 3*1024*1024)
-		if _, err := s.QueryForTest(ctx, `UPDATE attempt_events SET payload = ? WHERE event_type = 'output_delta'`, oversized); err != nil {
+		if _, err := s.ExecForTest(ctx, `UPDATE attempt_events SET payload = ? WHERE event_type = 'output_delta'`, oversized); err != nil {
 			t.Fatalf("set oversized payload: %v", err)
 		}
 		if err := eng.RunStep(ctx, execID, "s1", feedback); err != nil {

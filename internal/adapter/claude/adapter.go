@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/HectorCortes/haro/internal/adapter"
+	"github.com/HectorCortes/haro/internal/limits"
+	"github.com/HectorCortes/haro/internal/process"
 )
 
 // TestBinaryEnv is the hermetic test seam: when set, it takes precedence
@@ -155,7 +157,7 @@ type session struct {
 	adapter    *Adapter
 	bundle     adapter.SessionBundle
 	host       adapter.SessionHost
-	cmd        *exec.Cmd
+	proc       *process.Handle
 	done       chan struct{}
 	doneOnce   sync.Once
 	cancelOnce sync.Once
@@ -207,7 +209,7 @@ func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan
 	}()
 	runCtx, cancelRun := context.WithTimeout(ctx, s.adapter.timeout)
 	argv := s.promptArgv()
-	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	if s.bundle.WorkspaceRoot != "" {
 		cmd.Dir = s.bundle.WorkspaceRoot
 	}
@@ -238,22 +240,24 @@ func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan
 		cancelRun()
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	stderr := limits.NewCaptureWriter()
+	cmd.Stderr = stderr
+	proc, err := process.Start(runCtx, cmd)
+	if err != nil {
 		cancelRun()
 		return nil, fmt.Errorf("launch %s: %w", s.adapter.resolveBinary(), err)
 	}
 	s.mu.Lock()
-	s.cmd = cmd
+	s.proc = proc
 	s.mu.Unlock()
 	if _, err := stdin.Write([]byte(input.Text)); err != nil {
 		_ = stdin.Close()
-		_ = cmd.Process.Kill()
+		_ = proc.TerminateAndWait()
 		cancelRun()
 		return nil, fmt.Errorf("write prompt: %w", err)
 	}
 	if err := stdin.Close(); err != nil {
+		_ = proc.TerminateAndWait()
 		cancelRun()
 		return nil, fmt.Errorf("close prompt: %w", err)
 	}
@@ -263,7 +267,7 @@ func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan
 		defer close(ch)
 		defer s.settleDone()
 		defer cancelRun()
-		s.consume(runCtx, stdout, &stderr, ch)
+		s.consume(runCtx, proc, stdout, stderr, ch)
 	}()
 	return ch, nil
 }
@@ -273,16 +277,15 @@ func (s *session) Prompt(ctx context.Context, input adapter.PromptInput) (<-chan
 // session_id for the transport accessor (N5 first-wins). All output_delta
 // events are emitted before the single final terminal event so a consumer
 // that breaks on the final event still drains the channel without deadlock.
-func (s *session) consume(runCtx context.Context, stdout io.ReadCloser, stderr *bytes.Buffer, ch chan<- adapter.SessionEvent) {
+func (s *session) consume(runCtx context.Context, proc *process.Handle, stdout io.ReadCloser, stderr *limits.CaptureWriter, ch chan<- adapter.SessionEvent) {
 	events, perr := ParseStreamJSON(stdout)
 	if perr != nil {
-		// A malformed or oversized frame makes the parser return before
-		// draining the stream. Drain the remainder so a producer blocked
-		// on a full stdout pipe can still exit; cmd.Wait would otherwise
-		// deadlock on the stderr copier waiting for the child.
+		// Stop the process tree before draining so a producer that continues
+		// after a protocol failure cannot keep the consumer alive indefinitely.
+		_ = proc.Kill()
 		_, _ = io.Copy(io.Discard, stdout)
 	}
-	waitErr := s.cmd.Wait()
+	waitErr := proc.Wait()
 	if native := FirstSessionID(events); native != "" {
 		s.mu.Lock()
 		if s.nativeID == "" {
@@ -361,10 +364,10 @@ func (s *session) consume(runCtx context.Context, stdout io.ReadCloser, stderr *
 func (s *session) Cancel(ctx context.Context) error {
 	s.cancelOnce.Do(func() {
 		s.mu.Lock()
-		cmd := s.cmd
+		proc := s.proc
 		s.mu.Unlock()
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
+		if proc != nil {
+			_ = proc.Kill()
 		}
 	})
 	if s.done == nil {

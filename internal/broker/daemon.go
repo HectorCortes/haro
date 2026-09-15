@@ -43,8 +43,12 @@ type Daemon struct {
 	ownerID   string
 	lock      *os.File
 	rpc       *Server
+	sessions  *SessionRegistry
+	hub       *Hub
+	runtime   *Runtime
 
 	state atomic.Value // string
+	wgMu  sync.Mutex
 	wg    sync.WaitGroup
 }
 
@@ -65,7 +69,7 @@ func NewDaemon(root string, tr ipc.Transport) (*Daemon, error) {
 	dispatcher.Register("health", func(context.Context, json.RawMessage) (any, *jsonrpc.RPCError) {
 		return map[string]bool{"ok": true}, nil
 	})
-	return &Daemon{root: canon, endpoint: ep, transport: tr, ownerID: uuid.NewString(), rpc: NewServer(dispatcher)}, nil
+	return &Daemon{root: canon, endpoint: ep, transport: tr, ownerID: uuid.NewString(), rpc: NewServer(dispatcher), sessions: NewSessionRegistry(), hub: NewHub()}, nil
 }
 
 // State reports the current lifecycle state.
@@ -139,9 +143,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	case <-stop:
 	}
-	// TODO(U7): full draining/leases/shutdown orchestration lands with the
-	// Runtime; the basic sequence (listener, sessions, socket, store, lock)
-	// is already ordered here.
+	// Drain in dependency order: stop accepting work, cancel attempt contexts
+	// (their deferred cleanup releases claims and leases), wait for replies,
+	// then close the store and remove the endpoint before releasing the lock.
 	d.shutdown()
 	return nil
 }
@@ -194,6 +198,7 @@ func (d *Daemon) openStore() error {
 	d.st = s
 	eng := execution.NewEngine(s, execution.NewRunner(), d.root)
 	d.engine = eng
+	d.runtime = NewRuntime(s, d.hub)
 	return nil
 }
 
@@ -207,7 +212,10 @@ func (d *Daemon) acceptLoop(ctx context.Context) error {
 			}
 			return err
 		}
-		d.wg.Add(1)
+		if !d.addWorker() {
+			_ = conn.Close()
+			return nil
+		}
 		go func() {
 			defer d.wg.Done()
 			d.serveConn(ctx, conn)
@@ -219,7 +227,7 @@ func (d *Daemon) acceptLoop(ctx context.Context) error {
 // server (Dispatcher, strict validation, notifications).
 func (d *Daemon) serveConn(ctx context.Context, c net.Conn) {
 	if d.rpc != nil {
-		_ = d.rpc.ServeConn(ctx, c)
+		_ = d.rpc.ServeConn(ctx, c, d.hub)
 	}
 }
 
@@ -230,7 +238,10 @@ func (d *Daemon) shutdown() {
 	if d.listener != nil {
 		_ = d.listener.Close()
 	}
-	d.wg.Wait()
+	if d.sessions != nil {
+		d.sessions.CancelAll(context.Background())
+	}
+	d.waitWorkers()
 	d.state.Store(StateStopped)
 	if d.st != nil {
 		_ = d.st.Close()
@@ -240,6 +251,25 @@ func (d *Daemon) shutdown() {
 	if isStaleOwnSocket(d.endpoint) {
 		_ = os.Remove(d.endpoint)
 	}
+}
+
+// addWorker serializes WaitGroup Add with shutdown's Wait and rejects work
+// after draining starts. Connection handlers and attempt workers use the same
+// counter so the store remains open until every request-owned worker exits.
+func (d *Daemon) addWorker() bool {
+	d.wgMu.Lock()
+	defer d.wgMu.Unlock()
+	if d.State() != StateRunning {
+		return false
+	}
+	d.wg.Add(1)
+	return true
+}
+
+func (d *Daemon) waitWorkers() {
+	d.wgMu.Lock()
+	defer d.wgMu.Unlock()
+	d.wg.Wait()
 }
 
 // isStaleOwnSocket checks the endpoint still exists with 0600 metadata

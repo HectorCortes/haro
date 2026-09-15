@@ -15,6 +15,11 @@ const (
 	AgentInstructionsLimit = 4 * 1024
 )
 
+const (
+	visibleTruncationNotice  = "\n[visible evidence truncated]"
+	fallbackTruncationNotice = "\n[fallback evidence truncated]"
+)
+
 var (
 	bearerRe = regexp.MustCompile(`Bearer\s+[A-Za-z0-9\-_\.]+`)
 	basicRe  = regexp.MustCompile(`Basic\s+[A-Za-z0-9+/=]+`)
@@ -58,10 +63,7 @@ func Redact(s string) string {
 // VisibleEvidence redacts then bounds to 16 KiB.
 func VisibleEvidence(s string) string {
 	s = Redact(s)
-	if len(s) > VisibleLimit {
-		return s[:VisibleLimit]
-	}
-	return s
+	return truncateWithNotice(s, VisibleLimit, visibleTruncationNotice)
 }
 
 // BoundAgentInstructions limits agent instructions to 4 KiB.
@@ -104,10 +106,31 @@ func SnapshotEvidence(s string) string {
 
 // FallbackEvidence bounds to 2 MiB (prior context reconstruction).
 func FallbackEvidence(s string) string {
-	if len(s) > FallbackLimit {
-		return s[:FallbackLimit]
+	return truncateWithNotice(s, FallbackLimit, fallbackTruncationNotice)
+}
+
+func truncateWithNotice(s string, limit int, notice string) string {
+	if len(s) <= limit {
+		return s
 	}
-	return s
+	if len(notice) >= limit {
+		return notice[:limit]
+	}
+	return s[:limit-len(notice)] + notice
+}
+
+func appendFallbackEvidence(existing, next string) string {
+	if len(existing) >= FallbackLimit {
+		return existing
+	}
+	if len(next) <= FallbackLimit-len(existing) {
+		return existing + next
+	}
+	available := FallbackLimit - len(existing)
+	if available <= len(fallbackTruncationNotice) {
+		return existing[:available]
+	}
+	return existing + next[:available-len(fallbackTruncationNotice)] + fallbackTruncationNotice
 }
 
 // SnapshotBytes is bytes variant for file snapshots (also 1 MiB).

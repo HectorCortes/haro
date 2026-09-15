@@ -58,32 +58,32 @@ Strict TDD: RED task before GREEN per task (`go test ./...` locally mandatory; f
 
 ## U5: step.approve CAS + step.cancel [v2-ipc/F-05,F-06,U-02]
 
-- [ ] 5.1 RED `internal/broker/interactions_test.go`: CAS table — pending+identical key → resolved once; repeat identical → same result, no re-execution; different key → rejected; foreign attempt/execution → rejected fail-closed; unknown decision (not in `available_decisions`) → state unchanged; idempotency key = interaction ID.
-- [ ] 5.2 GREEN `BrokerSessionHost.RequestPermission`: atomically create pending interaction + `interaction_required` event with `available_decisions` persisted in the bounded payload (description/options ≤16 KiB), publish, then wait on registry channel; supervised guard untouched.
-- [ ] 5.3 GREEN `step.approve{execution_id,step_id,interaction_id,decision,idempotency_key}`: verify current attempt ownership + persisted `available_decisions` + repeated decision before `Resolve` CAS → `{resolved}`; foreign/changed → `-32002` fail closed.
-- [ ] 5.4 RED cancel: active attempt → session `Cancel` (harness notified), `attempts.status=cancelled` persisted, lease released/expired, subsequent stale writes rejected with `-32001`; second `step.cancel` idempotent.
-- [ ] 5.5 GREEN `step.cancel{execution_id,step_id}` → `{}`: resolve running attempt, cancel via `SessionRegistry`, persist cancelled + transition, invalidate lease.
+- [x] 5.1 RED `internal/broker/interactions_test.go`: CAS table — pending+identical key → resolved once; repeat identical → same result, no re-execution; different key → rejected; foreign attempt/execution → rejected fail-closed; unknown decision (not in `available_decisions`) → state unchanged; idempotency key = interaction ID.
+- [x] 5.2 GREEN `BrokerSessionHost.RequestPermission`: atomically create pending interaction + `interaction_required` event with `available_decisions` persisted in the bounded payload (description/options ≤16 KiB), publish, then wait on registry channel; supervised guard untouched.
+- [x] 5.3 GREEN `step.approve{execution_id,step_id,interaction_id,decision,idempotency_key}`: verify current attempt ownership + persisted `available_decisions` + repeated decision before `Resolve` CAS → `{resolved}`; foreign/changed → `-32002` fail closed.
+- [x] 5.4 RED cancel: active attempt → session `Cancel` (harness notified), `attempts.status=cancelled` persisted, lease released/expired, subsequent stale writes rejected with `-32001`; second `step.cancel` idempotent.
+- [x] 5.5 GREEN `step.cancel{execution_id,step_id}` → `{}`: resolve running attempt, cancel via `SessionRegistry`, persist cancelled + transition, invalidate lease.
 
 ## U6: step.reopen cascade + feedback [v2-ipc/F-07,F-08]
 
-- [ ] 6.1 RED reopen cascade: completed 3-step chain, reopen root → `{invalidated}` lists exactly affected descendants (depends_on closure + produces→requires feeder drill-down); generations invalidated; transition history preserved.
-- [ ] 6.2 GREEN `step.reopen{execution_id,step_id,feedback?}` handler → `Engine.ReopenStep` → `{invalidated}` derived from generations audit (`InvalidateByStep` + `ListByStep` where `invalidated_by_step` matches).
-- [ ] 6.3 RED+GREEN feedback delivery per correction 1: additive `pending_feedback` ALTER (`ensurePayloadColumn` pattern); reopen with feedback → bounded sanitized persist → next `step.run` (no param) consumes+clears and delivers complete `---FEEDBACK---` context; history intact; explicit `--feedback` (direct path) still wins.
-- [ ] 6.4 GREEN CLI: `step reopen` and `step run` fully broker-routed with `{invalidated}` JSON passthrough.
+- [x] 6.1 RED reopen cascade: completed 3-step chain, reopen root → `{invalidated}` lists exactly affected descendants (depends_on closure + produces→requires feeder drill-down); generations invalidated; transition history preserved.
+- [x] 6.2 GREEN `step.reopen{execution_id,step_id,feedback?}` handler → `Engine.ReopenStep` → `{invalidated}` derived from generations audit (`InvalidateByStep` + `ListByStep` where `invalidated_by_step` matches).
+- [x] 6.3 RED+GREEN feedback delivery per correction 1: additive `pending_feedback` ALTER (`ensurePayloadColumn` pattern); reopen with feedback → bounded sanitized persist → next `step.run` (no param) consumes+clears and delivers complete `---FEEDBACK---` context; history intact; explicit `--feedback` (direct path) still wins.
+- [x] 6.4 GREEN CLI: `step reopen` and `step run` fully broker-routed with `{invalidated}` JSON passthrough.
 
 ## U7: Fencing + notifications + shutdown + E2E [v2-broker/F-06,F-07; v2-ipc/F-09,U-01]
 
-- [ ] 7.1 RED `internal/store/leases_test.go` + fake parity: `Acquire` by another unexpired holder → `ErrLeaseConflict` (correction 3 designed change); after expiry or release → token+1; same-holder reacquire allowed; both SQLite and fake (`fake.go`).
-- [ ] 7.2 GREEN `leases.go`+`fake.go`: reject unexpired foreign holder; TTL 60s, renewal 20s (daemon heartbeat renews owned leases).
-- [ ] 7.3 RED `internal/broker/fencing_test.go`: `FencedStore` validates (holder,token,expires_at) inside EVERY mutating engine `WithTx`; stale-token write → rejected, persisted state unchanged, error carries recovery guidance (reopen-and-rerun); kill broker mid-attempt → lease expiry → old token rejected.
-- [ ] 7.4 GREEN `internal/execution` `FencedStore` wrapper routing all mutating engine writes; reopen acquires affected leases in sorted order; cancel expires its lease.
-- [ ] 7.5 RED `internal/broker/publish_test.go` (commit failpoints): crash before commit → event never visible, no phantom cursor; crash after commit before fanout → consumer retry discovers committed event; INSERT→commit→fanout ordering proven.
-- [ ] 7.6 GREEN `internal/broker/runtime.go`: `Runtime.EventSink` serializes event transactions — validate `(holder,token,expires_at)` in `WithTx`, INSERT state/event, commit, then fanout retaining sequence ownership.
-- [ ] 7.7 RED `internal/broker/notify_test.go`: subscribed conn receives `step.status_changed{execution_id,step_id,from,to,cursor}` and `step.interaction_required{...,interaction_id,kind,description,options,cursor}` in persisted/cursor order.
-- [ ] 7.8 GREEN `internal/broker/notify.go`: `Hub` subscribes connections through `step.events`; writer mutex frames replies + cursor-bearing notifications in commit order.
-- [ ] 7.9 RED shutdown test: INT/TERM → listener closed, work rejected (draining), sessions cancelled, replies drained, leases released, socket removed (no zombie), store closed, flock released; immediate replacement starts.
-- [ ] 7.10 GREEN daemon shutdown orchestration (`internal/broker/daemon.go` signal handling per design).
-- [ ] 7.11 GREEN `internal/broker/broker_e2e_test.go` (Linux sockets): F-01 shared broker two CLIs; F-02 relaunch-after-death; F-03 two parallel executions isolate state; F-04 two projects independent, one broker stops, other continues; F-05 herd; F-06 kill -9 mid-attempt + stale write; F-07 TERM→restart; U-02 concurrent/malformed frames; zero-attempt mode guards.
+- [x] 7.1 RED `internal/store/leases_test.go` + fake parity: `Acquire` by another unexpired holder → `ErrLeaseConflict` (correction 3 designed change); after expiry or release → token+1; same-holder reacquire allowed; both SQLite and fake (`fake.go`).
+- [x] 7.2 GREEN `leases.go`+`fake.go`: reject unexpired foreign holder; TTL 60s, renewal 20s (daemon heartbeat renews owned leases).
+- [x] 7.3 RED `internal/broker/fencing_test.go`: `FencedStore` validates (holder,token,expires_at) inside EVERY mutating engine `WithTx`; stale-token write → rejected, persisted state unchanged, error carries recovery guidance (reopen-and-rerun); kill broker mid-attempt → lease expiry → old token rejected.
+- [x] 7.4 GREEN `internal/execution` `FencedStore` wrapper routing all mutating engine writes; reopen acquires affected leases in sorted order; cancel expires its lease.
+- [x] 7.5 RED `internal/broker/publish_test.go` (commit failpoints): crash before commit → event never visible, no phantom cursor; crash after commit before fanout → consumer retry discovers committed event; INSERT→commit→fanout ordering proven.
+- [x] 7.6 GREEN `internal/broker/runtime.go`: `Runtime.EventSink` serializes event transactions — validate `(holder,token,expires_at)` in `WithTx`, INSERT state/event, commit, then fanout retaining sequence ownership.
+- [x] 7.7 RED `internal/broker/notify_test.go`: subscribed conn receives `step.status_changed{execution_id,step_id,from,to,cursor}` and `step.interaction_required{...,interaction_id,kind,description,options,cursor}` in persisted/cursor order.
+- [x] 7.8 GREEN `internal/broker/notify.go`: `Hub` subscribes connections through `step.events`; writer mutex frames replies + cursor-bearing notifications in commit order.
+- [x] 7.9 RED shutdown test: INT/TERM → listener closed, work rejected (draining), sessions cancelled, replies drained, leases released, socket removed (no zombie), store closed, flock released; immediate replacement starts.
+- [x] 7.10 GREEN daemon shutdown orchestration (`internal/broker/daemon.go` signal handling per design).
+- [x] 7.11 GREEN `internal/broker/broker_e2e_test.go` (Linux sockets): F-01 shared broker two CLIs; F-02 relaunch-after-death; F-03 two parallel executions isolate state; F-04 two projects independent, one broker stops, other continues; F-05 herd; F-06 kill -9 mid-attempt + stale write; F-07 TERM→restart; U-02 concurrent/malformed frames; zero-attempt mode guards.
 - [ ] 7.12 Gate: `go test ./...`, `go test ./... -race`, `go vet ./...`, `go build ./...`, `GOOS=windows go build ./...`; 92 existing criteria green; no edits to `deltas-acceptance.md`/`docs/v2`.
 
 ## Commit Plan (work-unit-commits — 7 conventional commits to main, revertible in reverse)

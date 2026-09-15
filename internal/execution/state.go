@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/HectorCortes/haro/internal/store"
@@ -20,8 +21,14 @@ var allowedTransitions = map[string]map[string]bool{
 // ReopenStep invalidates generations and resets descendants to pending.
 // Files remain on disk but are considered invalid for requires.
 func (e *Engine) ReopenStep(ctx context.Context, executionID, stepID string, cascade bool, feedback string) error {
+	if len(feedback) > FallbackLimit {
+		return fmt.Errorf("feedback exceeds %d byte limit", FallbackLimit)
+	}
 	if _, err := e.store.Steps().Get(ctx, executionID, stepID); err != nil {
 		return fmt.Errorf("get step: %w", err)
+	}
+	if feedback != "" {
+		feedback = FallbackEvidence(Redact(feedback))
 	}
 	// Allow reopen for completed/failed/skipped; pending is idempotent but still invalidates descendants if cascade
 	// Build descendants set if cascade: UNION of (1) depends_on closure + (2) produces->requires feeder drill-down
@@ -98,21 +105,33 @@ func (e *Engine) ReopenStep(ctx context.Context, executionID, stepID string, cas
 		}
 	}
 	// For each step to reset, invalidate generations and transition to pending
+	stepIDs := make([]string, 0, len(toReset))
 	for sid := range toReset {
+		stepIDs = append(stepIDs, sid)
+	}
+	sort.Strings(stepIDs)
+	for _, sid := range stepIDs {
 		// Invalidate generations
-		_ = e.store.Generations().InvalidateByStep(ctx, executionID, sid, stepID)
+		if err := e.store.Generations().InvalidateByStep(ctx, executionID, sid, stepID); err != nil {
+			return err
+		}
 		// Transition to pending if not already pending
 		cur, err := e.store.Steps().Get(ctx, executionID, sid)
 		if err != nil {
-			continue
+			return err
 		}
 		if cur.Status != "pending" {
-			_ = e.transitionStepWithForce(ctx, executionID, sid, cur.Status, "pending")
+			if err := e.transitionStepWithForce(ctx, executionID, sid, cur.Status, "pending"); err != nil {
+				return err
+			}
 		}
 	}
-	// Audit feedback if provided (store as simple transition for now)
+	// Feedback is delivered to the next attempt through the existing async
+	// attempt event composition and is cleared after that attempt consumes it.
 	if feedback != "" {
-		_ = feedback
+		if err := e.store.Steps().SetPendingFeedback(ctx, executionID, stepID, &feedback); err != nil {
+			return err
+		}
 	}
 	e.resyncExecution(ctx, executionID)
 	return nil
@@ -189,5 +208,3 @@ func (e *Engine) transitionStepWithForce(ctx context.Context, executionID, stepI
 	}
 	return e.store.Events().CreateTransition(ctx, ev)
 }
-
-

@@ -4,7 +4,7 @@ Date: 2026-09-13 · Mode: Strict TDD (bounded focused Go tests) · Delivery: `si
 
 ## Status
 
-18/39 tasks complete. U1, U2, U3, and U4 are complete; U5 is the next work unit. The dispatcher supplied `applyState: ready` for this continuation.
+38/39 tasks complete. U1 through U6 and U7 lease/fencing/lifecycle/notification/publish slices are applied; U7.11 is complete and U7.12 remains pending because the host guardrail prohibits the full-suite and race commands. The dispatcher supplied `applyState: ready` for this continuation.
 
 ## Completed Work Units
 
@@ -93,15 +93,181 @@ Commits: `61b7eba`, `d2b650b` · `feat(broker): add async step execution and eve
 - Focused bounded tests passed; no full suite, race run, build, or verify phase was started.
 - After every broker/runtime selector, `pgrep -af 'HARO_TEST_BROKER|haro broker'` showed no broker process and `/tmp/haro-*.sock` glob returned no files.
 
+### U5 — step.approve CAS + step.cancel
+
+Implementation is currently uncommitted in this apply slice; it is bounded by the U5 rollback boundary below.
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 5.1 | `internal/broker/interactions_test.go` | Integration | ✅ U4 broker/store selectors passed | ✅ New handler/host symbols failed to compile before implementation | ✅ CAS table covers unknown decision, different key, foreign execution, pending preservation, identical retry, and changed decision | ✅ Bounded focused broker/store selector passed; store state remains unchanged on rejected approvals |
+| 5.2 | `internal/broker/runtime.go`, `internal/broker/interactions_test.go` | Integration | ✅ Existing interaction repository CAS behavior retained | ✅ `BrokerSessionHost` and registry were initially undefined | ✅ Permission request persists a bounded `interaction_required` payload and approval unblocks the waiter | ✅ Payload redaction/bounding and transaction-scoped interaction/event creation extracted into runtime host |
+| 5.3 | `internal/broker/steps.go`, `internal/broker/interactions_test.go` | Integration | ✅ Strict `DecodeParams` boundary retained | ✅ `handleStepApprove` was initially undefined | ✅ Current-attempt ownership, interaction ID key, available-decision gate, CAS resolution, and idempotent repeat pass | ✅ `-32002` conflict mapping centralized |
+| 5.4 | `internal/execution/async.go`, `internal/broker/interactions_test.go` | Integration | ✅ U4 async attempt lifecycle passed | ✅ Cancel handler/session behavior was initially undefined | ✅ Adapter session receives `Cancel`, attempt persists `cancelled`, lease expires, and later execution is rejected | ✅ Cancellation context and stale-write checks use cancel-independent cleanup contexts |
+| 5.5 | `internal/broker/steps.go`, `internal/broker/interactions_test.go` | Integration | ✅ U4 handler registration and engine split passed | ✅ `step.cancel` was initially undefined | ✅ First cancel returns `{}`, second cancel is idempotent, registry and engine cleanup both run | ✅ SessionRegistry owns both headless cancel functions and adapter sessions |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/broker ./internal/store -run 'Test.*(Approve|Cancel|Lease)|TestStep|TestBrokerSession'` — exit 0; selected broker and store tests passed |
+| Runtime harness command/scenario and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/broker -run 'Test(BrokerSessionHostPersistsPermissionAndWaitsForApproval|StepCancelCancelsSessionAndPersistsCancelledAttempt)'` — exit 0; persisted interaction approval unblocked the host, and cancellation notified the fake session, persisted `cancelled`, and expired the lease |
+| Rollback boundary | Revert the U5 slice: remove `internal/broker/runtime.go` and `internal/broker/interactions_test.go`; revert U5 additions in `internal/broker/{daemon,steps}.go` and `internal/execution/async.go`; retain U1–U4 and unrelated launcher cleanup |
+
+#### Gates and Resource Cleanup
+
+- Focused U5/U4 regression selectors passed; no full suite, race run, build, or verify phase was started.
+- After the focused selectors, `pgrep -af 'HARO_TEST_BROKER|haro broker'` showed no broker process and `/tmp/haro-*.sock` returned no files.
+
+### U6 — step.reopen cascade + feedback
+
+Implementation is currently uncommitted in this apply slice.
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 6.1 | `internal/broker/reopen_test.go` | Integration | ✅ Existing execution cascade tests passed | ✅ Broker reopen handler was initially undefined | ✅ Three-step dependency cascade returns stable sorted IDs, invalidates generations, and preserves transition history | ✅ Handler derives the result from generation invalidation audit |
+| 6.2 | `internal/broker/steps.go`, `internal/broker/reopen_test.go` | Integration | ✅ `Engine.ReopenStep` existing cascade behavior retained | ✅ `handleStepReopen` was initially undefined | ✅ RPC accepts reopen and returns `{invalidated}` | ✅ Optional `cascade` defaults true at the broker boundary |
+| 6.3 | `internal/execution/state.go`, `internal/broker/reopen_test.go` | Integration | ✅ U4 pending-feedback consumption path passed | ✅ Feedback persistence was a no-op before this slice | ✅ Reopen persists bounded redacted feedback; next attempt emits complete delimited feedback and clears it | ✅ Feedback uses the shared 2 MiB fallback bound and propagates repository errors |
+| 6.4 | `internal/cmd/step_broker_test.go` | Integration | ✅ Existing broker CLI routing test passed | ✅ CLI rejected `--json`/did not call `step.reopen` broker method | ✅ CLI broker route returns `{invalidated}` JSON and forwards feedback | ✅ Direct runner override and explicit direct `step run --feedback` behavior remain unchanged |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/execution ./internal/broker -run 'Reopen'` — exit 0; execution and broker reopen selectors passed |
+| Runtime harness command/scenario and exact result | `TestStepReopenReturnsStableCascadeAndPersistsFeedback` and `TestStepReopenFeedbackIsDeliveredToNextAttempt` — exit 0; persisted cascade and next-attempt feedback delivery passed |
+| Rollback boundary | Revert U6 additions in `internal/{broker/steps,reopen_test}.go`, `internal/execution/state.go`, and `internal/cmd/{execute,step_broker_test}.go`; retain U1–U5 |
+
+### U7 — completed lease, notification, and shutdown slices
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 7.1 | `internal/store/leases_test.go` | Unit/parity | ✅ Existing lease monotonic tests passed | ✅ Foreign acquire initially succeeded | ✅ SQLite and fake reject an unexpired foreign holder with `ErrLeaseConflict`; same-holder reacquire increments token | ✅ Expiry comparison is centralized in both repository implementations |
+| 7.2 | `internal/store/{leases,fake}.go` | Unit/parity | ✅ Existing release/renew fencing tests passed | ✅ Lease acquire ignored holder/expiry ownership | ✅ Bounded lease selectors passed with existing 60-second TTL behavior | ✅ Release still expires rows and token monotonicity remains intact |
+| 7.7 | `internal/broker/notify_test.go` | Integration | ✅ Existing JSON-RPC notification codec tests passed | ✅ `Hub` was initially undefined | ✅ Two cursor-bearing notifications arrive in order without response IDs | ✅ Hub snapshots subscribers and removes failed writers |
+| 7.8 | `internal/broker/{notify,server,daemon}.go` | Integration | ✅ Server response writer mutex retained | ✅ Server had no notification hub seam | ✅ Hub subscriptions share the connection writer mutex and daemon connections receive broadcasts | ✅ Variadic server seam preserves existing callers |
+| 7.9 | `internal/broker/daemon_shutdown_test.go` | Integration/runtime | ✅ Existing daemon lifecycle selectors passed | ✅ Signal/shutdown runtime harness exposed orphan socket before this slice | ✅ Context shutdown closes listener, removes socket, and permits immediate replacement | ✅ SessionRegistry cancellation occurs before connection/store teardown |
+| 7.10 | `main.go`, `internal/broker/daemon.go` | Runtime | ✅ Bounded built binary launched successfully | ✅ Main used `context.Background()` and ignored TERM | ✅ Built binary TERM harness exited 0 and removed its socket | ✅ `signal.NotifyContext` owns SIGINT/SIGTERM while daemon shutdown remains ordered |
+
+#### U7 Partial Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/broker ./internal/execution ./internal/store ./internal/cmd -run 'Test(Step|Reopen|Hub|DaemonShutdown|Lease|CommandCycle|Feedback|CLI.*Step|AttemptEventPayloadBackendParity)'` — exit 0; all selected broker, execution, store, and command tests passed |
+| Runtime harness command/scenario and exact result | Bounded `/tmp/haro-u7-test broker --project <temp>` harness sent SIGTERM; process exited 0 and `/tmp/haro-98ee86449111ac1a.sock` was removed |
+| Rollback boundary | Revert U7 partial files `main.go`, `internal/store/{leases,fake}.go`, `internal/broker/{notify,daemon,server,runtime,steps}.go`, and their new tests; retain U1–U6 |
+
+### U7 — fencing wrapper and stale-write validation
+
+Implementation is currently uncommitted in this apply slice.
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 7.3 | `internal/execution/fenced_store_test.go` | Integration/unit | ✅ U5/U6 async and lease selectors passed | ✅ Stale-write and expired-lease tests fail when the guard is disabled | ✅ `go test ./internal/execution -run 'TestFencedStore'` passed; persisted state remains unchanged and errors carry reopen/rerun guidance | ✅ Fake-store token replacement and transaction callback paths | ✅ Guarded repository views centralize lease validation |
+| 7.4 | `internal/execution/{fenced_store,async}.go`, `internal/execution/engine.go` | Integration | ✅ Existing async completion/cancellation selectors passed | ✅ Async write routing was initially absent from the final fenced-store cycle | ✅ Focused broker/execution selectors passed; completion writes and resync use the fenced view before lease release | ✅ Lease-change test plus broker cancel/reopen regressions | ✅ Read paths remain available while all attempt-state writes are guarded |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/execution -run 'TestFencedStore'` — exit 0; 2 fencing tests passed |
+| Runtime harness command/scenario and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/broker ./internal/execution -run 'Test(Step|Reopen|Interaction|FencedStore)'` — exit 0; async broker paths and stale-write rejection passed |
+| Rollback boundary | Revert `internal/execution/fenced_store.go`, `internal/execution/fenced_store_test.go`, and the fenced-store routing changes in `internal/execution/{async,engine}.go`; retain U1–U6 and U7 lease/notification/shutdown files |
+
+### U7 — commit-before-fanout event sink
+
+Implementation is currently uncommitted in this apply slice.
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 7.5 | `internal/broker/publish_test.go` | Integration | ✅ Existing store transaction behavior passed | ✅ `TestEventSinkRollsBackBeforeCommit` failed under the temporary no-rollback mutation | ✅ `go test ./internal/broker -run 'TestEventSink'` passed; pre-commit rows are absent and post-commit rows are pollable | ✅ Before/after commit failpoints and subscriber observation | ✅ EventSink keeps commit and fanout sequencing in one serialized path |
+| 7.6 | `internal/broker/{event_sink,runtime,steps}.go` | Integration | ✅ Existing notification and interaction selectors passed | ✅ EventSink tests failed before the rollback/fanout implementation was restored | ✅ Focused broker selectors passed; Runtime exposes fenced sinks and status/interaction fanout occurs after persistence | ✅ Hub subscribers observe only committed events | ✅ Failpoint hooks are isolated from production behavior |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 120s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=90s ./internal/broker -run 'TestEventSink'` — exit 0; all 3 publish-order/failpoint tests passed |
+| Runtime harness command/scenario and exact result | EventSink tests exercised pre-commit rollback, post-commit polling recovery, and subscriber visibility after commit; exit 0 |
+| Rollback boundary | Revert `internal/broker/event_sink.go`, `internal/broker/publish_test.go`, and EventSink wiring in `internal/broker/{runtime,steps,daemon}.go`; retain U1–U6 and U7 lease/fencing/notification/shutdown files |
+
+#### U7 Remaining
+
+- Full Linux E2E and final gates: 7.11–7.12.
+
+#### U7 E2E Progress (7.11 partial)
+
+- Added `internal/broker/broker_e2e_test.go` (Linux-only) covering a built
+  binary, two concurrent IPC clients, `execution.start/status`, TERM cleanup,
+  and immediate broker restart with persisted status lookup.
+- Focused runtime command: `timeout 180s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=150s ./internal/broker -run 'TestLinuxBrokerProcessSharedAndRestart'` — exit 0 in 0.844s on the latest run.
+- Process/socket cleanup check after the run found no broker process and no
+  `/tmp/haro-*.sock` files.
+- The final correction extended the same file with the Linux process matrix:
+  F-01 two CLI executions on one broker; F-02 lazy relaunch after SIGKILL;
+  F-03 concurrent execution isolation; F-04 independent project shutdown;
+  F-05 a four-caller launch herd; F-06 SIGKILL plus a stale fenced write and
+  reopen/rerun recovery; and U-02 malformed-frame recovery, concurrent
+  requests, and zero-attempt mode guards.
+
+### U7.11 — Linux broker process E2E matrix
+
+#### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 7.11 | `internal/broker/broker_e2e_test.go` | Linux process E2E | Existing U7 lease, fencing, notification, publish, and shutdown selectors | ✅ The new matrix was authored before execution; the first bounded run was red at compile time with `undefined: bufio` before the missing import was corrected | ✅ `timeout 180s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=150s ./internal/broker -run 'TestLinuxBrokerProcess'` passed | ✅ Built-binary UDS scenarios covered shared CLIs, lazy relaunch, isolated concurrent executions, independent projects, herd single-launch, SIGKILL stale-write fencing, malformed-frame recovery, concurrent requests, and zero-attempt mode guards | ✅ Added bounded process cleanup, endpoint refusal/removal checks, and direct stale-store verification without changing production code |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `timeout 180s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go test -p=1 -count=1 -timeout=150s ./internal/broker -run 'TestLinuxBrokerProcess'` — exit 0; `internal/broker` passed in 4.273s, including the prior shared/restart test and all matrix subtests |
+| Runtime harness command/scenario and exact result | The passing selector built a temporary `haro-linux-e2e` binary with bounded `go build -p=1`, started real `haro broker --project` processes over Linux UDS, exercised all F-01–F-06/U-02 matrix scenarios, and verified TERM removal plus SIGKILL refusal/restart behavior — exit 0 |
+| Rollback boundary | Remove the `TestLinuxBrokerProcessE2EMatrix` function and its helpers added after `mustDialE2E` in `internal/broker/broker_e2e_test.go`; retain the pre-existing `TestLinuxBrokerProcessSharedAndRestart` slice and all unrelated U7 changes |
+
+#### Process and socket cleanup evidence
+
+- `pgrep -af '[H]ARO_TEST_BROKER|[h]aro broker' || true` — exit 0; no matching broker process output.
+- `setopt null_glob; for path in /tmp/haro-*.sock; do stat -c '%A %a %U %G %n' "$path"; done` — exit 0; no socket output.
+
+### U7.12 — Final gates
+
+U7.12 remains pending. The bounded serial gate subset passed, but the explicit host guardrail prohibited the required `go test ./...` and `go test ./... -race` commands; therefore the complete final-gate task and the 92-criterion claim are not asserted.
+
+| Gate | Bounded command and exact result |
+|---|---|
+| Type check | `timeout 180s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go vet -p=1 ./...` — exit 0 |
+| Linux build | `timeout 180s env GOMAXPROCS=2 GOMEMLIMIT=512MiB go build -p=1 ./...` — exit 0 |
+| Windows cross-build | `timeout 180s env GOMAXPROCS=2 GOMEMLIMIT=512MiB GOOS=windows GOARCH=amd64 go build -p=1 ./...` — exit 0 |
+| Full test suite | Not run: user safety instruction explicitly forbids `go test ./...` |
+| Race suite | Not run: user safety instruction explicitly forbids `-race` |
+
+#### U7.12 blocker
+
+The remaining checkbox can only be marked after an authorized bounded runtime continuation permits the full test and race gates. `sdd-verify` was not started.
+
 ## Remaining Tasks
 
 - [x] 1.1 through 1.6 — socket identity, transport seam, daemon, launcher, and broker entrypoint
 - [x] 2.1 through 2.4 — RPC server and strict validation
 - [x] 3.1 through 3.3 — execution start/status and client wiring
 - [x] 4.1 through 4.5 — asynchronous step run and event projection
-- [ ] 5.1 through 5.5 — approval CAS and cancellation
-- [ ] 6.1 through 6.4 — reopen cascade and feedback
-- [ ] 7.1 through 7.12 — fencing, notifications, shutdown, E2E, and final gates
+- [x] 5.1 through 5.5 — approval CAS and cancellation
+- [x] 6.1 through 6.4 — reopen cascade and feedback
+- [x] 7.3 through 7.4 — fencing wrapper and stale-write validation
+- [x] 7.5 through 7.6 — commit-before-fanout event sink
+- [x] 7.11 — Linux E2E matrix (shared/restart, lazy relaunch, isolation, independent projects, herd, fencing recovery, malformed/concurrent frames, and mode guards)
+- [ ] 7.12 — final gates
 
 ### U3 — Execution start/status + CLI client wiring
 
@@ -130,4 +296,4 @@ Commit: `dd9b980` · `feat(broker): wire execution start and status through RPC`
 
 #### Continuation Boundary
 
-U3 was the only implementation unit committed in this continuation. U4–U7 remain pending because the runtime cleanup check exposed the not-yet-implemented U7 signal/shutdown behavior; no further broker tests or implementation were started after that finding.
+U3 was the only implementation unit committed in this continuation before the current apply slice. U5 is implemented but uncommitted; U6 and U7 remain pending. The U7 signal/shutdown behavior and final runtime cleanup gates are still deferred.

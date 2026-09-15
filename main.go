@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/HectorCortes/haro/internal/cmd"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."

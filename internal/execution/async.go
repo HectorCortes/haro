@@ -66,7 +66,8 @@ func (e *Engine) StartStep(ctx context.Context, executionID, stepID, requestedMo
 		Status:       "running",
 		StartedAt:    startedAt,
 	}
-	err = e.store.WithTx(ctx, func(tx store.Store) error {
+	setupStore := NewFencedStore(e.store, executionID, stepID, e.leaseHolder, leaseToken)
+	err = setupStore.WithTx(ctx, func(tx store.Store) error {
 		if err := tx.Steps().UpdateStatus(ctx, executionID, stepID, "running"); err != nil {
 			return err
 		}
@@ -112,6 +113,10 @@ func (e *Engine) ExecuteAttempt(ctx context.Context, attemptID string) error {
 	if attempt.Status != "running" {
 		return fmt.Errorf("attempt %q not running", attemptID)
 	}
+	writeStore, err := e.fencedStoreForAttempt(ctx, attempt)
+	if err != nil {
+		return err
+	}
 	defer e.releaseAttemptClaims(ctx, attempt)
 	defer e.releaseAttemptLease(ctx, attempt)
 	step, err := e.store.Steps().Get(ctx, attempt.ExecutionID, attempt.StepID)
@@ -130,26 +135,32 @@ func (e *Engine) ExecuteAttempt(ctx context.Context, attemptID string) error {
 	}
 	if step.PendingFeedback != nil {
 		feedback := VisibleEvidence(fmt.Sprintf("---FEEDBACK---\n%s\n---END---", *step.PendingFeedback))
-		cursor, cursorErr := e.store.Events().NextAttemptCursor(ctx, attempt.ID)
+		cursor, cursorErr := writeStore.Events().NextAttemptCursor(ctx, attempt.ID)
 		if cursorErr == nil {
 			copy := feedback
-			_ = e.store.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: attempt.ID, Cursor: cursor, EventType: "feedback", Payload: &copy})
+			_ = writeStore.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: attempt.ID, Cursor: cursor, EventType: "feedback", Payload: &copy})
 		}
-		if err := e.store.Steps().SetPendingFeedback(ctx, attempt.ExecutionID, attempt.StepID, nil); err != nil {
+		if err := writeStore.Steps().SetPendingFeedback(ctx, attempt.ExecutionID, attempt.StepID, nil); err != nil {
 			return fmt.Errorf("clear pending feedback: %w", err)
 		}
 	}
 	exitCode, stdout, stderr, runErr := e.runner.Run(ctx, e.effectiveWorktreeRoot(ctx, attempt.ExecutionID), argv, env)
 	if runErr != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		_ = e.finishAttempt(ctx, attempt, "failed", stringPtr(runErr.Error()), nil)
 		return fmt.Errorf("runner: %w", runErr)
 	}
+	if err := e.assertAttemptRunning(ctx, attempt.ID); err != nil {
+		return err
+	}
 	visible := CommandEvidence(argv, stdout, stderr)
-	cursor, cursorErr := e.store.Events().NextAttemptCursor(ctx, attempt.ID)
+	cursor, cursorErr := writeStore.Events().NextAttemptCursor(ctx, attempt.ID)
 	if cursorErr != nil {
 		return cursorErr
 	}
-	if err := e.store.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: attempt.ID, Cursor: cursor, EventType: "output_delta", Payload: &visible}); err != nil {
+	if err := writeStore.Events().CreateAttemptEvent(ctx, &store.AttemptEvent{AttemptID: attempt.ID, Cursor: cursor, EventType: "output_delta", Payload: &visible}); err != nil {
 		return err
 	}
 	if exitCode != 0 {
@@ -160,6 +171,33 @@ func (e *Engine) ExecuteAttempt(ctx context.Context, attemptID string) error {
 	if err := e.finishAttempt(ctx, attempt, "completed", nil, &visible); err != nil {
 		return err
 	}
+	return nil
+}
+
+// CancelAttempt records cancellation and releases the attempt's claims and
+// lease. A terminal attempt is already cancelled from the broker's perspective
+// and is therefore idempotent.
+func (e *Engine) CancelAttempt(ctx context.Context, attemptID string) error {
+	attempt, err := e.store.Attempts().Get(ctx, attemptID)
+	if err != nil {
+		return err
+	}
+	if attempt.Status != "running" {
+		if attempt.Status == "cancelled" {
+			return nil
+		}
+		return fmt.Errorf("attempt %q is not running (status=%s)", attemptID, attempt.Status)
+	}
+	reason := "cancelled"
+	if err := e.store.Attempts().UpdateStatus(ctx, attempt.ID, "cancelled", nil, &reason, nil); err != nil {
+		return err
+	}
+	if err := e.transitionStep(ctx, attempt.ExecutionID, attempt.StepID, "running", "failed"); err != nil {
+		return err
+	}
+	e.releaseAttemptClaims(ctx, attempt)
+	e.releaseAttemptLease(ctx, attempt)
+	e.resyncExecution(ctx, attempt.ExecutionID)
 	return nil
 }
 
@@ -257,13 +295,35 @@ func (e *Engine) commandForStep(ctx context.Context, executionID, stepID string)
 }
 
 func (e *Engine) finishAttempt(ctx context.Context, attempt *store.Attempt, status string, reason, digest *string) error {
-	if err := e.store.Attempts().UpdateStatus(ctx, attempt.ID, status, nil, reason, digest); err != nil {
+	if err := e.assertAttemptRunning(ctx, attempt.ID); err != nil {
 		return err
 	}
-	if err := e.transitionStep(ctx, attempt.ExecutionID, attempt.StepID, "running", statusToStepStatus(status)); err != nil {
+	writeStore, err := e.fencedStoreForAttempt(ctx, attempt)
+	if err != nil {
 		return err
 	}
-	e.resyncExecution(ctx, attempt.ExecutionID)
+	if err := writeStore.Attempts().UpdateStatus(ctx, attempt.ID, status, nil, reason, digest); err != nil {
+		return err
+	}
+	if err := e.transitionStepWithStore(ctx, writeStore, attempt.ExecutionID, attempt.StepID, "running", statusToStepStatus(status)); err != nil {
+		return err
+	}
+	e.resyncExecutionWithStore(ctx, writeStore, attempt.ExecutionID)
+	return nil
+}
+
+func (e *Engine) assertAttemptRunning(ctx context.Context, attemptID string) error {
+	checkCtx := context.WithoutCancel(ctx)
+	attempt, err := e.store.Attempts().Get(checkCtx, attemptID)
+	if err != nil {
+		return err
+	}
+	if attempt.Status != "running" {
+		return fmt.Errorf("attempt %q is stale (status=%s)", attemptID, attempt.Status)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -293,7 +353,7 @@ func (e *Engine) releaseAttemptClaims(ctx context.Context, attempt *store.Attemp
 	}
 	e.activeClaimsMu.Unlock()
 	if ok {
-		e.releaseClaims(ctx, claims.executionID, claims.stepID, claims.paths)
+		e.releaseClaims(context.WithoutCancel(ctx), claims.executionID, claims.stepID, claims.paths)
 	}
 }
 
@@ -315,6 +375,16 @@ func (e *Engine) trackAttemptLease(attemptID, executionID, stepID string, token 
 	e.activeLeasesMu.Unlock()
 }
 
+func (e *Engine) fencedStoreForAttempt(ctx context.Context, attempt *store.Attempt) (store.Store, error) {
+	e.activeLeasesMu.Lock()
+	lease, ok := e.activeLeases[attempt.ID]
+	e.activeLeasesMu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("%w: attempt lease is not active; reopen and rerun", ErrStaleLease)
+	}
+	return NewFencedStore(e.store, lease.executionID, lease.stepID, e.leaseHolder, lease.token), nil
+}
+
 func (e *Engine) releaseAttemptLease(ctx context.Context, attempt *store.Attempt) {
 	e.activeLeasesMu.Lock()
 	lease, ok := e.activeLeases[attempt.ID]
@@ -323,6 +393,6 @@ func (e *Engine) releaseAttemptLease(ctx context.Context, attempt *store.Attempt
 	}
 	e.activeLeasesMu.Unlock()
 	if ok {
-		_ = e.store.Leases().Release(ctx, lease.executionID, lease.stepID, e.leaseHolder, lease.token)
+		_ = e.store.Leases().Release(context.WithoutCancel(ctx), lease.executionID, lease.stepID, e.leaseHolder, lease.token)
 	}
 }

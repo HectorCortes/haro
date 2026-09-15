@@ -53,6 +53,12 @@ func (r *leasesRepo) Acquire(ctx context.Context, executionID, stepID, holder st
 			return 0, normalizeSQLiteError(err)
 		}
 	} else {
+		if existingHolder.String != holder {
+			expiresAt, parseErr := time.Parse(time.RFC3339, existingExpires.String)
+			if parseErr != nil || expiresAt.After(time.Now().UTC()) {
+				return 0, ErrLeaseConflict
+			}
+		}
 		// Existing row: compute MAX+1 retained (single row, so +1)
 		nextToken = existingToken.Int64 + 1
 		_, err = conn.ExecContext(ctx, `UPDATE leases SET holder = ?, fencing_token = ?, acquired_at = ?, expires_at = ? WHERE execution_id = ? AND step_id = ?`, holder, nextToken, now, expires, executionID, stepID)

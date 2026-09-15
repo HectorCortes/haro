@@ -31,10 +31,15 @@ func TestHelperProcess(t *testing.T) {
 }
 
 // processSpawn starts the daemon as a detached helper process (real F-02
-// lifecycle: outlives the CLI that launched it).
-func processSpawn(t *testing.T) (broker.Spawner, func() int) {
+// lifecycle: outlives the CLI that launched it). The returned cleanup kills
+// the helper: helper daemons MUST NOT outlive the test — an unkilled helper
+// is a live OS process (socket + WAL store + engine in RAM) that survives
+// `go test` exit and accumulates across runs (OOM hazard on small boxes).
+func processSpawn(t *testing.T) (broker.Spawner, func() int, func()) {
+	t.Helper()
 	var mu sync.Mutex
 	spawns := 0
+	var procs []*os.Process
 	fn := func(ctx context.Context, canon string) error {
 		c := exec.Command(os.Args[0], "-test.run=TestHelperProcess$")
 		c.Env = append(os.Environ(), "HARO_TEST_BROKER_DAEMON="+canon)
@@ -43,15 +48,40 @@ func processSpawn(t *testing.T) (broker.Spawner, func() int) {
 		}
 		mu.Lock()
 		spawns++
+		procs = append(procs, c.Process)
 		mu.Unlock()
-		go func() { _ = c.Wait() }() // reap; helper daemon outlives us
 		return nil
 	}
-	return fn, func() int {
+	count := func() int {
 		mu.Lock()
 		defer mu.Unlock()
 		return spawns
 	}
+	cleanup := func() {
+		mu.Lock()
+		cp := append([]*os.Process(nil), procs...)
+		mu.Unlock()
+		for _, p := range cp {
+			_ = p.Kill() // test-scoped daemon: never outlives the test
+			_, _ = p.Wait()
+		}
+	}
+	return fn, count, cleanup
+}
+
+// runDaemonInTest starts RunDaemon with a test-scoped context and registers
+// cleanup that cancels and waits for full shutdown (listener, conns, store,
+// socket). In-process daemons with an uncancelled background context leak
+// goroutines, listeners, and WAL stores for the life of the test binary.
+func runDaemonInTest(t *testing.T, canon string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- broker.RunDaemon(ctx, canon) }()
+	t.Cleanup(func() {
+		cancel()
+		_ = <-done
+	})
 }
 
 // speakHealth dials the endpoint and performs one health JSON-RPC round trip.
@@ -91,13 +121,16 @@ func speakHealth(t *testing.T, ep string) {
 // TestEnsureLaunchesDaemonWhenAbsent covers F-02: absent broker -> launch +
 // retry, and the daemon outlives the CLI that started it.
 func TestEnsureLaunchesDaemonWhenAbsent(t *testing.T) {
-	spawn, count := processSpawn(t)
+	spawn, count, killHelpers := processSpawn(t)
+	t.Cleanup(killHelpers)
 	root := t.TempDir()
 	l := broker.NewLauncher(ipc.DefaultTransport(), spawn)
 	ep, err := l.Ensure(context.Background(), root)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
+	// The killed helper never runs shutdown: remove its endpoint file too.
+	t.Cleanup(func() { _ = os.Remove(ep) })
 	// The launcher itself is the "CLI": it returned, the daemon must remain.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -164,10 +197,9 @@ func TestEnsureHerdExactlyOneDaemon(t *testing.T) {
 		mu.Lock()
 		spawns++
 		mu.Unlock()
-		// Detached daemon: background context so it outlives Ensure.
-		go func() {
-			_ = broker.RunDaemon(context.Background(), canon)
-		}()
+		// Detached daemon: background context so it outlives Ensure —
+		// but test-scoped: cancelled and fully shut down at test end.
+		runDaemonInTest(t, canon)
 		return nil
 	})
 	const n = 8
@@ -217,9 +249,7 @@ func TestEnsureRemovesZombieSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := broker.NewLauncher(ipc.DefaultTransport(), func(ctx context.Context, canon string) error {
-		go func() {
-			_ = broker.RunDaemon(context.Background(), canon)
-		}()
+		runDaemonInTest(t, canon)
 		return nil
 	})
 	got, err := l.Ensure(context.Background(), root)
@@ -245,8 +275,8 @@ func TestEnsureLockHeldDialsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = lock.Close() }()
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
 		t.Fatalf("test could not hold lock: %v", err)
 	}
 
@@ -259,11 +289,33 @@ func TestEnsureLockHeldDialsOnly(t *testing.T) {
 		return nil
 	})
 
-	// Racer: after we release, a daemon starts (it acquires its own lock).
+	daemonCtx, cancelDaemon := context.WithCancel(context.Background())
+	daemonDone := make(chan error, 1)
+	var releaseOnce sync.Once
+	releaseTestLock := func() {
+		releaseOnce.Do(func() {
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		})
+	}
+	defer func() {
+		cancelDaemon()
+		releaseTestLock()
+		_ = <-daemonDone
+		_ = lock.Close()
+	}()
+
+	// Racer: after 150ms, release the test lock and start the daemon.
 	go func() {
-		time.Sleep(150 * time.Millisecond)
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = broker.RunDaemon(context.Background(), root)
+		timer := time.NewTimer(150 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-daemonCtx.Done():
+			daemonDone <- nil
+			return
+		case <-timer.C:
+		}
+		releaseTestLock()
+		daemonDone <- broker.RunDaemon(daemonCtx, root)
 	}()
 
 	ep, err := l.Ensure(context.Background(), root)
