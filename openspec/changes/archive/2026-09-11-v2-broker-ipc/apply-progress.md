@@ -4,7 +4,7 @@ Date: 2026-09-13 · Mode: Strict TDD (bounded focused Go tests) · Delivery: `si
 
 ## Status
 
-38/39 tasks complete. U1 through U6 and U7 lease/fencing/lifecycle/notification/publish slices are applied; U7.11 is complete and U7.12 remains pending because the host guardrail prohibits the full-suite and race commands. The dispatcher supplied `applyState: ready` for this continuation.
+38/39 tasks complete. U1 through U6 and U7 lease/fencing/lifecycle/notification/publish slices are applied; U7.11 is complete and U7.12 remains pending because the corrective race gate failed in `internal/broker/TestStartStepAndExecuteAttemptAreSeparated` with a lease-still-active assertion. The dispatcher supplied `applyState: ready` for this continuation.
 
 ## Completed Work Units
 
@@ -297,3 +297,292 @@ Commit: `dd9b980` · `feat(broker): wire execution start and status through RPC`
 #### Continuation Boundary
 
 U3 was the only implementation unit committed in this continuation before the current apply slice. U5 is implemented but uncommitted; U6 and U7 remain pending. The U7 signal/shutdown behavior and final runtime cleanup gates are still deferred.
+
+### U7.12 — Corrective gate-blocker apply (2026-09-20)
+
+This continuation used the authorized native attempt `acquire-u7-12-fix-20260920-01` and opaque token supplied by the orchestrator. It remained a single-PR `size:exception` work unit. The two confirmed blockers were fixed minimally: production launcher spawning of Go test binaries is refused, and headless agent steps remain CLI-direct when no runner override or feedback is present. The three unprotected command tests now install the established runner override before their first relevant `Execute` call.
+
+#### Corrective TDD Cycle Evidence
+
+| Behavior | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Test-binary broker spawn guard | `internal/broker/launcher_test.go` | Integration/unit | Pre-fix execution intentionally skipped because it would recursively spawn the test binary | Written before the first guarded test run; pre-fix execution was prohibited by the mandatory recursion safety rule | `haro-fix-1` focused gate passed; helper-process launcher tests also passed | Existing helper-process spawn and `Ensure` scenarios remained green | Guard is limited to `.test` and `.test.exe` executable basenames |
+| Headless agent CLI-direct routing | `internal/cmd/agent_wiring_test.go` | Integration/runtime | Pre-fix execution intentionally skipped because unprotected agent tests could recurse through the broker | Regression harness written before the first guarded test run; pre-fix execution was prohibited by the mandatory recursion safety rule | `haro-fix-2` direct-engine regression passed | Broker command routing and existing agent-manager/reopen tests passed in `haro-fix-1` | Store lookup is isolated in a small fail-closed helper |
+| Broker-free test setup | `internal/cmd/{agent_wiring,report,logical_conflict}_test.go` | Integration | Pre-fix execution intentionally skipped for the same recursion guard | Override setup was added before the first guarded test run | `haro-fix-1` passed all selected command tests | Existing assertions and handler fake remained unchanged | Only test-scoped runner setup was added |
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `systemd-run --user --scope -u haro-fix-1 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=180s ./internal/broker ./internal/cmd -run 'TestProductionSpawn|TestEnsure|TestAgentManager|TestReportCLI|TestLogicalConflict|TestCLIStep|TestCLIUsesBroker'` — exit 0; broker passed in 0.368s and cmd passed in 0.267s |
+| Runtime harness command/scenario and exact result | `systemd-run --user --scope -u haro-fix-2 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=180s ./internal/cmd -run '^TestAgentStepRunUsesDirectEngineWithoutRunnerOverride$'` — exit 0 in 0.038s; direct `execution.Engine.CreateExecution` setup completed the fixture-backed agent step and the broker spy was not called |
+| Rollback boundary | Revert only the corrective hunks in `internal/broker/launcher.go`, `internal/broker/launcher_test.go`, `internal/cmd/execute.go`, `internal/cmd/agent_wiring_test.go`, `internal/cmd/report_test.go`, and `internal/cmd/logical_conflict_test.go`; leave all prior U1–U7 implementation and unrelated test changes intact |
+
+#### Final Gate Evidence
+
+| Gate | Exact bounded command | Unit | Result |
+|---|---|---|---|
+| Focused blocker suite | `systemd-run --user --scope -u haro-fix-1 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=180s ./internal/broker ./internal/cmd -run 'TestProductionSpawn|TestEnsure|TestAgentManager|TestReportCLI|TestLogicalConflict|TestCLIStep|TestCLIUsesBroker'` | `haro-fix-1` | exit 0 |
+| Focused direct-agent regression | `systemd-run --user --scope -u haro-fix-2 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=180s ./internal/cmd -run '^TestAgentStepRunUsesDirectEngineWithoutRunnerOverride$'` | `haro-fix-2` | exit 0 |
+| Vet | `systemd-run --user --scope -u haro-fix-3 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go vet -p=1 ./...` | `haro-fix-3` | exit 0 |
+| Linux build | `systemd-run --user --scope -u haro-fix-4 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go build -p=1 ./...` | `haro-fix-4` | exit 0 |
+| Windows cross-build | `systemd-run --user --scope -u haro-fix-5 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB GOOS=windows GOARCH=amd64 go build -p=1 ./...` | `haro-fix-5` | exit 0 |
+| Full suite | `systemd-run --user --scope -u haro-fix-6 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=300s ./...` | `haro-fix-6` | exit 0; all packages passed |
+| Race suite | `systemd-run --user --scope -u haro-fix-7 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=300s -race ./...` | `haro-fix-7` | exit 1; `internal/broker/TestStartStepAndExecuteAttemptAreSeparated` failed because the lease was still active after the attempt (`steps_test.go:123`); this was a test failure, not an OOM kill, so the documented 3072M retry was not used |
+
+#### Process and Socket Cleanup Evidence
+
+- `bash -lc 'printf "%s\\n" "process cleanup:"; pgrep -af "go test|go build|go vet|haro|\\\\.test" | while IFS= read -r line; do case "$line" in *"pgrep -af"*) ;; *) printf "%s\\n" "$line" ;; esac; done; printf "%s\\n" "socket cleanup:"; ls /tmp/haro-*.sock 2>/dev/null || true'` — no `go test`, `go build`, `go vet`, Haro, or test-binary process remained; the only matching process was the long-lived CodeGraph server; no socket paths were listed.
+
+#### U7.12 Status
+
+The corrective defects and all non-race final gates passed. U7.12 remains unchecked because the required race gate failed in `internal/broker` with the precise lease-cleanup assertion above. No race retry was authorized by the resource rules because the failure was not an OOM kill or wrapper failure. `sdd-verify` remains blocked.
+
+### U7.12 — Race-gate follow-up (2026-09-20)
+
+The confirmed timing flake was corrected only in `internal/broker/steps_test.go`. Production lease ordering and all prior corrective code remain unchanged. The test now waits up to five seconds for both terminal attempt completion and lease expiry, while preserving immediate failures for lease reads and expiry parsing.
+
+#### Follow-up Gate Evidence
+
+| Gate | Exact bounded command | Unit | Result |
+|---|---|---|---|
+| Focused race shake-out | `systemd-run --user --scope -u haro-fix-8 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker -run 'TestStartStepAndExecuteAttemptAreSeparated' -count=20 -race -timeout=120s` | `haro-fix-8` | exit 0; 20 race iterations passed in 4.293s |
+| Full non-race suite | `systemd-run --user --scope -u haro-fix-9 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=300s ./...` | `haro-fix-9` | exit 1; `internal/broker/TestLinuxBrokerProcessE2EMatrix/F-03_parallel_executions_isolate_state` failed at `broker_e2e_test.go:323` because `step.run` returned attempt `""` and `rpc error -32603: internal error`; other displayed packages passed |
+| Full race suite | Not run; stopped after the full non-race gate failed | `haro-fix-10` | Not run |
+| Vet | Not run; stopped after the full non-race gate failed | `haro-fix-11` | Not run |
+| Linux build | Not run; stopped after the full non-race gate failed | `haro-fix-12` | Not run |
+| Windows cross-build | Not run; stopped after the full non-race gate failed | `haro-fix-13` | Not run |
+
+#### Follow-up Cleanup Evidence
+
+- `bash -lc 'printf "%s\\n" "process cleanup:"; pgrep -af "go test|go build|go vet|haro|\\.test" | while IFS= read -r line; do case "$line" in *"pgrep -af"*) ;; *) printf "%s\\n" "$line" ;; esac; done; printf "%s\\n" "socket cleanup:"; ls /tmp/haro-*.sock 2>/dev/null || true'` — no Go/Haro/test-binary processes or Haro sockets remained; only the long-lived CodeGraph server matched the broad process pattern.
+
+#### Follow-up Status
+
+U7.12 remains unchecked. The focused race shake-out passed, but the required full non-race suite failed on the unrelated Linux broker E2E parallel-execution scenario. Per the completion rules, the remaining gates were not launched and no pass is asserted.
+
+### U7.12 — F-03 SQLite concurrency follow-up (2026-09-20)
+
+The modernc.org/sqlite v1.57.0 driver documentation was checked before editing: `_busy_timeout` accepts an integer, and `_txlock` accepts `deferred`, `immediate`, or `exclusive`. `store.Open` now uses `_busy_timeout=5000&_txlock=immediate` while retaining shared cache and `foreign_keys(1)`. Store coverage verifies both pragmas and exercises two independent handles with concurrent lease writes and read-then-write transactions. The F-03 diagnostic assertion now formats RPC errors with `%+v`.
+
+#### F-03 Follow-up Gate Evidence
+
+| Gate | Exact bounded command | Unit | Result |
+|---|---|---|---|
+| Focused store tests | `systemd-run --user --scope -u haro-fix-14 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/store -run 'TestOpenConfiguresSQLiteConcurrencyPragmas|TestSQLiteConcurrentLeasesAndReadThenWriteTransactionsSerialize' -count=5 -timeout=120s` | `haro-fix-14` | exit 0; both new tests passed across 5 repetitions in 0.170s |
+| F-03 shake-out | `systemd-run --user --scope -u haro-fix-15 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker -run 'TestLinuxBrokerProcessE2EMatrix/F-03' -count=10 -timeout=200s` | `haro-fix-15` | exit 1; 3 of 10 repetitions failed at `broker_e2e_test.go:323` with `attempt ""` and `rpc error -32603: internal error`; 7 repetitions passed |
+| Full non-race suite | Not run; stopped after F-03 shake-out failure | `haro-fix-16` | Not run |
+| Full race suite | Not run; stopped after F-03 shake-out failure | `haro-fix-17` | Not run |
+| Vet | Not run; stopped after F-03 shake-out failure | `haro-fix-18` | Not run |
+| Linux build | Not run; stopped after F-03 shake-out failure | `haro-fix-19` | Not run |
+| Windows cross-build | Not run; stopped after F-03 shake-out failure | `haro-fix-20` | Not run |
+
+#### F-03 Follow-up Cleanup Evidence
+
+- `bash -lc 'printf "%s\\n" "process cleanup:"; pgrep -af "go test|go build|go vet|haro|\\.test" | while IFS= read -r line; do case "$line" in *"pgrep -af"*) ;; *) printf "%s\\n" "$line" ;; esac; done; printf "%s\\n" "socket cleanup:"; ls /tmp/haro-*.sock 2>/dev/null || true'` — no Go/Haro/test-binary processes or Haro sockets remained; only the long-lived CodeGraph server matched the broad process pattern.
+
+#### F-03 Follow-up Status
+
+U7.12 remains unchecked. The new store pragma/concurrency tests pass, but the F-03 shake-out remains intermittently failing despite `_busy_timeout=5000` and `_txlock=immediate`. Per the completion rules, later gates were not launched and no pass is asserted.
+
+### U7.12 — F-03 diagnostic observability follow-up (2026-09-20)
+
+Diagnostics were added without changing the suspected root cause: broker handler panic recovery now logs method, panic value, and stack to stderr; F-03 reports `ipc.RemoteError.Data`; and all four direct Linux broker launches route stderr to the test process. No root-cause fix was attempted.
+
+#### Diagnostic Shake-out Evidence
+
+| Run | Exact bounded command | Unit | Result |
+|---|---|---|---|
+| Non-race | `systemd-run --user --scope -u haro-diag-1 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 300s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker -run 'TestLinuxBrokerProcessE2EMatrix/F-03' -count=20 -timeout=240s > /tmp/opencode/f03-diag-nonrace.log 2>&1` | `haro-diag-1` | exit 1; 4/20 repetitions failed, 16 passed |
+| Race | `systemd-run --user --scope -u haro-diag-2 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 300s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker -run 'TestLinuxBrokerProcessE2EMatrix/F-03' -count=5 -race -timeout=180s > /tmp/opencode/f03-diag-race.log 2>&1` | `haro-diag-2` | exit 1; 3/5 repetitions failed, 2 passed |
+
+#### Raw Diagnostic Excerpts
+
+Non-race `/tmp/opencode/f03-diag-nonrace.log` first failure and repeated detail:
+
+```text
+broker_e2e_test.go:327: parallel step.run for 1fb7dcb2-15ea-404c-81b9-0a89dc11037c = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+broker_e2e_test.go:327: parallel step.run for d655d8dd-b7e9-4d2c-9116-0804feec8530 = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+broker_e2e_test.go:327: parallel step.run for 0fa27dcf-8968-4123-a8e1-e903f6742ebe = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+broker_e2e_test.go:327: parallel step.run for 7aa9e658-6885-4e97-8b37-dbb880f8f19f = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+```
+
+Race `/tmp/opencode/f03-diag-race.log` first failure and repeated detail:
+
+```text
+broker_e2e_test.go:327: parallel step.run for 9894aa4b-e5e3-4de7-9e5f-df7cd821256f = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+broker_e2e_test.go:327: parallel step.run for 476700a4-fc02-4721-8039-1d05d4bd176e = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+broker_e2e_test.go:327: parallel step.run for 3c1f31bf-2765-4df3-811f-17a2f314aa43 = attempt "", err=rpc error -32603: internal error data=map[detail:begin tx: database table is locked (262)]
+```
+
+- `recovered panic` excerpts: none in either log.
+- `DATA RACE` report: none in either log.
+- Finding only, no fix attempted: the opaque `-32603` is backed by `begin tx: database table is locked (262)`, not a recovered handler panic.
+
+#### Diagnostic Cleanup Evidence
+
+- `bash -lc 'printf "%s\\n" "process cleanup:"; pgrep -af "go test|go build|go vet|haro|\\.test" | while IFS= read -r line; do case "$line" in *"pgrep -af"*) ;; *) printf "%s\\n" "$line" ;; esac; done; printf "%s\\n" "socket cleanup:"; ls /tmp/haro-*.sock 2>/dev/null || true'` — no Go/Haro/test-binary processes or Haro sockets remained; only the long-lived CodeGraph server matched the broad process pattern.
+
+#### Diagnostic Status
+
+U7.12 remains unchecked. Observability now exposes the underlying SQLite lock error, but no root-cause fix was attempted in this step.
+
+### U7.12 — F-03 SQLite lock fix and final gates (2026-09-20)
+
+The diagnostic detail identified the intermittent `-32603` as a shared-cache SQLite `SQLITE_LOCKED` error at transaction begin. The minimal production fix limits each broker-owned `*sql.DB` to one open connection and serializes schema/WAL migration setup across concurrent store handles. This preserves concurrent command execution while preventing one broker's RPC handlers from opening competing SQLite connections. No provider or acceptance documents were changed.
+
+#### Corrective TDD Cycle Evidence
+
+| Behavior | Test file | RED | GREEN | REFACTOR |
+|---|---|---|---|---|
+| Broker store connection serialization | `internal/store/store_test.go` | `haro-fix-21`: `TestOpenLimitsSQLiteConnectionsForBrokerSerialization` failed with `MaxOpenConnections = 0, want 1` | `haro-fix-22`: SQLite pragma, connection-limit, and concurrent lease/read-then-write tests passed 5 repetitions | `gofmt` and `git diff --check` passed; production comment documents why external command execution remains concurrent |
+| Concurrent migration setup | Existing `internal/store/{claim,migrations_payload}_test.go` coverage | `haro-fix-30`: full race suite exposed `migrate: database table is locked (262)` during concurrent opens | `haro-fix-31`: both migration/concurrency selectors passed 5 race repetitions | `sqliteOpenMu` scopes only Open-time schema/WAL setup and does not serialize normal store operations |
+
+The one-connection configuration exposed two existing test-only misuse patterns: an open event `Rows` was held while issuing another query, and a transaction callback used `db.ExecContext` instead of the transaction. These were corrected in `internal/execution/agent_evidence_test.go` and `internal/store/transport_test.go` respectively; no production behavior was changed for either case.
+
+#### F-03 Corrective Evidence
+
+| Run | Exact bounded command | Unit | Result |
+|---|---|---|---|
+| Non-race | `systemd-run --user --scope -u haro-fix-23 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 300s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker -run 'TestLinuxBrokerProcessE2EMatrix/F-03' -count=20 -timeout=240s` | `haro-fix-23` | exit 0; 20/20 repetitions passed in 23.797s |
+| Race | `systemd-run --user --scope -u haro-fix-24 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 300s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker -run 'TestLinuxBrokerProcessE2EMatrix/F-03' -count=5 -race -timeout=180s` | `haro-fix-24` | exit 0; 5/5 repetitions passed in 7.533s |
+
+#### Final Gate Evidence
+
+| Gate | Exact bounded command | Unit | Result |
+|---|---|---|---|
+| Full non-race suite | `systemd-run --user --scope -u haro-fix-38 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 360s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=300s ./...` | `haro-fix-38` | exit 0; all packages passed on the final code state |
+| Full race suite | `systemd-run --user --scope -u haro-fix-32 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 420s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=360s -race ./...` | `haro-fix-32` | exit 0; all packages passed with no race report |
+| Vet | `systemd-run --user --scope -u haro-fix-33 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go vet -p=1 ./...` | `haro-fix-33` | exit 0 |
+| Linux build | `systemd-run --user --scope -u haro-fix-34 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go build -p=1 ./...` | `haro-fix-34` | exit 0 |
+| Windows cross-build | `systemd-run --user --scope -u haro-fix-35 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 240s env GOMAXPROCS=1 GOMEMLIMIT=384MiB GOOS=windows GOARCH=amd64 go build -p=1 ./...` | `haro-fix-35` | exit 0 |
+| Vulnerability scan | `systemd-run --user --scope -u haro-fix-37 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 360s env GOMAXPROCS=1 GOMEMLIMIT=384MiB govulncheck ./...` | `haro-fix-37` | exit 0; no vulnerabilities found |
+
+`golangci-lint run` was also attempted as `haro-fix-36` and exited 1 on 21 existing findings (16 errcheck, 1 govet, 3 staticcheck, 1 unused) across pre-existing files; these findings are outside U7.12's listed gate commands and were not broadened into this fix.
+
+#### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `haro-fix-22` store selectors, `haro-fix-23` F-03 non-race 20/20, and `haro-fix-24` F-03 race 5/5 all exited 0 |
+| Runtime harness command/scenario and exact result | `haro-fix-23`/`haro-fix-24` ran the real built-binary Linux broker process matrix's F-03 path through UDS with two parallel executions; all corrective repetitions passed |
+| Rollback boundary | Revert the new connection/migration setup in `internal/store/store.go`, remove `TestOpenLimitsSQLiteConnectionsForBrokerSerialization`, revert the test resource-lifetime corrections in `internal/execution/agent_evidence_test.go` and `internal/store/transport_test.go`, and retain prior broker/U7 work |
+
+#### Final Cleanup
+
+- `pgrep -af "go test|go build|go vet|golangci-lint|govulncheck|haro|\\.test"` — no Go/Haro/test/lint processes remained; only the long-lived CodeGraph server matched.
+- `ls /tmp/haro-*.sock` — no Haro sockets remained.
+
+#### U7.12 Status
+
+All 39 implementation tasks are complete and the required final gates pass. U7.12 is marked `[x]` in `tasks.md`; the change is ready for `sdd-verify`.
+
+### Remediation — broker IPC verification findings (2026-09-20)
+
+Native remediation attempt: `acquire-u7-remediate-20260920-01`.
+The immutable verification report was not modified, `tasks.md` was not
+modified, and the verifier was not rerun. The existing 39/39 task history is
+preserved.
+
+#### Remediation TDD Cycle Evidence
+
+| Finding | Test-first evidence | GREEN | REFACTOR |
+|---|---|---|---|
+| C-01 / `v2-ipc/U-04` outgoing results | `haro-rem-focused-20260920-01` failed because an invalid `execution.start` result was encoded as a JSON-RPC result | Dispatcher validation and malformed-result table passed in `haro-rem-c01-test-20260920-05` | `gofmt`, `git diff --check`, full non-race/race suites, vet, and builds passed |
+| W-02 endpoint collision | Initial collision test failed because the occupied endpoint was reused; the test was corrected to model a non-0600 foreign occupant while preserving the existing safe-0600 zombie contract | `TestSocketPathExtendsHashForForeignOccupant` and full IPC package passed | Prefix remains bounded, long-TMPDIR fallback remains intact, and existing zombie recovery passed |
+| W-03 notification E2E | `TestSubscribedServerReceivesPersistedStatusAndInteractionNotifications` was added before the notification field refinement | Net-pipe `ServeConn` + `Hub` + SQLite persistence test passed in `haro-rem-w02-w03-20260920-01` and full broker suite | Interaction notification now includes persisted attempt `execution_id` and `step_id`; cursor order and commit-before-visible path remain covered |
+
+#### Remediation Changes
+
+- C-01: `Dispatcher.Dispatch` now validates the encoded wire shape for every
+  registered production method: `health`, `execution.start/status`, and all
+  five `step.*` methods. Unknown, missing, malformed, invalid-enum, negative
+  cursor, oversized inline payload, and mixed payload/payload_ref fields fail
+  with `-32602` and stable `result...` field paths before response encoding.
+- W-02: `SocketPath` checks endpoint occupancy and private metadata, extends
+  the SHA-256 prefix in bounded increments for foreign/non-0600 occupants,
+  preserves safe 0600 stale endpoint recovery, and retains the 108-byte UDS
+  bound plus short-prefix long-TMPDIR fallback.
+- W-03: `notify_test.go` now drives persisted status and interaction events
+  through one subscribed `ServeConn`/`Hub` client and verifies cursor order,
+  fields, and persisted interaction evidence. The interaction notification
+  includes `execution_id` and `step_id` from the bound attempt.
+- W-01: the active IPC delta now contains a non-normative traceability note
+  stating that the delta adds 12 IPC requirements and inherits the existing
+  base `openspec/specs/v2-ipc/spec.md` requirement `v2-ipc/U-03`, yielding the
+  13-criterion IPC trace without changing normative acceptance text.
+
+#### Work Unit Evidence
+
+| Evidence | Exact command / scenario | Result |
+|---|---|---|
+| Focused tests | `systemd-run --user --scope --quiet --unit=haro-rem-focused-20260920-06 -p MemoryMax=2560M -p MemorySwapMax=0 env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 ./internal/broker ./internal/ipc -count=1` | exit 0; broker and IPC packages passed |
+| C-01 runtime harness | `go test -p=1 ./internal/broker -run 'TestServerRejectsInvalidOutgoingResultWithoutSendingPayload|TestDispatcherRejectsMalformedOutgoingResults' -count=1` under bounded cgroup | exit 0; invalid results became `-32602` errors and valid results round-tripped unchanged |
+| W-03 runtime harness | `go test -p=1 ./internal/broker -run '^TestSubscribedServerReceivesPersistedStatusAndInteractionNotifications$' -count=1` under bounded cgroup | exit 0; persisted status and interaction notifications arrived through one subscribed server connection in cursor order |
+| Full non-race | `systemd-run --user --scope --quiet --unit=haro-rem-full-20260920-01 -p MemoryMax=2560M -p MemorySwapMax=0 env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 ./...` | exit 0; all packages passed |
+| Full race | First run hit an intermittent existing `internal/store/TestAcquireConcurrency` SQLite lock; rerun `haro-rem-race-20260920-04` exited 0 | final race suite passed with no race report |
+| Static/build/security gates | Bounded `go vet ./...`, Linux `go build -p=1 ./...`, Windows `GOOS=windows GOARCH=amd64 go build -p=1 ./...`, and `govulncheck ./...` | all exit 0; no vulnerabilities found |
+
+#### Rollback Boundary
+
+Revert only the remediation changes in `internal/broker/handlers.go`,
+`internal/broker/validation.go`, `internal/broker/result_validation_test.go`,
+`internal/broker/runtime.go`, `internal/broker/notify_test.go`,
+`internal/ipc/socket.go`, `internal/ipc/socket_test.go`, and the
+non-normative traceability note in the active IPC delta spec. Preserve all
+prior U1–U7.12 implementation, tests, task checkboxes, and verification
+report history.
+
+#### Remediation Status
+
+C-01, W-01, W-02, and W-03 remediation is implemented and locally verified.
+The change is ready for the orchestrator to run the next verification phase;
+this apply unit did not launch `sdd-verify`.
+
+Post-hardening focused rerun: `haro-rem-c01-test-20260920-06` exited 0 after
+rejecting nullable optional result strings as malformed values.
+
+### Hardening — remove SQLite shared-cache locking (2026-09-20)
+
+Same native remediation attempt: `acquire-u7-remediate-20260920-01`.
+No reset, acquire, commit, push, task-artifact edit, verification-report edit,
+or verifier run was performed. The only production change in this hardening
+step is the SQLite DSN in `internal/store/store.go`:
+
+`file:%s?_busy_timeout=5000&_txlock=immediate&_pragma=foreign_keys(1)`
+
+The DSN comment now documents WAL, normal file-level locking,
+`busy_timeout`, and immediate transactions, and explains that deprecated
+shared-cache mode was removed because its table locks return `SQLITE_LOCKED`
+without busy-timeout retry. `SetMaxOpenConns(1)` and `sqliteOpenMu` remain.
+
+#### Hardening Evidence
+
+All commands used `MemoryMax=2560M`, `MemorySwapMax=0`, `GOMAXPROCS=1`,
+`GOMEMLIMIT=384MiB`, `-p=1`, and wrote logs to `/tmp/opencode/`.
+
+| Unit | Exact command | Exact result |
+|---|---|---|
+| `haro-lock-1` | `systemd-run --user --scope -u haro-lock-1 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=50 -race -run 'TestAcquireConcurrency' ./internal/store` | exit 0; `internal/store` passed in 18.480s |
+| `haro-lock-2` | `systemd-run --user --scope -u haro-lock-2 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=5 -race ./internal/store` | exit 0; full store race package passed in 30.611s |
+| `haro-lock-3` | `systemd-run --user --scope -u haro-lock-3 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=10 -run 'TestLinuxBrokerProcessE2EMatrix/F-03' ./internal/broker` | exit 0; F-03 non-race shakeout passed in 12.261s |
+| `haro-lock-4` | `systemd-run --user --scope -u haro-lock-4 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=5 -race -run 'TestLinuxBrokerProcessE2EMatrix/F-03' ./internal/broker` | exit 0; F-03 race shakeout passed in 5.846s |
+| `haro-lock-5` | `systemd-run --user --scope -u haro-lock-5 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 ./...` | exit 0; all packages passed |
+| `haro-lock-6` | `systemd-run --user --scope -u haro-lock-6 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 900s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -race ./...` | exit 0; first clean full race pass, all packages passed |
+| `haro-lock-7` | `systemd-run --user --scope -u haro-lock-7 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 900s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -race ./...` | exit 0; second consecutive clean full race pass, all packages passed |
+| `haro-lock-8` | `systemd-run --user --scope -u haro-lock-8 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go vet -p=1 ./...` | exit 0 |
+| `haro-lock-9` | `systemd-run --user --scope -u haro-lock-9 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB go build -p=1 ./...` | exit 0 |
+| `haro-lock-10` | `systemd-run --user --scope -u haro-lock-10 -p MemoryMax=2560M -p MemorySwapMax=0 -- timeout 600s env GOMAXPROCS=1 GOMEMLIMIT=384MiB GOOS=windows GOARCH=amd64 go build -p=1 ./...` | exit 0 |
+
+#### Hardening Rollback Boundary
+
+Revert only the DSN and explanatory comment changes in
+`internal/store/store.go`. Keep `SetMaxOpenConns(1)`, `sqliteOpenMu`, all
+prior broker remediation, task history, and verification artifacts intact.
+
+#### Hardening Status
+
+The shared-cache SQLite locking defect class is addressed. All required
+hardening evidence units passed, including two consecutive clean full race
+runs. The change remains ready for orchestrator verification; this unit did
+not run `sdd-verify`.

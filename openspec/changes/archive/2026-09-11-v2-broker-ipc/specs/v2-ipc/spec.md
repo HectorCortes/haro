@@ -1,5 +1,10 @@
 # Delta for v2-ipc
 
+> Traceability note: this change adds 12 IPC requirements (`F-01`–`F-09`,
+> `U-01`, `U-02`, and `U-04`). `v2-ipc/U-03` is the existing base
+> requirement in `openspec/specs/v2-ipc/spec.md`; it remains part of the
+> 13-criterion IPC trace and is revalidated by the payload-doctrine tests.
+
 ## ADDED Requirements
 
 ### Requirement: execution.start [v2-ipc/F-01] — P0 [E2E]

@@ -84,7 +84,7 @@ Strict TDD: RED task before GREEN per task (`go test ./...` locally mandatory; f
 - [x] 7.9 RED shutdown test: INT/TERM → listener closed, work rejected (draining), sessions cancelled, replies drained, leases released, socket removed (no zombie), store closed, flock released; immediate replacement starts.
 - [x] 7.10 GREEN daemon shutdown orchestration (`internal/broker/daemon.go` signal handling per design).
 - [x] 7.11 GREEN `internal/broker/broker_e2e_test.go` (Linux sockets): F-01 shared broker two CLIs; F-02 relaunch-after-death; F-03 two parallel executions isolate state; F-04 two projects independent, one broker stops, other continues; F-05 herd; F-06 kill -9 mid-attempt + stale write; F-07 TERM→restart; U-02 concurrent/malformed frames; zero-attempt mode guards.
-- [ ] 7.12 Gate: `go test ./...`, `go test ./... -race`, `go vet ./...`, `go build ./...`, `GOOS=windows go build ./...`; 92 existing criteria green; no edits to `deltas-acceptance.md`/`docs/v2`.
+- [x] 7.12 Gate: `go test ./...`, `go test ./... -race`, `go vet ./...`, `go build ./...`, `GOOS=windows go build ./...`; 92 existing criteria green; no edits to `deltas-acceptance.md`/`docs/v2`.
 
 ## Commit Plan (work-unit-commits — 7 conventional commits to main, revertible in reverse)
 
