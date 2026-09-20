@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -278,16 +279,28 @@ type SQLiteStore struct {
 	tx *sql.Tx
 }
 
+var sqliteOpenMu sync.Mutex
+
 // Open opens a SQLite database at path, creates schema, and sets pragmas.
 // path may be a file path; for tests use t.TempDir() file.
 func Open(ctx context.Context, path string) (*SQLiteStore, error) {
-	dsn := fmt.Sprintf("file:%s?cache=shared&_pragma=foreign_keys(1)", path)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_txlock=immediate&_pragma=foreign_keys(1)", path)
 	// modernc.org/sqlite uses URI; plain path also works but we use file: URI
-	// to ensure shared cache works.
+	// to configure WAL with normal file-level locking, busy_timeout retries,
+	// and immediate transactions. Shared cache is intentionally omitted because
+	// its deprecated table locks bypass busy_timeout with SQLITE_LOCKED.
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	// A broker owns one store per project. One DB connection bounds concurrent
+	// transaction setup per broker while execution commands still run concurrently.
+	db.SetMaxOpenConns(1)
+	// SQLite schema setup includes WAL and additive migrations. Serialize that
+	// setup across store handles so concurrent opens cannot lock one another's
+	// migration transaction.
+	sqliteOpenMu.Lock()
+	defer sqliteOpenMu.Unlock()
 	// Ensure we can reach DB.
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()

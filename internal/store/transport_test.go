@@ -231,13 +231,13 @@ func TestTransport_WithTx(t *testing.T) {
 	// Use WithTx to insert attempt + transport atomically
 	err = s.WithTx(ctx, func(tx Store) error {
 		// create execution
-		if _, err := tx.(*SQLiteStore).db.ExecContext(ctx, "INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)", "exec-tx", "proj-tx", "wf.yaml", "running", "isolated", dir, "2025-01-01T00:00:00Z"); err != nil {
+		if _, err := tx.(*SQLiteStore).exec(ctx, "INSERT INTO executions(id, project_id, workflow_source, status, workspace_mode, workspace_root, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)", "exec-tx", "proj-tx", "wf.yaml", "running", "isolated", dir, "2025-01-01T00:00:00Z"); err != nil {
 			return err
 		}
-		if _, err := tx.(*SQLiteStore).db.ExecContext(ctx, "INSERT INTO execution_steps(execution_id, step_id, type, status, workspace_mode, current_generation) VALUES (?, ?, ?, ?, ?, ?)", "exec-tx", "step-tx", "agent", "running", "isolated", 1); err != nil {
+		if _, err := tx.(*SQLiteStore).exec(ctx, "INSERT INTO execution_steps(execution_id, step_id, type, status, workspace_mode, current_generation) VALUES (?, ?, ?, ?, ?, ?)", "exec-tx", "step-tx", "agent", "running", "isolated", 1); err != nil {
 			return err
 		}
-		if _, err := tx.(*SQLiteStore).db.ExecContext(ctx, "INSERT INTO generations(id, execution_id, step_id, number, created_at) VALUES (?, ?, ?, ?, ?)", "gen-tx", "exec-tx", "step-tx", 1, "2025-01-01T00:00:00Z"); err != nil {
+		if _, err := tx.(*SQLiteStore).exec(ctx, "INSERT INTO generations(id, execution_id, step_id, number, created_at) VALUES (?, ?, ?, ?, ?)", "gen-tx", "exec-tx", "step-tx", 1, "2025-01-01T00:00:00Z"); err != nil {
 			return err
 		}
 		if err := tx.Attempts().Create(ctx, &Attempt{ID: "att-tx", ExecutionID: "exec-tx", StepID: "step-tx", GenerationID: "gen-tx", Status: "running", StartedAt: "2025-01-01T00:00:00Z"}); err != nil {
@@ -259,7 +259,7 @@ func TestTransport_WithTx(t *testing.T) {
 	}
 	// Triangulate: rollback on error should not leave partial attempt nor transport
 	err = s.WithTx(ctx, func(tx Store) error {
-		if _, err := tx.(*SQLiteStore).db.ExecContext(ctx, "INSERT INTO generations(id, execution_id, step_id, number, created_at) VALUES (?, ?, ?, ?, ?)", "gen-tx2", "exec-tx", "step-tx", 2, "2025-01-01T00:00:01Z"); err != nil {
+		if _, err := tx.(*SQLiteStore).exec(ctx, "INSERT INTO generations(id, execution_id, step_id, number, created_at) VALUES (?, ?, ?, ?, ?)", "gen-tx2", "exec-tx", "step-tx", 2, "2025-01-01T00:00:01Z"); err != nil {
 			return err
 		}
 		if err := tx.Attempts().Create(ctx, &Attempt{ID: "att-rollback", ExecutionID: "exec-tx", StepID: "step-tx", GenerationID: "gen-tx2", Status: "running", StartedAt: "2025-01-01T00:00:01Z"}); err != nil {

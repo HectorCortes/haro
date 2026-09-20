@@ -2,9 +2,119 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
+
+func TestOpenConfiguresSQLiteConcurrencyPragmas(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "pragmas.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	var busyTimeout, foreignKeys int
+	if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("pragma busy_timeout: %v", err)
+	}
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+		t.Fatalf("pragma foreign_keys: %v", err)
+	}
+	if busyTimeout != 5000 {
+		t.Fatalf("PRAGMA busy_timeout = %d, want 5000", busyTimeout)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("PRAGMA foreign_keys = %d, want 1", foreignKeys)
+	}
+}
+
+func TestOpenLimitsSQLiteConnectionsForBrokerSerialization(t *testing.T) {
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "serialized.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if got := s.db.Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("MaxOpenConnections = %d, want 1", got)
+	}
+}
+
+func TestSQLiteConcurrentLeasesAndReadThenWriteTransactionsSerialize(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dbPath := filepath.Join(t.TempDir(), "concurrency.db")
+	stores := make([]*SQLiteStore, 2)
+	for i := range stores {
+		var err error
+		stores[i], err = Open(ctx, dbPath)
+		if err != nil {
+			t.Fatalf("Open store %d: %v", i, err)
+		}
+		defer func(s *SQLiteStore) { _ = s.Close() }(stores[i])
+	}
+
+	const iterations = 25
+	errs := make(chan error, 4)
+	var wg sync.WaitGroup
+	for worker, s := range stores {
+		worker, s := worker, s
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				if _, err := s.Leases().Acquire(ctx, fmt.Sprintf("lease-exec-%d-%d", worker, i), "step", fmt.Sprintf("holder-%d", worker)); err != nil {
+					errs <- fmt.Errorf("lease worker %d iteration %d: %w", worker, i, err)
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				projectID := fmt.Sprintf("tx-project-%d-%d", worker, i)
+				err := s.WithTx(ctx, func(tx Store) error {
+					_, err := tx.Projects().Get(ctx, projectID)
+					if err != nil && !errors.Is(err, ErrNotFound) {
+						return err
+					}
+					return tx.Projects().Create(ctx, projectID, filepath.Dir(dbPath))
+				})
+				if err != nil {
+					errs <- fmt.Errorf("transaction worker %d iteration %d: %w", worker, i, err)
+					return
+				}
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		<-done
+		t.Fatalf("concurrent store operations did not settle: %v", ctx.Err())
+	}
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent store operation: %v", err)
+	}
+}
 
 func TestStoreWithTx(t *testing.T) {
 	dir := t.TempDir()
