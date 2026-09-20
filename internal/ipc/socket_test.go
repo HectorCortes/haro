@@ -64,6 +64,32 @@ func TestSocketPathDistinctRoots(t *testing.T) {
 	}
 }
 
+func TestSocketPathExtendsHashForForeignOccupant(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("named pipes do not have filesystem collision metadata")
+	}
+	root := t.TempDir()
+	base, err := SocketPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(base, []byte("foreign occupant"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(base) }()
+
+	got, err := SocketPath(root)
+	if err != nil {
+		t.Fatalf("SocketPath with foreign occupant: %v", err)
+	}
+	if got == base {
+		t.Fatalf("foreign occupant reused endpoint %q", got)
+	}
+	if len(got)+1 > 108 {
+		t.Fatalf("extended endpoint %q exceeds UDS bound", got)
+	}
+}
+
 // TestSocketPathUnixLength verifies the Linux UDS path is at most 108 bytes
 // including the trailing NUL.
 func TestSocketPathUnixLength(t *testing.T) {

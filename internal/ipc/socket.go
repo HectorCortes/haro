@@ -52,19 +52,37 @@ func SocketPath(root string) (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256([]byte(canon))
-	hash := hex.EncodeToString(sum[:])[:socketHashLen]
+	fullHash := hex.EncodeToString(sum[:])
 	if runtime.GOOS == "windows" {
-		return `\\.\pipe\haro-` + hash, nil
+		return `\\.\pipe\haro-` + fullHash[:socketHashLen], nil
 	}
-	p := filepath.Join(os.TempDir(), "haro-"+hash+".sock")
-	// Bound enforcement: UDS paths are limited to 108 bytes including NUL.
-	// Shorten the hash prefix only while the bound is violated; the hash is
-	// already bounded so this normally never triggers.
-	if len(p)+1 > 108 {
-		p = filepath.Join(os.TempDir(), "haro-"+hex.EncodeToString(sum[:])[:shortSocketHashLen]+".sock")
+
+	start := socketHashLen
+	if len(filepath.Join(os.TempDir(), "haro-"+fullHash[:start]+".sock"))+1 > 108 {
+		start = shortSocketHashLen
 	}
-	if len(p)+1 > 108 {
-		return "", fmt.Errorf("socket path %q exceeds 108 bytes incl NUL", p)
+	for prefixLen := start; prefixLen <= len(fullHash); prefixLen += 8 {
+		p := filepath.Join(os.TempDir(), "haro-"+fullHash[:prefixLen]+".sock")
+		if len(p)+1 > 108 {
+			continue
+		}
+		occupied, reusable := socketEndpointState(p)
+		if !occupied || reusable {
+			return p, nil
+		}
 	}
-	return p, nil
+	return "", fmt.Errorf("socket path collision for %q", canon)
+}
+
+// socketEndpointState reports whether a Unix endpoint exists and whether it
+// has the metadata of a broker-owned endpoint. Foreign files and endpoints
+// with non-private permissions are never reused; SocketPath extends the hash
+// prefix instead. Existing private sockets remain stable for live daemons and
+// safe stale-endpoint cleanup.
+func socketEndpointState(path string) (occupied, reusable bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return !os.IsNotExist(err), false
+	}
+	return true, info.Mode().Perm() == 0o600 && (info.Mode().IsRegular() || info.Mode()&os.ModeSocket != 0)
 }
