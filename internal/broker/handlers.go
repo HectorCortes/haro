@@ -3,6 +3,9 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"runtime/debug"
 	"sync"
 
 	"github.com/HectorCortes/haro/internal/ipc/jsonrpc"
@@ -47,12 +50,20 @@ func (d *Dispatcher) Dispatch(ctx context.Context, method string, params json.Ra
 	if handler == nil {
 		return nil, &jsonrpc.RPCError{Code: jsonrpc.MethodNotFoundCode, Message: "method not found"}
 	}
-	return invokeHandler(ctx, handler, params)
+	result, rpcErr = invokeHandler(ctx, method, handler, params)
+	if rpcErr != nil {
+		return result, rpcErr
+	}
+	if validationErr := validateResult(method, result); validationErr != nil {
+		return nil, validationErr
+	}
+	return result, nil
 }
 
-func invokeHandler(ctx context.Context, handler RPCHandler, params json.RawMessage) (result any, rpcErr *jsonrpc.RPCError) {
+func invokeHandler(ctx context.Context, method string, handler RPCHandler, params json.RawMessage) (result any, rpcErr *jsonrpc.RPCError) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "haro broker: recovered panic in %s: %v\n%s\n", method, recovered, debug.Stack())
 			result = nil
 			rpcErr = &jsonrpc.RPCError{Code: jsonrpc.InternalErrorCode, Message: "internal error"}
 		}
