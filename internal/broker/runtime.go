@@ -244,6 +244,8 @@ func (h *BrokerSessionHost) RequestPermission(ctx context.Context, req adapter.P
 		return EventNotification{
 			Method: "step.interaction_required",
 			Params: map[string]any{
+				"execution_id":   attempt.ExecutionID,
+				"step_id":        attempt.StepID,
 				"attempt_id":     h.attemptID,
 				"interaction_id": interactionID,
 				"kind":           req.Kind,
