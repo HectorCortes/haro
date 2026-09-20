@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/HectorCortes/haro/internal/execution"
 	"github.com/HectorCortes/haro/internal/store"
 )
 
@@ -37,6 +39,8 @@ func writeOpenCodeFixture(t *testing.T, logPath string) string {
 // through the injected manager exactly once per step run.
 func TestAgentManagerCLIInjection(t *testing.T) {
 	ctx := context.Background()
+	SetRunnerForTest(execution.NewRunner())
+	defer ClearRunnerForTest()
 	root := t.TempDir()
 	if code := Execute(ctx, []string{"init"}, root, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("init code != 0")
@@ -209,6 +213,8 @@ func runAgentWorkflow(t *testing.T, root string) string {
 // branch again with fresh persisted evidence and transport identity.
 func TestAgentManagerCLIInjectionStepReopen(t *testing.T) {
 	ctx := context.Background()
+	SetRunnerForTest(execution.NewRunner())
+	defer ClearRunnerForTest()
 	root, logPath := newAgentWiringRoot(t)
 
 	execID := runAgentWorkflow(t, root)
@@ -299,5 +305,80 @@ func TestAgentManagerCLIInjectionStepReopen(t *testing.T) {
 	}
 	if got := strings.Count(string(logData), "argv:"); got != 2 {
 		t.Fatalf("fixture invocations = %d, want 2 (one per step run)", got)
+	}
+}
+
+func TestAgentStepRunUsesDirectEngineWithoutRunnerOverride(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "invocations.log")
+	binary := writeOpenCodeFixture(t, logPath)
+	wfDir := filepath.Join(root, ".haro", "workflows", "agentwf")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wfYAML := `version: 2
+name: agentwf
+workspace:
+  mode: shared
+steps:
+  - id: ag
+    type: agent
+    harness: [oc]
+    instructions: do the thing
+    mode: headless
+`
+	if err := os.WriteFile(filepath.Join(wfDir, "workflow.yaml"), []byte(wfYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgYAML := "version: 2\nharnesses:\n  oc:\n    binary: " + binary + "\n"
+	if err := os.MkdirAll(filepath.Join(root, ".haro"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".haro", "config.yaml"), []byte(cfgYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open(ctx, filepath.Join(root, ".haro", "store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	eng := execution.NewEngine(s, execution.NewRunner(), root)
+	execID, err := eng.CreateExecution(ctx, "agentwf")
+	if err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	if err := injectAdapterManager(ctx, eng, root); err != nil {
+		t.Fatalf("inject adapter manager: %v", err)
+	}
+
+	previousRunner := runnerOverride
+	runnerOverride = nil
+	t.Cleanup(func() { runnerOverride = previousRunner })
+	previousBrokerCall := brokerCall
+	brokerCall = func(_ context.Context, _ string, method string, _ any) (json.RawMessage, error) {
+		t.Fatalf("agent step unexpectedly called broker method %q", method)
+		return nil, nil
+	}
+	t.Cleanup(func() { brokerCall = previousBrokerCall })
+
+	var out bytes.Buffer
+	if code := Execute(ctx, []string{"step", "run", execID, "ag"}, root, &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("step run code = %d, out=%q", code, out.String())
+	}
+	step, err := s.Steps().Get(ctx, execID, "ag")
+	if err != nil {
+		t.Fatalf("get step: %v", err)
+	}
+	if step.Status != "completed" {
+		t.Fatalf("agent step status = %q, want completed", step.Status)
+	}
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("fixture log: %v", err)
+	}
+	if got := strings.Count(string(logData), "argv:"); got != 1 {
+		t.Fatalf("fixture invocations = %d, want 1", got)
 	}
 }

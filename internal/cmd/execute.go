@@ -42,6 +42,20 @@ func getRunner() execution.CommandRunner {
 	return execution.NewRunner()
 }
 
+func isAgentStep(ctx context.Context, cwd, executionID, stepID string) bool {
+	dbPath := filepath.Join(cwd, ".haro", "store.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return false
+	}
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = s.Close() }()
+	step, err := s.Steps().Get(ctx, executionID, stepID)
+	return err == nil && step.Type == "agent"
+}
+
 // injectAdapterManager loads the project harness configuration and builds
 // one CLI-scoped adapter manager (probe + initialize each usable harness
 // once) for the engine. It is wired at the agent-capable sites: run, step
@@ -506,7 +520,7 @@ func handleStepRun(ctx context.Context, args []string, cwd string, out io.Writer
 	if fs.NArg() != 0 {
 		return writeErr(fmt.Sprintf("unexpected_argument %q", strings.Join(fs.Args(), " ")), "unexpected_argument")
 	}
-	if runnerOverride == nil && feedback == "" {
+	if runnerOverride == nil && feedback == "" && !isAgentStep(ctx, cwd, execID, stepID) {
 		return handleBrokerStepRun(ctx, execID, stepID, cwd, out, writeErr, jsonOut)
 	}
 	dbPath := filepath.Join(cwd, ".haro", "store.db")

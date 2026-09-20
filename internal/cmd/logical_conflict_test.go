@@ -27,6 +27,8 @@ func TestLogicalConflict(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	SetRunnerForTest(execution.NewRunner())
+	defer ClearRunnerForTest()
 	// create execution via CLI run
 	out := &bytes.Buffer{}
 	code := Execute(ctx, []string{"run", "demo", "--json"}, dir, out, &bytes.Buffer{})

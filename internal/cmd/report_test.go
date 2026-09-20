@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/HectorCortes/haro/internal/execution"
 	"github.com/HectorCortes/haro/internal/store"
 )
 
@@ -43,6 +44,8 @@ func TestReportCLI(t *testing.T) {
 	wfDir := filepath.Join(repo, ".haro", "workflows", "demo")
 	_ = os.MkdirAll(wfDir, 0o755)
 	_ = os.WriteFile(filepath.Join(wfDir, "workflow.yaml"), []byte("version: 2\nname: demo\nsteps:\n  - id: s1\n    type: command\n    run: echo hi\n"), 0o600)
+	SetRunnerForTest(execution.NewRunner())
+	defer ClearRunnerForTest()
 	out := &bytes.Buffer{}
 	if code := Execute(ctx, []string{"run", "demo", "--json"}, repo, out, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("run failed: %s", out.String())
