@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -185,6 +186,19 @@ func speakHealthOnce(ep string) error {
 		return fmt.Errorf("health not ok: %s", line)
 	}
 	return nil
+}
+
+func TestProductionSpawnRefusesTestBinary(t *testing.T) {
+	root := t.TempDir()
+	l := broker.NewLauncher(ipc.DefaultTransport(), nil)
+
+	_, err := l.Ensure(context.Background(), root)
+	if err == nil {
+		t.Fatal("Ensure unexpectedly spawned the test binary as a broker")
+	}
+	if !strings.Contains(err.Error(), "refusing to spawn test binary") {
+		t.Fatalf("Ensure error = %q, want test-binary guard", err)
+	}
 }
 
 // TestEnsureHerdExactlyOneDaemon covers F-05: N concurrent Ensure calls with

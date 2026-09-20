@@ -202,6 +202,10 @@ func productionSpawn(canonicalRoot string) error {
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
+	base := strings.ToLower(filepath.Base(exe))
+	if strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".test.exe") {
+		return fmt.Errorf("refusing to spawn test binary %q as broker daemon", exe)
+	}
 	c := exec.Command(exe, "broker", "--project", canonicalRoot)
 	detachAttrs(c)
 	if err := c.Start(); err != nil {
