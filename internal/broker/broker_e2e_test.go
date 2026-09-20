@@ -4,7 +4,6 @@ package broker
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -56,8 +55,7 @@ func TestLinuxBrokerProcessSharedAndRestart(t *testing.T) {
 	start := func() (*exec.Cmd, *ipc.Client) {
 		t.Helper()
 		cmd := exec.Command(bin, "broker", "--project", root)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
+		cmd.Stderr = os.Stderr
 		configureLinuxBrokerCommand(cmd)
 		if err := cmd.Start(); err != nil {
 			t.Fatalf("start broker: %v", err)
@@ -74,7 +72,7 @@ func TestLinuxBrokerProcessSharedAndRestart(t *testing.T) {
 		if _, err := client.Call(ctx, "health", map[string]any{}); err != nil {
 			_ = client.Close()
 			_ = killAndWaitLinuxBroker(cmd)
-			t.Fatalf("health: %v (stderr=%s)", err, stderr.String())
+			t.Fatalf("health: %v", err)
 		}
 		return cmd, client
 	}
@@ -228,6 +226,7 @@ func TestLinuxBrokerProcessE2EMatrix(t *testing.T) {
 		spawn := func(_ context.Context, canonicalRoot string) error {
 			cmd := exec.Command(bin, "broker", "--project", canonicalRoot)
 			cmd.Env = boundedLinuxE2EEnv()
+			cmd.Stderr = os.Stderr
 			configureLinuxBrokerCommand(cmd)
 			if err := cmd.Start(); err != nil {
 				return err
@@ -320,7 +319,12 @@ func TestLinuxBrokerProcessE2EMatrix(t *testing.T) {
 		attempts := make(map[string]string, 2)
 		for result := range results {
 			if result.err != nil || result.attempt == "" {
-				t.Fatalf("parallel step.run for %s = attempt %q, err=%v", result.id, result.attempt, result.err)
+				var remote *ipc.RemoteError
+				var data any
+				if errors.As(result.err, &remote) {
+					data = remote.Data
+				}
+				t.Fatalf("parallel step.run for %s = attempt %q, err=%+v data=%v", result.id, result.attempt, result.err, data)
 			}
 			attempts[result.id] = result.attempt
 		}
@@ -373,6 +377,7 @@ func TestLinuxBrokerProcessE2EMatrix(t *testing.T) {
 		launcher := NewLauncher(tr, func(_ context.Context, canonicalRoot string) error {
 			cmd := exec.Command(bin, "broker", "--project", canonicalRoot)
 			cmd.Env = boundedLinuxE2EEnv()
+			cmd.Stderr = os.Stderr
 			configureLinuxBrokerCommand(cmd)
 			if err := cmd.Start(); err != nil {
 				return err
@@ -625,6 +630,7 @@ func startLinuxBrokerProcess(t *testing.T, ctx context.Context, bin, root string
 	}
 	cmd := exec.Command(bin, "broker", "--project", root)
 	cmd.Env = boundedLinuxE2EEnv()
+	cmd.Stderr = os.Stderr
 	configureLinuxBrokerCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

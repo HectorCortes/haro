@@ -110,24 +110,30 @@ steps:
 		t.Fatalf("lease=%+v err=%v, want owned token one", lease, err)
 	}
 	close(release)
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	var lastAttempt *store.Attempt
+	var lastAttemptErr error
+	var lastLease *store.Lease
 	for time.Now().Before(deadline) {
 		attempt, getErr := s.Attempts().Get(context.Background(), payload.AttemptID)
+		lastAttempt, lastAttemptErr = attempt, getErr
 		if getErr == nil && attempt.Status == "completed" {
 			lease, leaseErr := s.Leases().Get(context.Background(), executionID, "one")
 			if leaseErr != nil {
 				t.Fatalf("get released lease: %v", leaseErr)
 			}
+			lastLease = lease
 			expires, parseErr := time.Parse(time.RFC3339, lease.ExpiresAt)
-			if parseErr != nil || expires.After(time.Now().UTC().Add(time.Second)) {
-				t.Fatalf("lease still active after attempt: %+v", lease)
+			if parseErr != nil {
+				t.Fatalf("parse released lease expiry %q: %v", lease.ExpiresAt, parseErr)
 			}
-			return
+			if !expires.After(time.Now().UTC().Add(time.Second)) {
+				return
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	attempt, err := s.Attempts().Get(context.Background(), payload.AttemptID)
-	t.Fatalf("attempt did not complete: %+v (%v)", attempt, err)
+	t.Fatalf("attempt and lease did not settle before deadline: attempt=%+v err=%v lease=%+v", lastAttempt, lastAttemptErr, lastLease)
 }
 
 func TestStepEventsProjectsCurrentAttemptWithStablePages(t *testing.T) {

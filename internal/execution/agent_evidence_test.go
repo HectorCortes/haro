@@ -99,6 +99,9 @@ harnesses:
 	if payloadRef != nil {
 		t.Fatalf("real attempts store inline payload, payload_ref = %q", *payloadRef)
 	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("close output event rows: %v", err)
+	}
 
 	// attempts stay transport-neutral: no native_session_id/adapter_name/
 	// protocol_version/extra columns.
