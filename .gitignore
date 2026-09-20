@@ -9,3 +9,5 @@ dist/
 coverage.*
 *.cover
 .haro/worktrees/
+.atl/
+.engram/
